@@ -1,0 +1,69 @@
+spring:
+  application:
+    name: rideUp
+
+  datasource:
+    url: jdbc:mysql://YOUR_DB_HOST:PORT/YOUR_DB_NAME?useSSL=true&serverTimezone=UTC
+    username: YOUR_DB_USERNAME
+    password: YOUR_DB_PASSWORD
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 20MB
+
+  data:
+    redis:
+      host: YOUR_REDIS_HOST
+      port: YOUR_REDIS_PORT
+      password: YOUR_REDIS_PASSWORD
+      timeout: 10s
+      ssl:
+        enabled: false
+
+  cache:
+    type: redis
+
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: YOUR_EMAIL@gmail.com
+    password: YOUR_APP_PASSWORD
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
+server:
+  port: 8080
+  servlet:
+    context-path: /rideUp
+
+jwt:
+  signerKey: YOUR_JWT_SECRET_KEY
+  valid-duration: 36000
+  refreshable-duration: 360000
+
+expiryTime: 3600
+
+logging:
+  level:
+    io.lettuce.core: DEBUG
+    org.springframework.data.redis: DEBUG
+    org.springframework.security: DEBUG
+    org.hibernate.SQL: DEBUG
+
+supabase:
+  url: https://YOUR_PROJECT.supabase.co
+  api-key: YOUR_SUPABASE_SECRET_KEY
+  bucket: rideup
