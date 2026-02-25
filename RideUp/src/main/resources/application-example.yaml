@@ -67,3 +67,4 @@ supabase:
   url: https://YOUR_PROJECT.supabase.co
   api-key: YOUR_SUPABASE_SECRET_KEY
   bucket: rideup
+
