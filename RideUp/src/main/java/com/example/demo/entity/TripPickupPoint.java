@@ -22,10 +22,10 @@ public class TripPickupPoint {
     @JoinColumn(name = "trip_id", nullable = false)
     Trip trip;
 
-    // Quận/huyện đón (N-1) - phải thuộc trip.startProvince
+    // Xã/Phường đón (N-1) - phải thuộc tỉnh xuất phát
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "district_id", nullable = false)
-    District district;
+    Ward ward;
 
     // Địa chỉ cụ thể (VD: "Bến xe Mỹ Đình, số 20 Phạm Hùng")
     String address;

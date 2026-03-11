@@ -47,9 +47,33 @@ public class Trip {
     // Ghi chú của tài xế
     String driverNote;
 
-    // Route polyline (encoded từ Google Maps)
+    // Route polyline (dự kiến, encoded)
     @Column(columnDefinition = "TEXT")
     String routePolyline;
+
+    // Khoảng cách ước tính (km) – từ Routing API khi tạo chuyến
+    @Column(precision = 10, scale = 2)
+    BigDecimal estimatedDistanceKm;
+
+    // Thời gian di chuyển ước tính (phút)
+    Integer estimatedDurationMinutes;
+
+    // Thời điểm thực tế xuất phát (khi driver bấm "Bắt đầu")
+    LocalDateTime actualDepartureTime;
+
+    // Thời điểm thực tế đến điểm cuối
+    LocalDateTime actualArrivalTime;
+
+    // Khoảng cách thực tế (km) – tính từ GPS tracking
+    @Column(precision = 10, scale = 2)
+    BigDecimal actualDistanceKm;
+
+    // Route polyline thực tế (ghi lại từ GPS)
+    @Column(columnDefinition = "TEXT")
+    String actualRoutePolyline;
+
+    // Thời điểm trip chuyển sang COMPLETED
+    LocalDateTime completedAt;
 
     // Danh sách điểm đón (1-N)
     @OneToMany(mappedBy = "trip", cascade = CascadeType.ALL, fetch = FetchType.LAZY)

@@ -122,6 +122,7 @@ public class AuthenticationService {
                 .token(token)
                 .refreshToken(rawRefreshToken)
                 .authenticated(true)
+                .user(modelMapper.map(user, UserResponse.class))
                 .build();
     }
 
@@ -224,6 +225,7 @@ public class AuthenticationService {
                 .token(newAccessToken)
                 .refreshToken(newRawToken)
                 .authenticated(true)
+                .user(modelMapper.map(user, UserResponse.class))
                 .build();
     }
 

@@ -1,11 +1,13 @@
 package com.example.demo.dto.response;
 
 import com.example.demo.enums.Gender;
+import com.example.demo.enums.Role;
 import lombok.*;
 import lombok.experimental.FieldDefaults;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Set;
 
 @Data
 @NoArgsConstructor
@@ -22,4 +24,5 @@ public class UserResponse {
     String avatarUrl;
     Boolean verified;
     LocalDateTime createdAt;
+    Set<Role> roles;
 }
