@@ -28,6 +28,7 @@ public class SecurityConfig {
         httpSecurity.sessionManagement(management-> management.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(Authorize -> Authorize
                         .requestMatchers("/auth/**").permitAll()
+                        .requestMatchers("/users/**").authenticated()
                         .requestMatchers("/api/**").authenticated()
                         .anyRequest().permitAll()
                 )
@@ -35,10 +36,10 @@ public class SecurityConfig {
                 .cors(cors -> cors
                         .configurationSource(request -> {
                             CorsConfiguration config = new CorsConfiguration();
-                            config.addAllowedOrigin("http://localhost:5173");
+                            config.addAllowedOriginPattern("*");
                             config.addAllowedMethod("*");
                             config.addAllowedHeader("*");
-                            config.setAllowCredentials(true);
+                            config.setAllowCredentials(false);
                             return config;
                         })
                 );

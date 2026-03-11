@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 import lombok.experimental.FieldDefaults;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -19,14 +20,25 @@ public class Province {
     @GeneratedValue(strategy = GenerationType.UUID)
     String id;
 
-    // Tên tỉnh/thành phố
+    /** Tên tỉnh / thành phố */
     String name;
 
-    // Mã tỉnh (01, 02, ...)
+    /** Mã tỉnh (01, 02, ...) */
     String code;
 
-    // Danh sách quận/huyện
+    /** Vĩ độ trung tâm tỉnh (từ OSM) */
+    @Column(precision = 10, scale = 7)
+    BigDecimal lat;
+
+    /** Kinh độ trung tâm tỉnh (từ OSM) */
+    @Column(precision = 10, scale = 7)
+    BigDecimal lng;
+
+    /** OSM relation id (dùng để cào ward con) */
+    Long osmId;
+
+    /** Danh sách xã / phường / thị trấn thuộc tỉnh */
     @OneToMany(mappedBy = "province", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     @Builder.Default
-    List<District> districts = new ArrayList<>();
+    List<Ward> wards = new ArrayList<>();
 }

@@ -79,6 +79,26 @@ public class Booking {
     @OneToOne(mappedBy = "booking", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     Payment payment;
 
+    // Khoảng cách pickup→dropoff của khách (từ Routing API), đơn vị km
+    @Column(name = "distance_km", precision = 10, scale = 2)
+    BigDecimal distanceKm;
+
+    // Thời điểm chuyển sang CONFIRMED
+    @Column(name = "confirmed_at")
+    LocalDateTime confirmedAt;
+
+    // Thời điểm chuyển sang CANCELLED
+    @Column(name = "cancelled_at")
+    LocalDateTime cancelledAt;
+
+    // Lý do hủy
+    @Column(name = "cancellation_reason", columnDefinition = "TEXT")
+    String cancellationReason;
+
+    // Thời điểm chuyển sang COMPLETED
+    @Column(name = "completed_at")
+    LocalDateTime completedAt;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     LocalDateTime createdAt;
