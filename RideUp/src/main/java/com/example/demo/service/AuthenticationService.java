@@ -62,19 +62,36 @@ public class AuthenticationService {
     @Value("${jwt.refreshable-duration}")
     protected Long REFRESHABLE_DURATION;
 
-    public UserResponse  registerAccount(AccountRegisterRequest request) throws Exception {
+    public UserResponse registerAccount(AccountRegisterRequest request) {
         PasswordEncoder passwordEncoder = new BCryptPasswordEncoder(10);
 
         User user = modelMapper.map(request, User.class);
         user.setPassword(passwordEncoder.encode(request.getPassword()));
-        user.setRoles(new HashSet<>(Collections.singletonList(Role.CUSTOMER)));
+
+        Role role = "DRIVER".equalsIgnoreCase(request.getRole()) ? Role.DRIVER : Role.CUSTOMER;
+        user.setRoles(new HashSet<>(Collections.singletonList(role)));
+
+        // =====================================================================
+        // TODO: Bật lại xác minh email khi cần (comment block bên dưới lại)
+        // =====================================================================
+        user.setVerified(true);
+
+        // =====================================================================
+        // [EMAIL VERIFY - TẮT TẠM] Uncomment block này khi muốn bật lại:
+        // =====================================================================
+//        user.setVerified(false);
+//        userRepository.save(user);
+//        String verifyToken = UUID.randomUUID().toString();
+//        redisTemplate.opsForValue().set(
+//                RedisPrefixKeyConstant.ACTIVE_ACCOUNT + verifyToken,
+//                user.getId(),
+//                RedisKeyTTL.ACTIVE_ACCOUNT_TTL
+//        );
+//        mailService.sendVerificationEmail(user.getEmail(), verifyToken, user.getFullName());
+//        return modelMapper.map(user, UserResponse.class);
+        // =====================================================================
 
         userRepository.save(user);
-
-        String token = UUID.randomUUID().toString();
-        redisTemplate.opsForValue().set(RedisPrefixKeyConstant.ACTIVE_ACCOUNT+token, user.getId(), RedisKeyTTL.ACTIVE_ACCOUNT_TTL);
-
-        mailService.sendVerificationEmail(user.getEmail(), token, user.getFullName());
 
         return modelMapper.map(user, UserResponse.class);
     }
