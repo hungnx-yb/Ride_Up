@@ -10,6 +10,11 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 
@@ -229,8 +234,13 @@ public class LocationDataSeeder {
 
     @SuppressWarnings("unchecked")
     private Map<String, Object> callOverpass(RestTemplate http, String query, int timeoutMs) {
-        String url = OVERPASS_URL + "?data=" + encode(query);
-        Map<String, Object> response = http.getForObject(url, Map.class);
+        // POST with form body avoids RestTemplate double-encoding the query
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+        form.add("data", query);
+        HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(form, headers);
+        Map<String, Object> response = http.postForObject(OVERPASS_URL, request, Map.class);
         if (response == null) throw new RuntimeException("Empty response from Overpass");
         return response;
     }
@@ -238,14 +248,6 @@ public class LocationDataSeeder {
     // ──────────────────────────────────────────────────────────────────────
     // Utility
     // ──────────────────────────────────────────────────────────────────────
-
-    private static String encode(String s) {
-        try {
-            return java.net.URLEncoder.encode(s, java.nio.charset.StandardCharsets.UTF_8);
-        } catch (Exception e) {
-            return s;
-        }
-    }
 
     private static Long toLong(Object val) {
         if (val == null) return null;

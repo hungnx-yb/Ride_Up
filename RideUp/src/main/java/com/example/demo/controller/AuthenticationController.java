@@ -25,7 +25,7 @@ public class AuthenticationController {
 
 
     @PostMapping("/register")
-    public ApiResponse<UserResponse> registerAccount(@RequestBody AccountRegisterRequest request) throws Exception {
+    public ApiResponse<UserResponse> registerAccount(@RequestBody AccountRegisterRequest request) {
         return ApiResponse.<UserResponse>builder()
                 .result(authenticationService.registerAccount(request))
                 .message("Register account successfully")

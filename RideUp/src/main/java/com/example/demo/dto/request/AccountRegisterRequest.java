@@ -12,4 +12,6 @@ public class AccountRegisterRequest {
     String fullName;
     String email;
     String password;
+    /** "CUSTOMER" (default) hoặc "DRIVER" */
+    String role;
 }
