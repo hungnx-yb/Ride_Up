@@ -18,7 +18,8 @@ public enum ErrorCode {
     INVALID_OR_EXPIRED_TOKEN(1010,"Your token has been expired" ,HttpStatus.BAD_REQUEST ),
     CONVERSATION_NOT_FOUND(1012,"Conversation hasn't been found" ,HttpStatus.NOT_FOUND ),
     PARTNER_NOT_FOUND(1013,"Partner has been not found" ,HttpStatus.NOT_FOUND ),
-    PASSWORD_NOT_CORRECT(1017,"Password is not correct" ,HttpStatus.BAD_REQUEST );
+    PASSWORD_NOT_CORRECT(1017,"Password is not correct" ,HttpStatus.BAD_REQUEST ),
+    DRIVER_PROFILE_NOT_FOUND(1018,"Driver profile not found. Please complete driver registration first", HttpStatus.FORBIDDEN);
 
     private Integer code;
     private String message;
