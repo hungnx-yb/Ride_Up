@@ -19,11 +19,12 @@ public class GlobalExceptionHandler {
 
 
     @ExceptionHandler(value = Exception.class)
-    ResponseEntity<ApiResponse<?>> handlingRuntimeException(Exception  exception) {
+    ResponseEntity<ApiResponse<?>> handlingRuntimeException(Exception exception) {
+        log.error("Unhandled exception", exception);
         ApiResponse<?> apiResponse = new ApiResponse<>();
         apiResponse.setCode(ErrorCode.UNCATEGOEIZED_EXCEPTION.getCode());
-        apiResponse.setMessage(ErrorCode.UNAUTHENTICATED.getMessage());
-        return ResponseEntity.badRequest().body(apiResponse);
+        apiResponse.setMessage(ErrorCode.UNCATEGOEIZED_EXCEPTION.getMessage());
+        return ResponseEntity.internalServerError().body(apiResponse);
     }
 
     @ExceptionHandler(value = AppException.class)
@@ -32,7 +33,7 @@ public class GlobalExceptionHandler {
         ApiResponse<?> apiResponse = new ApiResponse<>();
         apiResponse.setCode(errorCode.getCode());
         apiResponse.setMessage(errorCode.getMessage());
-        return ResponseEntity.badRequest().body(apiResponse);
+        return ResponseEntity.status(errorCode.getHttpStatus()).body(apiResponse);
     }
 
     @ExceptionHandler(value = AccessDeniedException.class)
