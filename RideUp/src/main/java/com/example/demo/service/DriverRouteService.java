@@ -27,6 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
+import java.util.Comparator;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -119,15 +120,22 @@ public class DriverRouteService {
 
     private DriverProfile getCurrentDriverProfile() {
         User currentUser = userService.getCurrentUser();
-        return driverProfileRepository.findByUserId(currentUser.getId())
-            .orElseGet(() -> driverProfileRepository.save(
+        List<DriverProfile> profiles = driverProfileRepository.findAllByUserIdOrderByCreatedAtDesc(currentUser.getId());
+        if (!profiles.isEmpty()) {
+            return profiles.stream()
+                    .max(Comparator.comparingLong(p -> tripRepository.countByDriverId(p.getId())))
+                    .orElse(profiles.get(0));
+        }
+
+        return driverProfileRepository.save(
                 DriverProfile.builder()
-                    .user(currentUser)
-                    .status(DriverStatus.PENDING)
-                    .driverRating(0.0)
-                    .totalDriverRides(0)
-                    .build()
-            ));
+                        .user(currentUser)
+                .status(DriverStatus.PENDING)
+                        .driverRating(0.0)
+                        .totalDriverRides(0)
+                .submitted(false)
+                        .build()
+        );
     }
 
     private void validateRequest(DriverRouteRequest request) {

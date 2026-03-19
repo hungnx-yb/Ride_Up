@@ -19,7 +19,10 @@ public enum ErrorCode {
     CONVERSATION_NOT_FOUND(1012,"Conversation hasn't been found" ,HttpStatus.NOT_FOUND ),
     PARTNER_NOT_FOUND(1013,"Partner has been not found" ,HttpStatus.NOT_FOUND ),
     PASSWORD_NOT_CORRECT(1017,"Password is not correct" ,HttpStatus.BAD_REQUEST ),
-    DRIVER_PROFILE_NOT_FOUND(1018,"Driver profile not found. Please complete driver registration first", HttpStatus.FORBIDDEN);
+    DRIVER_PROFILE_NOT_FOUND(1018,"Driver profile not found. Please complete driver registration first", HttpStatus.FORBIDDEN),
+    DRIVER_PROFILE_NOT_APPROVED(1019,"Driver profile is not approved. You cannot create trips yet", HttpStatus.FORBIDDEN),
+    DRIVER_PROFILE_LOCKED(1020,"Driver profile is pending review and cannot be edited", HttpStatus.FORBIDDEN),
+    DRIVER_PROFILE_INCOMPLETE(1021,"Driver profile is incomplete. Please provide required fields before submit", HttpStatus.BAD_REQUEST);
 
     private Integer code;
     private String message;

@@ -19,4 +19,6 @@ public interface TripRepository extends JpaRepository<Trip, String> {
     Optional<Trip> findByIdAndDriverIdAndDepartureTimeIsNotNull(String id, String driverId);
 
     List<Trip> findByDriverIdOrderByCreatedAtDesc(String driverId);
+
+    long countByDriverId(String driverId);
 }

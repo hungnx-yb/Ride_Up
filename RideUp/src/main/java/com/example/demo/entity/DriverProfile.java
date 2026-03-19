@@ -37,6 +37,8 @@ public class DriverProfile {
     String approvedBy;
     LocalDateTime rejectedAt;
     String rejectionReason;
+    @Builder.Default
+    Boolean submitted = false;
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     LocalDateTime createdAt;

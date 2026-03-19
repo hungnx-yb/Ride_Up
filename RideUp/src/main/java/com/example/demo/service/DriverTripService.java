@@ -70,6 +70,9 @@ public class DriverTripService {
     public DriverTripResponse createTrip(DriverTripRequest request) {
         validateCreateRequest(request);
         DriverProfile driverProfile = getOrCreateDriverProfile();
+        if (driverProfile.getStatus() != DriverStatus.APPROVED) {
+            throw new AppException(ErrorCode.DRIVER_PROFILE_NOT_APPROVED);
+        }
 
         Trip template = resolveOrCreateTemplate(driverProfile, request);
 
@@ -319,15 +322,22 @@ public class DriverTripService {
 
     private DriverProfile getOrCreateDriverProfile() {
         User currentUser = userService.getCurrentUser();
-        return driverProfileRepository.findByUserId(currentUser.getId())
-                .orElseGet(() -> driverProfileRepository.save(
-                        DriverProfile.builder()
-                                .user(currentUser)
-                                .status(DriverStatus.PENDING)
-                                .driverRating(0.0)
-                                .totalDriverRides(0)
-                                .build()
-                ));
+        List<DriverProfile> profiles = driverProfileRepository.findAllByUserIdOrderByCreatedAtDesc(currentUser.getId());
+        if (!profiles.isEmpty()) {
+            return profiles.stream()
+                .max(Comparator.comparingLong(p -> tripRepository.countByDriverId(p.getId())))
+                .orElse(profiles.get(0));
+        }
+
+        return driverProfileRepository.save(
+            DriverProfile.builder()
+                .user(currentUser)
+                .status(DriverStatus.PENDING)
+                .driverRating(0.0)
+                .totalDriverRides(0)
+                .submitted(false)
+                .build()
+        );
     }
 
     private LocalDateTime parseDepartureDateTime(String departureDate, String departureTime) {

@@ -186,7 +186,15 @@ public class AuthenticationService {
     @Transactional
     public void logout(LogoutRequest request) {
 
+        if (request == null || request.getToken() == null) {
+            return;
+        }
+
         redisTemplate.delete(RedisPrefixKeyConstant.TOKEN + request.getToken());
+
+        if (request.getRefreshToken() == null || request.getRefreshToken().isBlank()) {
+            return;
+        }
 
         String hashed = hashToken(request.getRefreshToken());
 
