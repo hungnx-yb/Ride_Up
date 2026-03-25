@@ -1,0 +1,454 @@
+import axios from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { API_CONFIG } from '../config/config';
+import {
+  MOCK_ACCOUNTS,
+  MOCK_DRIVER_RIDES,
+  MOCK_DRIVER_TRIPS,
+  MOCK_AVAILABLE_RIDES,
+  MOCK_CUSTOMER_BOOKINGS,
+  MOCK_ADMIN_STATS,
+  MOCK_DRIVER_STATS,
+  MOCK_ROUTES,
+  mockApiDelay,
+} from './mockData';
+
+// ========================================
+// CHUYỂN ĐỔI MOCK / API THẬT
+// true  = dùng mock (không cần backend)
+// false = gọi thật tới backend
+// ========================================
+export const USE_MOCK_DATA = false;
+
+// ── Token module-level (loaded on app start) ─────────────────
+let _accessToken = null;
+let _refreshToken = null;
+
+export const STORAGE_KEYS = {
+  ACCESS_TOKEN: '@rideup_access_token',
+  REFRESH_TOKEN: '@rideup_refresh_token',
+  USER: '@rideup_user',
+};
+
+// ── Khai báo apiClient TRƯỚC các helper dùng nó ──────────────
+const apiClient = axios.create({
+  baseURL: API_CONFIG.BASE_URL,
+  timeout: API_CONFIG.TIMEOUT,
+  headers: { 'Content-Type': 'application/json' },
+});
+
+if (__DEV__) {
+  apiClient.interceptors.request.use((config) => {
+    const method = (config.method || 'GET').toUpperCase();
+    const url = `${config.baseURL || ''}${config.url || ''}`;
+    if (url.includes('/driver/routes')) {
+      console.log(`[API][REQ] ${method} ${url}`, config.data || '');
+    }
+    return config;
+  });
+}
+
+// ── Response interceptor: unwrap ApiResponse, xử lý lỗi ────────
+apiClient.interceptors.response.use(
+  (response) => {
+    if (__DEV__) {
+      const url = `${response.config?.baseURL || ''}${response.config?.url || ''}`;
+      if (url.includes('/driver/routes')) {
+        console.log(`[API][RES] ${response.status} ${url}`, response.data);
+      }
+    }
+    return response;
+  },
+  (error) => {
+    if (!error.response) {
+      return Promise.reject(new Error(`Không kết nối được backend (${API_CONFIG.BASE_URL}). Nếu test trên điện thoại thật, hãy đổi localhost thành IP LAN của máy chạy backend.`));
+    }
+    const data = error.response?.data;
+    const message = data?.message || error.message || 'Lỗi kết nối máy chủ';
+    return Promise.reject(new Error(message));
+  }
+);
+
+// Helper: lấy .result từ ApiResponse wrapper
+const unwrap = (res) => res.data?.result;
+
+/** Gọi khi khởi động app để khôi phục token đã lưu */
+export const loadStoredAuth = async () => {
+  try {
+    const [token, refresh, userStr] = await Promise.all([
+      AsyncStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN),
+      AsyncStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN),
+      AsyncStorage.getItem(STORAGE_KEYS.USER),
+    ]);
+    if (token) {
+      _accessToken = token;
+      _refreshToken = refresh;
+      apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    }
+    return userStr ? JSON.parse(userStr) : null;
+  } catch {
+    return null;
+  }
+};
+
+/** Sau khi login thành công: lưu token + cập nhật axios header */
+const _persistAuth = async (accessToken, refreshToken, user) => {
+  _accessToken = accessToken;
+  _refreshToken = refreshToken;
+  apiClient.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
+  await Promise.all([
+    AsyncStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, accessToken),
+    AsyncStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, refreshToken),
+    AsyncStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user)),
+  ]);
+};
+
+/** Xoá auth khỏi bộ nhớ và AsyncStorage */
+export const clearStoredAuth = async () => {
+  _accessToken = null;
+  _refreshToken = null;
+  delete apiClient.defaults.headers.common['Authorization'];
+  await AsyncStorage.multiRemove([
+    STORAGE_KEYS.ACCESS_TOKEN,
+    STORAGE_KEYS.REFRESH_TOKEN,
+    STORAGE_KEYS.USER,
+  ]);
+};
+
+// ==============================
+// AUTH
+// ==============================
+
+/**
+ * Đăng nhập bằng email + password.
+ * Trả về { user, token, refreshToken } để App.js dùng.
+ */
+export const login = async (email, password) => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(1000);
+    const found = MOCK_ACCOUNTS.find(
+      (a) => (a.phone === email || a.email === email) && a.password === password
+    );
+    if (!found) throw new Error('Email hoặc mật khẩu không đúng');
+    const { password: _pw, ...user } = found;
+    return { token: 'mock_token_' + user.id, refreshToken: 'mock_refresh', user };
+  }
+
+  const res = await apiClient.post('/auth/authentication', { email, password });
+  const data = unwrap(res); // { token, refreshToken, authenticated, user }
+
+  if (!data?.authenticated) throw new Error('Đăng nhập thất bại');
+
+  await _persistAuth(data.token, data.refreshToken, data.user);
+  return { token: data.token, refreshToken: data.refreshToken, user: data.user };
+};
+
+/**
+ * Đăng ký tài khoản mới.
+ * Backend gửi email xác nhận, FE chỉ cần thông báo.
+ */
+export const register = async ({ fullName, email, password, role }) => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(1200);
+    return { message: 'Đăng ký thành công! Vui lòng kiểm tra email để xác nhận.' };
+  }
+  const res = await apiClient.post('/auth/register', { fullName, email, password, role });
+  return unwrap(res); // UserResponse
+};
+
+/** Đăng xuất: thu hồi token trên server + xoá local */
+export const logoutApi = async () => {
+  try {
+    if (!USE_MOCK_DATA && _accessToken) {
+      await apiClient.post('/auth/logout', {
+        token: _accessToken,
+        refreshToken: _refreshToken,
+      });
+    }
+  } finally {
+    await clearStoredAuth();
+  }
+};
+
+/** Lấy thông tin user đang đăng nhập (cần Bearer token) */
+export const getMyInfo = async () => {
+  if (USE_MOCK_DATA) return null;
+  const res = await apiClient.get('/users/me');
+  return unwrap(res);
+};
+
+// ==============================
+// ADMIN
+// ==============================
+
+export const getAdminStats = async () => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay();
+    return MOCK_ADMIN_STATS;
+  }
+  const res = await apiClient.get('/admin/stats');
+  return res.data;
+};
+
+export const getAllUsers = async () => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay();
+    return MOCK_ACCOUNTS.filter((a) => a.role !== 'ADMIN');
+  }
+  const res = await apiClient.get('/admin/users');
+  return res.data;
+};
+
+export const getAdminDriverProfiles = async () => {
+  const res = await apiClient.get('/admin/driver-profiles');
+  return res.data?.result || [];
+};
+
+export const approveDriverProfile = async (profileId) => {
+  const res = await apiClient.put(`/admin/driver-profiles/${profileId}/approve`);
+  return res.data?.result;
+};
+
+export const rejectDriverProfile = async (profileId, rejectionReason) => {
+  const res = await apiClient.put(`/admin/driver-profiles/${profileId}/reject`, { rejectionReason });
+  return res.data?.result;
+};
+
+export const getRoutes = async () => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay();
+    return MOCK_ROUTES;
+  }
+  const res = await apiClient.get('/routes');
+  return res.data;
+};
+
+// ==============================
+// DRIVER - QUẢN LÝ TUYẾN
+// ==============================
+
+/** Lấy danh sách tuyến của tài xế */
+export const getDriverRoutes = async () => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay();
+    return MOCK_ROUTES;
+  }
+  const res = await apiClient.get('/driver/routes');
+  return res.data;
+};
+
+/** Tạo tuyến mới */
+export const createRoute = async (routeData) => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(1000);
+    return { ...routeData, id: 'route_' + Date.now(), status: 'active' };
+  }
+  const res = await apiClient.post('/driver/routes', routeData);
+  return res.data;
+};
+
+/** Cập nhật tuyến */
+export const updateRoute = async (routeId, data) => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(800);
+    return { success: true };
+  }
+  const res = await apiClient.put(`/driver/routes/${routeId}`, data);
+  return res.data;
+};
+
+/** Xóa tuyến */
+export const deleteRoute = async (routeId) => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(600);
+    return { success: true };
+  }
+  const res = await apiClient.delete(`/driver/routes/${routeId}`);
+  return res.data;
+};
+
+// ==============================
+// DRIVER - QUẢN LÝ CHUYẾN XE
+// ==============================
+
+/** Lấy danh sách chuyến (trips) của tài xế */
+export const getDriverTrips = async () => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay();
+    return MOCK_DRIVER_TRIPS;
+  }
+  const res = await apiClient.get('/driver/trips');
+  return res.data;
+};
+
+/** Lấy danh sách chuyến của tài xế */
+export const getDriverRides = async () => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay();
+    return MOCK_DRIVER_RIDES;
+  }
+  const res = await apiClient.get('/driver/rides');
+  return res.data;
+};
+
+/** Lấy thống kê tài xế */
+export const getDriverStats = async () => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(500);
+    return MOCK_DRIVER_STATS;
+  }
+  const res = await apiClient.get('/driver/stats');
+  return res.data;
+};
+
+/** Lấy hồ sơ tài xế hiện tại */
+export const getDriverProfile = async () => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(500);
+    const me = MOCK_ACCOUNTS.find((a) => a.role === 'DRIVER') || {};
+    return {
+      fullName: me.fullName || 'Tài xế RideUp',
+      phoneNumber: me.phone || '',
+      email: me.email || '',
+      driverRating: 4.8,
+      totalDriverRides: 120,
+      status: 'APPROVED',
+      cccd: '',
+      gplx: '',
+      plateNumber: '',
+      vehicleBrand: '',
+      vehicleModel: '',
+      vehicleColor: '',
+      seatCapacity: 4,
+      vehicleType: 'CAR_4_SEAT',
+      vehicleActive: true,
+      vehicleVerified: false,
+    };
+  }
+  const res = await apiClient.get('/driver/profile');
+  return res.data;
+};
+
+/** Cập nhật hồ sơ tài xế */
+export const updateDriverProfile = async (payload) => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(800);
+    return { ...payload, updatedAt: new Date().toISOString() };
+  }
+  const res = await apiClient.put('/driver/profile', payload);
+  return res.data;
+};
+
+export const submitDriverProfile = async (payload) => {
+  const res = await apiClient.post('/driver/profile/submit', payload || {});
+  return res.data;
+};
+
+/** Không còn dùng - khách thanh toán là có chỗ luôn */
+export const getPendingBookings = async () => [];
+
+/** Tạo chuyến xe mới (trip từ route) */
+export const createTrip = async (tripData) => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(1000);
+    return { ...tripData, id: 'trip_' + Date.now(), availableSeats: tripData.totalSeats };
+  }
+  const res = await apiClient.post('/driver/trips', tripData);
+  return res.data;
+};
+
+/** Hủy chuyến xe đã tạo */
+export const cancelDriverTrip = async (tripId) => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(700);
+    return { success: true, id: tripId, status: 'cancelled' };
+  }
+  const res = await apiClient.put(`/driver/trips/${tripId}/cancel`);
+  return res.data;
+};
+
+/** Tạo chuyến xe mới */
+export const createRide = async (rideData) => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(1000);
+    return { ...rideData, id: Date.now(), status: 'pending', bookedSeats: 0 };
+  }
+  const res = await apiClient.post('/driver/rides', rideData);
+  return res.data;
+};
+
+/** Không còn dùng - khách thanh toán là có chỗ luôn */
+export const respondToBooking = async () => ({ success: true });
+
+/** Bắt đầu / kết thúc chuyến xe */
+export const updateRideStatus = async (rideId, status) => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(800);
+    return { success: true, rideId, status };
+  }
+  const res = await apiClient.put(`/driver/rides/${rideId}/status`, { status });
+  return res.data;
+};
+
+// ==============================
+// CUSTOMER
+// ==============================
+
+/** Tìm kiếm chuyến xe */
+export const searchRides = async ({ from, to, date }) => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(1000);
+    return MOCK_AVAILABLE_RIDES;
+  }
+  const res = await apiClient.get('/rides/search', { params: { from, to, date } });
+  return res.data;
+};
+
+/** Lấy lịch sử đặt xe */
+export const getCustomerBookings = async () => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay();
+    return MOCK_CUSTOMER_BOOKINGS;
+  }
+  const res = await apiClient.get('/customer/bookings');
+  return res.data;
+};
+
+/** Đặt chỗ */
+export const bookRide = async (payload) => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(1200);
+    return { success: true, bookingId: Date.now(), message: 'Đặt chỗ thành công!' };
+  }
+  const res = await apiClient.post('/customer/bookings', payload);
+  return res.data;
+};
+
+/** Đánh giá chuyến xe */
+export const rateRide = async (bookingId, rating, comment) => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(800);
+    return { success: true, message: 'Cảm ơn đánh giá của bạn!' };
+  }
+  const res = await apiClient.post(`/customer/bookings/${bookingId}/rate`, {
+    rating,
+    comment,
+  });
+  return res.data;
+};
+
+// ── Admin: đồng bộ dữ liệu địa lý ──────────────────────────────────────
+
+/** Lấy trạng thái đồng bộ và số lượng tỉnh/xã trong DB */
+export const getLocationStats = async () => {
+  const res = await apiClient.get('/api/locations/admin/stats');
+  return res.data.result;
+};
+
+/** Kích hoạt đồng bộ lại dữ liệu tỉnh/xã từ Overpass (chạy nền) */
+export const triggerLocationSync = async () => {
+  const res = await apiClient.post('/api/locations/admin/sync');
+  return res.data;
+};
+
+export default apiClient;
