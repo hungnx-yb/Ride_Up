@@ -107,9 +107,9 @@ const AdminDriverApprovalScreen = ({ navigation }) => {
 
         <Text style={styles.meta}>📧 {item.email || 'Chưa có email'}</Text>
         <Text style={styles.meta}>📱 {item.phoneNumber || 'Chưa có số điện thoại'}</Text>
-        <Text style={styles.meta}>🪪 CCCD: {item.cccd || 'Chưa khai báo'}</Text>
-        <Text style={styles.meta}>📝 GPLX: {item.gplx || 'Chưa khai báo'}</Text>
-        <Text style={styles.meta}>🚗 {item.vehicleBrand || '-'} {item.vehicleModel || ''} · {item.plateNumber || 'Chưa có biển số'}</Text>
+        <Text style={styles.meta}>🪪 CCCD: {item.cccd || 'Không có'}</Text>
+        <Text style={styles.meta}>📝 GPLX: {item.gplx || 'Không có'}</Text>
+        <Text style={styles.meta}>🚗 {item.vehicleBrand || 'Không có'} {item.vehicleModel || ''} · {item.plateNumber || 'Không có'}</Text>
 
         {item.rejectionReason ? (
           <Text style={styles.rejectReason}>Lý do từ chối: {item.rejectionReason}</Text>

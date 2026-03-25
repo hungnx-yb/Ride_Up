@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  FlatList, ActivityIndicator, RefreshControl,
-  Alert,
+  FlatList, ActivityIndicator, RefreshControl, ScrollView,
+  Alert, Modal, TextInput,
 } from 'react-native';
 import { COLORS } from '../../config/config';
-import { getDriverTrips, cancelDriverTrip } from '../../services/api';
+import { getDriverTrips, cancelDriverTrip, startDriverTrip, completeDriverTrip } from '../../services/api';
 import {
   ensureApprovedProfileBeforeCreateTrip,
   ensureApprovedProfileForTripFeature,
@@ -26,14 +26,33 @@ const STATUS_CONFIG = {
 };
 
 const TABS = [
-  { key: 'all',       label: 'Tất cả' },
-  { key: 'scheduled', label: 'Đã lên lịch' },
-  { key: 'ongoing',   label: 'Đang chạy' },
-  { key: 'completed', label: 'Hoàn thành' },
+  { key: 'all',       label: 'Tất cả', icon: '🧭' },
+  { key: 'scheduled', label: 'Đã lên lịch', icon: '📅' },
+  { key: 'ongoing',   label: 'Đang chạy', icon: '🚗' },
+  { key: 'completed', label: 'Hoàn thành', icon: '✅' },
+  { key: 'cancelled', label: 'Đã hủy', icon: '❌' },
 ];
 
+const parseTripDeparture = (trip) => {
+  if (!trip?.departureDate || !trip?.departureTime) {
+    return null;
+  }
+
+  let datePart = trip.departureDate.trim();
+  const timePart = trip.departureTime.trim();
+
+  if (datePart.includes('/')) {
+    const [dd, mm, yyyy] = datePart.split('/');
+    if (!dd || !mm || !yyyy) return null;
+    datePart = `${yyyy}-${mm}-${dd}`;
+  }
+
+  const parsed = new Date(`${datePart}T${timePart}:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
 // ─── Trip Card ────────────────────────────────────────────
-const TripCard = ({ trip, routeName, onCancel, canceling }) => {
+const TripCard = ({ trip, routeName, onCancel, onStart, onComplete, actioning }) => {
   const cfg   = STATUS_CONFIG[trip.status] ?? STATUS_CONFIG.scheduled;
   const filled = trip.totalSeats - trip.availableSeats;
   const fillPct = Math.round((filled / trip.totalSeats) * 100);
@@ -81,15 +100,43 @@ const TripCard = ({ trip, routeName, onCancel, canceling }) => {
             {trip.fixedFare.toLocaleString('vi-VN')} đ/ghế
           </Text>
           {trip.status === 'scheduled' && (
+            <View style={styles.actionBtnsRow}>
+              <TouchableOpacity
+                style={[styles.startBtn, actioning && styles.cancelBtnDisabled]}
+                onPress={() => onStart?.(trip)}
+                disabled={actioning}
+              >
+                {actioning ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={styles.startBtnText}>Bắt đầu chuyến</Text>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.cancelBtn, actioning && styles.cancelBtnDisabled]}
+                onPress={() => onCancel?.(trip)}
+                disabled={actioning}
+              >
+                {actioning ? (
+                  <ActivityIndicator color="#B71C1C" size="small" />
+                ) : (
+                  <Text style={styles.cancelBtnText}>Hủy chuyến</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {trip.status === 'ongoing' && (
             <TouchableOpacity
-              style={[styles.cancelBtn, canceling && styles.cancelBtnDisabled]}
-              onPress={() => onCancel?.(trip)}
-              disabled={canceling}
+              style={[styles.completeBtn, actioning && styles.cancelBtnDisabled]}
+              onPress={() => onComplete?.(trip)}
+              disabled={actioning}
             >
-              {canceling ? (
+              {actioning ? (
                 <ActivityIndicator color="#fff" size="small" />
               ) : (
-                <Text style={styles.cancelBtnText}>Hủy chuyến</Text>
+                <Text style={styles.completeBtnText}>Kết thúc chuyến</Text>
               )}
             </TouchableOpacity>
           )}
@@ -107,6 +154,10 @@ const AllTripsScreen = ({ navigation }) => {
   const [loadError, setLoadError] = useState('');
   const [activeTab, setActiveTab]   = useState('all');
   const [cancelingTripId, setCancelingTripId] = useState(null);
+  const [processingTripId, setProcessingTripId] = useState(null);
+  const [cancelModalVisible, setCancelModalVisible] = useState(false);
+  const [tripToCancel, setTripToCancel] = useState(null);
+  const [cancelReason, setCancelReason] = useState('');
   const [approvalModalVisible, setApprovalModalVisible] = useState(false);
   const [approvalModalMessage, setApprovalModalMessage] = useState('');
 
@@ -181,42 +232,86 @@ const AllTripsScreen = ({ navigation }) => {
       return;
     }
 
-    Alert.alert(
-      'Xác nhận hủy chuyến',
-      `Bạn muốn hủy chuyến ngày ${trip.departureDate} lúc ${trip.departureTime}?`,
-      [
-        { text: 'Không', style: 'cancel' },
-        {
-          text: 'Hủy chuyến',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setCancelingTripId(trip.id);
-              await cancelDriverTrip(trip.id);
-              setTrips((prev) => prev.map((t) => (t.id === trip.id ? { ...t, status: 'cancelled' } : t)));
-              Alert.alert('Thành công', 'Đã hủy chuyến xe.');
-            } catch (e) {
-              Alert.alert('Lỗi', e.message || 'Không thể hủy chuyến.');
-            } finally {
-              setCancelingTripId(null);
-            }
-          },
-        },
-      ]
-    );
+    setTripToCancel(trip);
+    setCancelReason('');
+    setCancelModalVisible(true);
+  }, []);
+
+  const confirmCancelTrip = useCallback(async () => {
+    if (!tripToCancel?.id) {
+      return;
+    }
+
+    try {
+      setCancelingTripId(tripToCancel.id);
+      await cancelDriverTrip(tripToCancel.id, cancelReason.trim() || null);
+      setTrips((prev) => prev.map((t) => (t.id === tripToCancel.id ? { ...t, status: 'cancelled' } : t)));
+      setCancelModalVisible(false);
+      setTripToCancel(null);
+      setCancelReason('');
+      Alert.alert('Thành công', 'Đã hủy chuyến xe.');
+    } catch (e) {
+      Alert.alert('Lỗi', e.message || 'Không thể hủy chuyến.');
+    } finally {
+      setCancelingTripId(null);
+    }
+  }, [tripToCancel, cancelReason]);
+
+  const handleStartTrip = useCallback(async (trip) => {
+    if (!trip?.id) return;
+
+    const departureAt = parseTripDeparture(trip);
+    const now = new Date();
+    if (departureAt && now.getTime() < departureAt.getTime()) {
+      Alert.alert(
+        'Chưa thể bắt đầu chuyến',
+        `Chuyen nay chi duoc bat dau sau ${departureAt.toLocaleString('vi-VN')}.`
+      );
+      return;
+    }
+
+    try {
+      setProcessingTripId(trip.id);
+      const updated = await startDriverTrip(trip.id);
+      setTrips((prev) => prev.map((t) => (t.id === trip.id ? { ...t, ...updated } : t)));
+      Alert.alert('Thành công', 'Chuyến xe đã bắt đầu.');
+    } catch (e) {
+      const message = e?.message || 'Không thể bắt đầu chuyến.';
+      if (message.toLowerCase().includes('khoi hanh') || message.toLowerCase().includes('started after')) {
+        Alert.alert('Chưa thể bắt đầu chuyến', message);
+      } else {
+        Alert.alert('Lỗi', message);
+      }
+    } finally {
+      setProcessingTripId(null);
+    }
+  }, []);
+
+  const handleCompleteTrip = useCallback(async (trip) => {
+    if (!trip?.id) return;
+
+    try {
+      setProcessingTripId(trip.id);
+      const updated = await completeDriverTrip(trip.id);
+      setTrips((prev) => prev.map((t) => (t.id === trip.id ? { ...t, ...updated } : t)));
+      Alert.alert('Thành công', 'Đã kết thúc chuyến xe.');
+    } catch (e) {
+      Alert.alert('Lỗi', e?.message || 'Không thể kết thúc chuyến.');
+    } finally {
+      setProcessingTripId(null);
+    }
   }, []);
 
   const filtered = activeTab === 'all'
     ? trips
     : trips.filter(t => t.status === activeTab);
 
-  // Summary stats (all trips)
-  const totalRevenue = trips
-    .filter(t => t.status !== 'cancelled')
-    .reduce((sum, t) => sum + t.fixedFare * (t.totalSeats - t.availableSeats), 0);
-  const ongoingCount   = trips.filter(t => t.status === 'ongoing').length;
-  const scheduledCount = trips.filter(t => t.status === 'scheduled').length;
-  const completedCount = trips.filter(t => t.status === 'completed').length;
+  const getTabCount = useCallback((tabKey) => {
+    if (tabKey === 'all') {
+      return trips.length;
+    }
+    return trips.filter((t) => t.status === tabKey).length;
+  }, [trips]);
 
   if (loading) {
     return (
@@ -237,50 +332,39 @@ const AllTripsScreen = ({ navigation }) => {
         <View style={{ width: 36 }} />
       </View>
 
-      {/* Stats strip */}
-      <View style={styles.statsStrip}>
-        <View style={styles.stripItem}>
-          <Text style={styles.stripValue}>{ongoingCount}</Text>
-          <Text style={styles.stripLabel}>Đang chạy</Text>
-        </View>
-        <View style={styles.stripDivider} />
-        <View style={styles.stripItem}>
-          <Text style={styles.stripValue}>{scheduledCount}</Text>
-          <Text style={styles.stripLabel}>Đã lên lịch</Text>
-        </View>
-        <View style={styles.stripDivider} />
-        <View style={styles.stripItem}>
-          <Text style={styles.stripValue}>{completedCount}</Text>
-          <Text style={styles.stripLabel}>Hoàn thành</Text>
-        </View>
-        <View style={styles.stripDivider} />
-        <View style={[styles.stripItem, { flex: 1.6 }]}>
-          <Text style={[styles.stripValue, { color: THEME.accent }]}>
-            {totalRevenue > 0 ? (totalRevenue / 1000).toFixed(0) + 'k' : '0'}
-          </Text>
-          <Text style={styles.stripLabel}>Doanh thu (đ)</Text>
-        </View>
+      <View style={styles.actionRow}>
+        <TouchableOpacity style={styles.createTripMainBtn} onPress={handleCreateTripPress}>
+          <Text style={styles.createTripMainBtnText}>✨ Tạo chuyến mới</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.refreshBtn}
+          onPress={() => { setRefreshing(true); loadData(); }}
+        >
+          <Text style={styles.refreshBtnText}>Làm mới</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Tabs */}
-      <View style={styles.tabBar}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.tabBar}
+        contentContainerStyle={styles.tabBarContent}
+      >
         {TABS.map(tab => (
           <TouchableOpacity
             key={tab.key}
             style={[styles.tab, activeTab === tab.key && styles.tabActive]}
             onPress={() => setActiveTab(tab.key)}
           >
-            <Text style={[styles.tabText, activeTab === tab.key && styles.tabTextActive]}>
-              {tab.label}
-              {tab.key !== 'all' && (
-                <Text style={styles.tabCount}>
-                  {' '}({trips.filter(t => t.status === tab.key).length})
-                </Text>
-              )}
-            </Text>
+            <Text style={styles.tabIcon}>{tab.icon}</Text>
+            <Text style={[styles.tabText, activeTab === tab.key && styles.tabTextActive]} numberOfLines={1}>{tab.label}</Text>
+            <View style={[styles.tabCountBadge, activeTab === tab.key && styles.tabCountBadgeActive]}>
+              <Text style={[styles.tabCount, activeTab === tab.key && styles.tabCountActive]}>{getTabCount(tab.key)}</Text>
+            </View>
           </TouchableOpacity>
         ))}
-      </View>
+      </ScrollView>
 
       {/* List */}
       <FlatList
@@ -317,19 +401,63 @@ const AllTripsScreen = ({ navigation }) => {
           <TripCard
             trip={item}
             onCancel={handleCancelTrip}
-            canceling={cancelingTripId === item.id}
+            onStart={handleStartTrip}
+            onComplete={handleCompleteTrip}
+            actioning={cancelingTripId === item.id || processingTripId === item.id}
           />
         )}
         ListFooterComponent={<View style={{ height: 30 }} />}
       />
 
-      {/* FAB */}
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={handleCreateTripPress}
+      <Modal
+        visible={cancelModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCancelModalVisible(false)}
       >
-        <Text style={styles.fabText}>✨</Text>
-      </TouchableOpacity>
+        <View style={styles.modalOverlay}>
+          <View style={styles.cancelModalCard}>
+            <Text style={styles.cancelModalTitle}>Xác nhận hủy chuyến</Text>
+            <Text style={styles.cancelModalDesc}>
+              {tripToCancel
+                ? `Bạn muốn hủy chuyến ngày ${tripToCancel.departureDate} lúc ${tripToCancel.departureTime}?`
+                : 'Bạn muốn hủy chuyến này?'}
+            </Text>
+
+            <Text style={styles.reasonLabel}>Lý do hủy (tùy chọn)</Text>
+            <TextInput
+              value={cancelReason}
+              onChangeText={setCancelReason}
+              style={styles.reasonInput}
+              placeholder="Ví dụ: Xe gặp sự cố kỹ thuật"
+              multiline
+              numberOfLines={3}
+              textAlignVertical="top"
+              editable={cancelingTripId !== tripToCancel?.id}
+            />
+
+            <View style={styles.cancelModalActions}>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalBtnGhost]}
+                onPress={() => setCancelModalVisible(false)}
+                disabled={cancelingTripId === tripToCancel?.id}
+              >
+                <Text style={[styles.modalBtnText, styles.modalBtnGhostText]}>Thoát</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalBtnDanger, cancelingTripId === tripToCancel?.id && styles.cancelBtnDisabled]}
+                onPress={confirmCancelTrip}
+                disabled={cancelingTripId === tripToCancel?.id}
+              >
+                {cancelingTripId === tripToCancel?.id
+                  ? <ActivityIndicator color="#fff" size="small" />
+                  : <Text style={styles.modalBtnText}>Xác nhận hủy</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <ProfileApprovalModal
         visible={approvalModalVisible}
@@ -357,37 +485,106 @@ const styles = StyleSheet.create({
   backIcon:    { color: '#fff', fontSize: 26, lineHeight: 30, fontWeight: '300' },
   headerTitle: { flex: 1, color: '#fff', fontSize: 18, fontWeight: '700' },
 
-  // Stats strip
-  statsStrip: {
-    flexDirection: 'row', backgroundColor: '#fff',
-    paddingVertical: 12, paddingHorizontal: 8,
-    borderBottomWidth: 1, borderBottomColor: '#F0F0F0',
+  actionRow: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    paddingHorizontal: 10,
+    paddingTop: 6,
+    paddingBottom: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F2F2F2',
   },
-  stripItem:    { flex: 1, alignItems: 'center' },
-  stripValue:   { fontSize: 18, fontWeight: '800', color: '#333' },
-  stripLabel:   { fontSize: 10, color: '#999', marginTop: 2, textAlign: 'center' },
-  stripDivider: { width: 1, backgroundColor: '#EEE', marginVertical: 4 },
+  createTripMainBtn: {
+    flex: 1,
+    marginRight: 8,
+    backgroundColor: THEME.gradientStart,
+    borderRadius: 12,
+    paddingVertical: 8,
+    alignItems: 'center',
+    shadowColor: THEME.gradientStart,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 7,
+    elevation: 4,
+  },
+  createTripMainBtnText: {
+    color: '#fff',
+    fontWeight: '800',
+    fontSize: 13,
+  },
+  refreshBtn: {
+    width: 96,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FFD8C2',
+    backgroundColor: '#FFF7F2',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  refreshBtnText: {
+    color: '#C2410C',
+    fontSize: 13,
+    fontWeight: '700',
+  },
 
   // Tabs
   tabBar: {
-    flexDirection: 'row', backgroundColor: '#fff',
+    backgroundColor: '#fff',
     borderBottomWidth: 1, borderBottomColor: '#E8E8E8',
-    paddingHorizontal: 4,
   },
-  tab:     { flex: 1, paddingVertical: 11, alignItems: 'center' },
-  tabActive: { borderBottomWidth: 2, borderBottomColor: THEME.gradientStart },
-  tabText: { fontSize: 12, color: '#999', fontWeight: '600' },
+  tabBarContent: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    alignItems: 'center',
+  },
+  tab: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 34,
+    paddingVertical: 0,
+    paddingHorizontal: 9,
+    borderRadius: 999,
+    marginRight: 6,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E8EAEE',
+    flexShrink: 0,
+    alignSelf: 'flex-start',
+  },
+  tabActive: {
+    backgroundColor: '#FFF1E8',
+    borderWidth: 1,
+    borderColor: '#FFC9A6',
+  },
+  tabIcon: { fontSize: 13 },
+  tabText: { fontSize: 12, color: '#7A7D86', fontWeight: '700', marginLeft: 5 },
   tabTextActive: { color: THEME.gradientStart, fontWeight: '800' },
-  tabCount: { fontSize: 11, color: '#aaa' },
+  tabCountBadge: {
+    marginLeft: 5,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  tabCountBadgeActive: {
+    borderColor: '#FFBA8A',
+    backgroundColor: '#FFF8F3',
+  },
+  tabCount: { fontSize: 11, color: '#6B7280', fontWeight: '700' },
+  tabCountActive: { color: '#C2410C' },
 
   // List
-  list: { padding: 12 },
+  list: { paddingHorizontal: 10, paddingTop: 2, paddingBottom: 10 },
 
   // Trip card
   tripCard: {
-    backgroundColor: '#fff', borderRadius: 14, padding: 14, marginBottom: 10,
+    backgroundColor: '#fff', borderRadius: 16, padding: 12, marginBottom: 8,
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06, shadowRadius: 6, elevation: 3,
+    shadowOpacity: 0.05, shadowRadius: 10, elevation: 3,
+    borderWidth: 1,
+    borderColor: '#F2F2F2',
   },
   tripTop:      { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 10 },
   tripRoute:    { fontSize: 15, fontWeight: '800', color: '#333', marginBottom: 4 },
@@ -407,9 +604,25 @@ const styles = StyleSheet.create({
   fareValue:   { fontSize: 15, fontWeight: '800', color: THEME.accent },
   footerRight: { alignItems: 'flex-end' },
   farePerSeat: { fontSize: 12, color: '#AAA' },
+  actionBtnsRow: {
+    flexDirection: 'row',
+    marginTop: 8,
+    gap: 8,
+  },
+  startBtn: {
+    backgroundColor: '#166534',
+    borderRadius: 9,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  startBtnText: { color: '#fff', fontSize: 12, fontWeight: '800' },
   cancelBtn: {
     marginTop: 8,
-    backgroundColor: '#B71C1C',
+    backgroundColor: '#FFF5F5',
+    borderWidth: 1,
+    borderColor: '#FECACA',
     borderRadius: 9,
     paddingHorizontal: 12,
     paddingVertical: 6,
@@ -417,23 +630,93 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   cancelBtnDisabled: { opacity: 0.7 },
-  cancelBtnText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  cancelBtnText: { color: '#B71C1C', fontSize: 12, fontWeight: '800' },
+  completeBtn: {
+    marginTop: 8,
+    backgroundColor: '#0F766E',
+    borderRadius: 9,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  completeBtnText: { color: '#fff', fontSize: 12, fontWeight: '800' },
 
   // Empty
-  emptyBox:      { alignItems: 'center', paddingTop: 60 },
+  emptyBox:      { alignItems: 'center', paddingTop: 36 },
   emptyIcon:     { fontSize: 48, marginBottom: 12 },
   emptyText:     { fontSize: 15, color: '#999', marginBottom: 20 },
   errorText:     { fontSize: 12, color: '#B71C1C', marginBottom: 14, textAlign: 'center', paddingHorizontal: 16 },
   createBtn:     { backgroundColor: THEME.gradientStart, borderRadius: 12, paddingHorizontal: 24, paddingVertical: 12 },
   createBtnText: { color: '#fff', fontWeight: '700' },
 
-  // FAB
-  fab: {
-    position: 'absolute', bottom: 28, right: 22,
-    backgroundColor: THEME.gradientStart, width: 52, height: 52,
-    borderRadius: 26, justifyContent: 'center', alignItems: 'center',
-    elevation: 6, shadowColor: THEME.gradientStart,
-    shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8,
+  // Cancel modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
   },
-  fabText: { fontSize: 22 },
+  cancelModalCard: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+  },
+  cancelModalTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#1F2937',
+  },
+  cancelModalDesc: {
+    marginTop: 8,
+    fontSize: 13,
+    color: '#4B5563',
+    lineHeight: 19,
+  },
+  reasonLabel: {
+    marginTop: 12,
+    marginBottom: 6,
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '700',
+  },
+  reasonInput: {
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    minHeight: 82,
+    fontSize: 13,
+    color: '#111827',
+    backgroundColor: '#F9FAFB',
+  },
+  cancelModalActions: {
+    marginTop: 12,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
+  modalBtn: {
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    borderRadius: 9,
+    marginLeft: 8,
+    minWidth: 100,
+    alignItems: 'center',
+  },
+  modalBtnGhost: {
+    backgroundColor: '#F3F4F6',
+  },
+  modalBtnDanger: {
+    backgroundColor: '#B71C1C',
+  },
+  modalBtnText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  modalBtnGhostText: {
+    color: '#374151',
+  },
 });

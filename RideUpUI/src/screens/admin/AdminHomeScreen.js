@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  ScrollView, ActivityIndicator, RefreshControl, Animated,
+  ScrollView, ActivityIndicator, RefreshControl, Animated, Alert,
 } from 'react-native';
 import { COLORS } from '../../config/config';
 import { getAdminStats, getLocationStats, triggerLocationSync } from '../../services/api';
@@ -17,7 +17,6 @@ const ACTIVITY_ICONS = {
 const QUICK_ACTIONS = [
   { icon: '✅', label: 'Duyệt\nHồ sơ tài xế', color: '#E8F5E9', iconColor: '#2E7D32', screen: 'AdminDriverApproval' },
   { icon: '👥', label: 'Quản lý\nNgười dùng', color: '#E3F2FD', iconColor: '#1565C0', screen: 'ManageUsers' },
-  { icon: '🗺️', label: 'Quản lý\nTuyến đường', color: '#E8F5E9', iconColor: '#2E7D32', screen: 'ManageRoutes' },
   { icon: '📊', label: 'Báo cáo\nThống kê', color: '#FFF3E0', iconColor: '#E65100', screen: 'Reports' },
   { icon: '⚙️', label: 'Cài đặt\nHệ thống', color: '#F3E5F5', iconColor: '#6A1B9A', screen: 'Settings' },
 ];
@@ -147,6 +146,33 @@ const AdminHomeScreen = ({ user, onLogout, navigation }) => {
   const formatCurrency = (amount) =>
     new Intl.NumberFormat('vi-VN').format(amount) + '₫';
 
+  const safeNumber = (value) => (typeof value === 'number' && Number.isFinite(value) ? value : 0);
+
+  const normalizedStats = {
+    today: {
+      totalRides: safeNumber(stats?.today?.totalRides),
+      completedRides: safeNumber(stats?.today?.completedRides),
+      cancelledRides: safeNumber(stats?.today?.cancelledRides),
+      revenue: safeNumber(stats?.today?.revenue),
+    },
+    thisMonth: {
+      totalRides: safeNumber(stats?.thisMonth?.totalRides),
+      revenue: safeNumber(stats?.thisMonth?.revenue),
+      newUsers: safeNumber(stats?.thisMonth?.newUsers),
+      totalUsers: safeNumber(stats?.thisMonth?.totalUsers),
+      newDrivers: safeNumber(stats?.thisMonth?.newDrivers),
+      totalDrivers: safeNumber(stats?.thisMonth?.totalDrivers),
+    },
+    recentActivity: Array.isArray(stats?.recentActivity) ? stats.recentActivity : [],
+  };
+
+  const normalizedLocationStats = {
+    provinceCount: safeNumber(locationStats?.provinceCount),
+    wardCount: safeNumber(locationStats?.wardCount),
+    syncState: locationStats?.syncState || 'IDLE',
+    finishedAt: locationStats?.finishedAt || null,
+  };
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -179,10 +205,10 @@ const AdminHomeScreen = ({ user, onLogout, navigation }) => {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>📈 Hôm nay ({new Date().toLocaleDateString('vi-VN')})</Text>
         <View style={styles.statsGrid}>
-          <StatCard label="Tổng chuyến" value={stats?.today.totalRides} icon="🚗" color="#1565C0" />
-          <StatCard label="Hoàn thành" value={stats?.today.completedRides} icon="✅" color="#2E7D32" />
-          <StatCard label="Đã hủy" value={stats?.today.cancelledRides} icon="❌" color="#C62828" />
-          <StatCard label="Doanh thu" value={formatCurrency(stats?.today.revenue)} icon="💰" color="#E65100" small />
+          <StatCard label="Tổng chuyến" value={normalizedStats.today.totalRides} icon="🚗" color="#1565C0" />
+          <StatCard label="Hoàn thành" value={normalizedStats.today.completedRides} icon="✅" color="#2E7D32" />
+          <StatCard label="Đã hủy" value={normalizedStats.today.cancelledRides} icon="❌" color="#C62828" />
+          <StatCard label="Doanh thu" value={formatCurrency(normalizedStats.today.revenue)} icon="💰" color="#E65100" small />
         </View>
       </View>
 
@@ -190,10 +216,10 @@ const AdminHomeScreen = ({ user, onLogout, navigation }) => {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>📅 Tháng này</Text>
         <View style={styles.monthCard}>
-          <MonthRow icon="🚗" label="Tổng chuyến xe" value={stats?.thisMonth.totalRides} />
-          <MonthRow icon="💰" label="Doanh thu" value={formatCurrency(stats?.thisMonth.revenue)} />
-          <MonthRow icon="👥" label="Người dùng mới" value={`+${stats?.thisMonth.newUsers} (${stats?.thisMonth.totalUsers} tổng)`} />
-          <MonthRow icon="🚘" label="Tài xế mới" value={`+${stats?.thisMonth.newDrivers} (${stats?.thisMonth.totalDrivers} tổng)`} />
+          <MonthRow icon="🚗" label="Tổng chuyến xe" value={normalizedStats.thisMonth.totalRides} />
+          <MonthRow icon="💰" label="Doanh thu" value={formatCurrency(normalizedStats.thisMonth.revenue)} />
+          <MonthRow icon="👥" label="Người dùng mới" value={`+${normalizedStats.thisMonth.newUsers} (${normalizedStats.thisMonth.totalUsers} tổng)`} />
+          <MonthRow icon="🚘" label="Tài xế mới" value={`+${normalizedStats.thisMonth.newDrivers} (${normalizedStats.thisMonth.totalDrivers} tổng)`} />
         </View>
       </View>
 
@@ -210,7 +236,19 @@ const AdminHomeScreen = ({ user, onLogout, navigation }) => {
                   navigation?.navigate('AdminDriverApproval');
                   return;
                 }
-                console.log('Chuyển đến:', action.screen);
+                if (action.screen === 'ManageUsers') {
+                  navigation?.navigate('ManageUsers');
+                  return;
+                }
+                if (action.screen === 'Reports') {
+                  navigation?.navigate('Reports');
+                  return;
+                }
+                if (action.screen === 'Settings') {
+                  navigation?.navigate('Settings');
+                  return;
+                }
+                Alert.alert('Thông báo', 'Chức năng này đang được phát triển.');
               }}
             >
               <Text style={[styles.actionIcon, { color: action.iconColor }]}>{action.icon}</Text>
@@ -224,14 +262,22 @@ const AdminHomeScreen = ({ user, onLogout, navigation }) => {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>🕐 Hoạt động gần đây</Text>
         <View style={styles.activityCard}>
-          {stats?.recentActivity.map((item) => (
+          {normalizedStats.recentActivity.length === 0 ? (
+            <View style={styles.activityItem}>
+              <Text style={styles.activityIcon}>📌</Text>
+              <View style={styles.activityInfo}>
+                <Text style={styles.activityMsg}>Không có hoạt động gần đây</Text>
+                <Text style={styles.activityTime}>Không có</Text>
+              </View>
+            </View>
+          ) : normalizedStats.recentActivity.map((item) => (
             <View key={item.id} style={styles.activityItem}>
               <Text style={styles.activityIcon}>
                 {ACTIVITY_ICONS[item.type] || '📌'}
               </Text>
               <View style={styles.activityInfo}>
-                <Text style={styles.activityMsg}>{item.message}</Text>
-                <Text style={styles.activityTime}>{item.time}</Text>
+                <Text style={styles.activityMsg}>{item.message || 'Không có nội dung'}</Text>
+                <Text style={styles.activityTime}>{item.time || 'Không có'}</Text>
               </View>
             </View>
           ))}
@@ -257,32 +303,32 @@ const AdminHomeScreen = ({ user, onLogout, navigation }) => {
           {/* Thống kê số lượng */}
           <View style={styles.syncStatsRow}>
             <View style={styles.syncStat}>
-              <Text style={styles.syncStatValue}>{locationStats?.provinceCount ?? '–'}</Text>
+              <Text style={styles.syncStatValue}>{normalizedLocationStats.provinceCount}</Text>
               <Text style={styles.syncStatLabel}>Tỉnh / TP</Text>
             </View>
             <View style={styles.syncDivider} />
             <View style={styles.syncStat}>
-              <Text style={styles.syncStatValue}>{locationStats?.wardCount ?? '–'}</Text>
+              <Text style={styles.syncStatValue}>{normalizedLocationStats.wardCount}</Text>
               <Text style={styles.syncStatLabel}>Xã / Phường</Text>
             </View>
             <View style={styles.syncDivider} />
             <View style={styles.syncStat}>
               <Text style={[
                 styles.syncStatValue,
-                locationStats?.syncState === 'DONE'    && { color: '#2E7D32' },
-                locationStats?.syncState === 'RUNNING' && { color: '#E65100' },
-                locationStats?.syncState === 'FAILED'  && { color: '#C62828' },
+                normalizedLocationStats.syncState === 'DONE'    && { color: '#2E7D32' },
+                normalizedLocationStats.syncState === 'RUNNING' && { color: '#E65100' },
+                normalizedLocationStats.syncState === 'FAILED'  && { color: '#C62828' },
               ]}>
-                {locationStats?.syncState === 'RUNNING' ? '⏳' :
-                 locationStats?.syncState === 'DONE'    ? '✅' :
-                 locationStats?.syncState === 'FAILED'  ? '❌' : '–'}
+                {normalizedLocationStats.syncState === 'RUNNING' ? '⏳' :
+                 normalizedLocationStats.syncState === 'DONE'    ? '✅' :
+                 normalizedLocationStats.syncState === 'FAILED'  ? '❌' : '0'}
               </Text>
               <Text style={styles.syncStatLabel}>Trạng thái</Text>
             </View>
           </View>
 
           {/* Animated progress bar khi đang chạy */}
-          {(locationStats?.syncState === 'RUNNING' || syncTriggering) && (
+          {(normalizedLocationStats.syncState === 'RUNNING' || syncTriggering) && (
             <View style={styles.progressTrack}>
               <Animated.View
                 style={[styles.progressBar, {
@@ -298,11 +344,13 @@ const AdminHomeScreen = ({ user, onLogout, navigation }) => {
           )}
 
           {/* Lần đồng bộ cuối */}
-          {locationStats?.finishedAt ? (
+          {normalizedLocationStats.finishedAt ? (
             <Text style={styles.syncLastTime}>
-              Lần cuối: {new Date(locationStats.finishedAt).toLocaleString('vi-VN')}
+              Lần cuối: {new Date(normalizedLocationStats.finishedAt).toLocaleString('vi-VN')}
             </Text>
-          ) : null}
+          ) : (
+            <Text style={styles.syncLastTime}>Lần cuối: Không có</Text>
+          )}
 
           {/* Nút đồng bộ / confirm inline */}
           {showSyncConfirm ? (
@@ -325,12 +373,12 @@ const AdminHomeScreen = ({ user, onLogout, navigation }) => {
             <TouchableOpacity
               style={[
                 styles.syncBtn,
-                (locationStats?.syncState === 'RUNNING' || syncTriggering) && styles.syncBtnDisabled,
+                (normalizedLocationStats.syncState === 'RUNNING' || syncTriggering) && styles.syncBtnDisabled,
               ]}
               onPress={handleSync}
-              disabled={locationStats?.syncState === 'RUNNING' || syncTriggering}
+              disabled={normalizedLocationStats.syncState === 'RUNNING' || syncTriggering}
             >
-              {syncTriggering || locationStats?.syncState === 'RUNNING' ? (
+              {syncTriggering || normalizedLocationStats.syncState === 'RUNNING' ? (
                 <View style={styles.syncBtnInner}>
                   <ActivityIndicator size="small" color="#fff" style={{ marginRight: 8 }} />
                   <Text style={styles.syncBtnText}>Đang cào dữ liệu từ Overpass...</Text>
@@ -354,7 +402,7 @@ const AdminHomeScreen = ({ user, onLogout, navigation }) => {
 const StatCard = ({ label, value, icon, color, small }) => (
   <View style={[styles.statCard, { borderTopColor: color }]}>
     <Text style={styles.statIcon}>{icon}</Text>
-    <Text style={[styles.statValue, small && styles.statValueSmall]}>{value ?? '-'}</Text>
+    <Text style={[styles.statValue, small && styles.statValueSmall]}>{value ?? 0}</Text>
     <Text style={styles.statLabel}>{label}</Text>
   </View>
 );
@@ -363,7 +411,7 @@ const MonthRow = ({ icon, label, value }) => (
   <View style={styles.monthRow}>
     <Text style={styles.monthRowIcon}>{icon}</Text>
     <Text style={styles.monthRowLabel}>{label}</Text>
-    <Text style={styles.monthRowValue}>{value ?? '-'}</Text>
+    <Text style={styles.monthRowValue}>{value ?? 'Không có'}</Text>
   </View>
 );
 

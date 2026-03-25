@@ -159,7 +159,12 @@ const DriverProfileScreen = ({ navigation }) => {
     return DRIVER_STATUS_TEXT[profile?.status] || 'Chưa rõ';
   }, [profile]);
   const isLocked = !!profile?.profileLocked;
-  const canSubmit = (profile?.status === 'PENDING' && profile?.submitted !== true) || profile?.status === 'REJECTED';
+  const canSubmit = (profile?.status === 'PENDING' && profile?.submitted !== true)
+    || profile?.status === 'REJECTED'
+    || profile?.status === 'APPROVED';
+  const submitBtnText = profile?.status === 'APPROVED'
+    ? 'Cập nhật và gửi duyệt lại'
+    : 'Gửi xét duyệt hồ sơ';
 
   const onChange = (key, value) => {
     if (submitErrors[key]) {
@@ -226,7 +231,7 @@ const DriverProfileScreen = ({ navigation }) => {
       setForm(mapProfileToForm(updated));
       setSubmitErrors({});
       setSubmitSuccessMsg('Nop ho so thanh cong. Ho so dang cho admin xet duyet.');
-      Alert.alert('Thanh cong', 'Ho so da duoc gui cho admin xet duyet.');
+      Alert.alert('Thanh cong', 'Ho so da cap nhat va gui lai cho admin xet duyet.');
     } catch (err) {
       if ((err?.message || '').toLowerCase().includes('incomplete')) {
         setSubmitErrors(validateSubmitForm());
@@ -378,7 +383,7 @@ const DriverProfileScreen = ({ navigation }) => {
           onPress={handleSubmitProfile}
           disabled={submitting || isLocked}
         >
-          {submitting ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.saveBtnText}>Gửi xét duyệt hồ sơ</Text>}
+          {submitting ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.saveBtnText}>{submitBtnText}</Text>}
         </TouchableOpacity>
       )}
 

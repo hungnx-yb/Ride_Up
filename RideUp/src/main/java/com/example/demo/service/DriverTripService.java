@@ -1,7 +1,9 @@
 package com.example.demo.service;
 
 import com.example.demo.dto.request.DriverTripRequest;
+import com.example.demo.dto.request.TripCancellationRequest;
 import com.example.demo.dto.response.DriverTripResponse;
+import com.example.demo.entity.Booking;
 import com.example.demo.entity.DriverProfile;
 import com.example.demo.entity.Province;
 import com.example.demo.entity.Trip;
@@ -9,6 +11,7 @@ import com.example.demo.entity.TripDropoffPoint;
 import com.example.demo.entity.TripPickupPoint;
 import com.example.demo.entity.User;
 import com.example.demo.entity.Ward;
+import com.example.demo.enums.BookingStatus;
 import com.example.demo.enums.DriverStatus;
 import com.example.demo.enums.TripStatus;
 import com.example.demo.exception.AppException;
@@ -131,20 +134,149 @@ public class DriverTripService {
     }
 
     @Transactional
-    public DriverTripResponse cancelTrip(String tripId) {
+    public DriverTripResponse cancelTrip(String tripId, TripCancellationRequest request) {
         DriverProfile driverProfile = getOrCreateDriverProfile();
         Trip trip = tripRepository.findByIdAndDriverIdAndDepartureTimeIsNotNull(tripId, driverProfile.getId())
-                .orElseThrow(() -> new AppException(ErrorCode.INVALID_KEY));
+                .orElseThrow(() -> new AppException(ErrorCode.TRIP_NOT_FOUND));
 
-        if (trip.getStatus() == TripStatus.COMPLETED || trip.getStatus() == TripStatus.CANCELLED) {
-            throw new AppException(ErrorCode.INVALID_KEY);
+        TripStatus status = trip.getStatus();
+        if (status == TripStatus.COMPLETED || status == TripStatus.CANCELLED || status == TripStatus.IN_PROGRESS) {
+            throw new AppException(ErrorCode.TRIP_CANCEL_NOT_ALLOWED);
         }
 
         trip.setStatus(TripStatus.CANCELLED);
+        trip.setCompletedAt(null);
+
+        String reason = request == null ? null : request.getCancellationReason();
+        if (StringUtils.hasText(reason)) {
+            trip.setDriverNote(reason.trim());
+        }
+
+        markBookingsCancelledByDriver(trip, reason);
+
         Trip saved = tripRepository.save(trip);
 
         List<Trip> routeTemplates = tripRepository.findByDriverIdAndDepartureTimeIsNullOrderByUpdatedAtDesc(driverProfile.getId());
         return toTripResponse(saved, routeTemplates);
+    }
+
+    @Transactional
+    public DriverTripResponse startTrip(String tripId) {
+        DriverProfile driverProfile = getOrCreateDriverProfile();
+        Trip trip = tripRepository.findByIdAndDriverIdAndDepartureTimeIsNotNull(tripId, driverProfile.getId())
+                .orElseThrow(() -> new AppException(ErrorCode.TRIP_NOT_FOUND));
+
+        if (trip.getStatus() != TripStatus.OPEN && trip.getStatus() != TripStatus.FULL) {
+            throw new AppException(ErrorCode.TRIP_START_NOT_ALLOWED);
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        if (trip.getDepartureTime() != null && now.isBefore(trip.getDepartureTime())) {
+            throw new AppException(ErrorCode.TRIP_START_BEFORE_SCHEDULE);
+        }
+
+        trip.setStatus(TripStatus.IN_PROGRESS);
+        trip.setActualDepartureTime(now);
+        trip.setActualArrivalTime(null);
+        trip.setCompletedAt(null);
+
+        markBookingsInProgress(trip, now);
+
+        Trip saved = tripRepository.save(trip);
+        List<Trip> routeTemplates = tripRepository.findByDriverIdAndDepartureTimeIsNullOrderByUpdatedAtDesc(driverProfile.getId());
+        return toTripResponse(saved, routeTemplates);
+    }
+
+    @Transactional
+    public DriverTripResponse completeTrip(String tripId) {
+        DriverProfile driverProfile = getOrCreateDriverProfile();
+        Trip trip = tripRepository.findByIdAndDriverIdAndDepartureTimeIsNotNull(tripId, driverProfile.getId())
+                .orElseThrow(() -> new AppException(ErrorCode.TRIP_NOT_FOUND));
+
+        if (trip.getStatus() != TripStatus.IN_PROGRESS) {
+            throw new AppException(ErrorCode.TRIP_COMPLETE_NOT_ALLOWED);
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        trip.setStatus(TripStatus.COMPLETED);
+        if (trip.getActualDepartureTime() == null) {
+            trip.setActualDepartureTime(now);
+        }
+        trip.setActualArrivalTime(now);
+        trip.setCompletedAt(now);
+
+        markBookingsCompleted(trip, now);
+
+        Trip saved = tripRepository.save(trip);
+        List<Trip> routeTemplates = tripRepository.findByDriverIdAndDepartureTimeIsNullOrderByUpdatedAtDesc(driverProfile.getId());
+        return toTripResponse(saved, routeTemplates);
+    }
+
+    private void markBookingsCancelledByDriver(Trip trip, String reason) {
+        if (trip.getBookings() == null || trip.getBookings().isEmpty()) {
+            return;
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        String normalizedReason = StringUtils.hasText(reason) ? reason.trim() : "Driver cancelled trip";
+
+        for (Booking booking : trip.getBookings()) {
+            if (booking == null || booking.getStatus() == null) {
+                continue;
+            }
+
+            if (booking.getStatus() == BookingStatus.PENDING || booking.getStatus() == BookingStatus.CONFIRMED) {
+                booking.setStatus(BookingStatus.CANCELLED_BY_DRIVER);
+                booking.setCancelledAt(now);
+                booking.setCancellationReason(normalizedReason);
+                booking.setConfirmedAt(null);
+                booking.setCompletedAt(null);
+            }
+        }
+    }
+
+    private void markBookingsInProgress(Trip trip, LocalDateTime startedAt) {
+        if (trip.getBookings() == null || trip.getBookings().isEmpty()) {
+            return;
+        }
+
+        for (Booking booking : trip.getBookings()) {
+            if (booking == null || booking.getStatus() == null) {
+                continue;
+            }
+
+            if (booking.getStatus() == BookingStatus.PENDING || booking.getStatus() == BookingStatus.CONFIRMED) {
+                booking.setStatus(BookingStatus.CONFIRMED);
+                if (booking.getConfirmedAt() == null) {
+                    booking.setConfirmedAt(startedAt);
+                }
+                booking.setCancelledAt(null);
+                booking.setCancellationReason(null);
+                booking.setCompletedAt(null);
+            }
+        }
+    }
+
+    private void markBookingsCompleted(Trip trip, LocalDateTime completedAt) {
+        if (trip.getBookings() == null || trip.getBookings().isEmpty()) {
+            return;
+        }
+
+        for (Booking booking : trip.getBookings()) {
+            if (booking == null || booking.getStatus() == null) {
+                continue;
+            }
+
+            if (booking.getStatus() == BookingStatus.PENDING || booking.getStatus() == BookingStatus.CONFIRMED) {
+                booking.setStatus(BookingStatus.COMPLETED);
+                if (booking.getConfirmedAt() == null) {
+                    booking.setConfirmedAt(completedAt);
+                }
+                booking.setCompletedAt(completedAt);
+                booking.setCancelledAt(null);
+                booking.setCancellationReason(null);
+            }
+        }
     }
 
     @Transactional(readOnly = true)
