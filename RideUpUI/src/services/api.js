@@ -400,8 +400,32 @@ export const searchRides = async ({ from, to, date }) => {
     await mockApiDelay(1000);
     return MOCK_AVAILABLE_RIDES;
   }
-  const res = await apiClient.get('/rides/search', { params: { from, to, date } });
-  return res.data;
+  const res = await apiClient.get('/rides/search', { params: { fromProvinceId: from, toProvinceId: to, departureDate: date } });
+  return res.data?.result ?? res.data;
+};
+
+/** Tìm chuyến xe theo tỉnh/phường + ngày */
+export const searchRidesAdvanced = async ({
+  fromProvinceId,
+  toProvinceId,
+  fromWardId,
+  toWardId,
+  departureDate,
+}) => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(1000);
+    return MOCK_AVAILABLE_RIDES;
+  }
+  const res = await apiClient.get('/rides/search', {
+    params: {
+      fromProvinceId,
+      toProvinceId,
+      fromWardId,
+      toWardId,
+      departureDate,
+    },
+  });
+  return res.data?.result ?? res.data;
 };
 
 /** Lấy lịch sử đặt xe */
@@ -411,7 +435,7 @@ export const getCustomerBookings = async () => {
     return MOCK_CUSTOMER_BOOKINGS;
   }
   const res = await apiClient.get('/customer/bookings');
-  return res.data;
+  return res.data?.result ?? res.data;
 };
 
 /** Đặt chỗ */
@@ -421,7 +445,7 @@ export const bookRide = async (payload) => {
     return { success: true, bookingId: Date.now(), message: 'Đặt chỗ thành công!' };
   }
   const res = await apiClient.post('/customer/bookings', payload);
-  return res.data;
+  return res.data?.result ?? res.data;
 };
 
 /** Đánh giá chuyến xe */

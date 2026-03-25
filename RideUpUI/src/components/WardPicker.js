@@ -22,9 +22,11 @@ const WardPicker = ({
   visible,
   onClose,
   onConfirm,
+  onConfirmRaw,
   title = 'Chọn xã / phường',
   provinceId,
   selectedNames = [],
+  singleSelect = false,
 }) => {
   const [query, setQuery] = useState('');
   const [allWards, setAllWards] = useState([]);
@@ -54,14 +56,21 @@ const WardPicker = ({
   }, [allWards, query]);
 
   const toggleSelect = (wardName) => {
-    setLocalSelected((prev) => (
-      prev.includes(wardName)
+    setLocalSelected((prev) => {
+      if (singleSelect) {
+        return prev.includes(wardName) ? [] : [wardName];
+      }
+      return prev.includes(wardName)
         ? prev.filter((n) => n !== wardName)
-        : [...prev, wardName]
-    ));
+        : [...prev, wardName];
+    });
   };
 
   const handleConfirm = () => {
+    if (onConfirmRaw) {
+      const selected = allWards.filter((w) => localSelected.includes(w.name));
+      onConfirmRaw(selected);
+    }
     onConfirm(localSelected);
     setQuery('');
     onClose();
