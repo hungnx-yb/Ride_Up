@@ -1,1 +1,4 @@
 RideUp/src/main/resources/application.yaml 
+RideUpUI/node_modules/
+RideUpUI/.expo/
+RideUpUI/.idea/
