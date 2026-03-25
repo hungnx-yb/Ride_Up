@@ -1,6 +1,7 @@
 package com.example.demo.controller;
 
 import com.example.demo.dto.request.DriverTripRequest;
+import com.example.demo.dto.request.TripCancellationRequest;
 import com.example.demo.dto.response.DriverTripResponse;
 import com.example.demo.service.DriverTripService;
 import lombok.AccessLevel;
@@ -34,8 +35,23 @@ public class DriverTripController {
 
     @PutMapping("/trips/{tripId}/cancel")
     @PreAuthorize("isAuthenticated()")
-    public DriverTripResponse cancelTrip(@PathVariable String tripId) {
-        return driverTripService.cancelTrip(tripId);
+    public DriverTripResponse cancelTrip(
+            @PathVariable String tripId,
+            @RequestBody(required = false) TripCancellationRequest request
+    ) {
+        return driverTripService.cancelTrip(tripId, request);
+    }
+
+    @PutMapping("/trips/{tripId}/start")
+    @PreAuthorize("isAuthenticated()")
+    public DriverTripResponse startTrip(@PathVariable String tripId) {
+        return driverTripService.startTrip(tripId);
+    }
+
+    @PutMapping("/trips/{tripId}/complete")
+    @PreAuthorize("isAuthenticated()")
+    public DriverTripResponse completeTrip(@PathVariable String tripId) {
+        return driverTripService.completeTrip(tripId);
     }
 
     @GetMapping("/stats")

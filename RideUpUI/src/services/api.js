@@ -30,6 +30,14 @@ export const STORAGE_KEYS = {
   USER: '@rideup_user',
 };
 
+const API_CACHE_TTL = {
+  ADMIN_STATS: 15000,
+  LOCATION_STATS: 10000,
+  USERS: 20000,
+};
+
+const _apiCache = new Map();
+
 // ── Khai báo apiClient TRƯỚC các helper dùng nó ──────────────
 const apiClient = axios.create({
   baseURL: API_CONFIG.BASE_URL,
@@ -41,6 +49,7 @@ if (__DEV__) {
   apiClient.interceptors.request.use((config) => {
     const method = (config.method || 'GET').toUpperCase();
     const url = `${config.baseURL || ''}${config.url || ''}`;
+    config.metadata = { startTime: Date.now() };
     if (url.includes('/driver/routes')) {
       console.log(`[API][REQ] ${method} ${url}`, config.data || '');
     }
@@ -53,6 +62,13 @@ apiClient.interceptors.response.use(
   (response) => {
     if (__DEV__) {
       const url = `${response.config?.baseURL || ''}${response.config?.url || ''}`;
+      const startTime = response.config?.metadata?.startTime;
+      if (startTime) {
+        const duration = Date.now() - startTime;
+        if (duration > 1200) {
+          console.log(`[API][SLOW] ${response.config?.method?.toUpperCase()} ${url} - ${duration}ms`);
+        }
+      }
       if (url.includes('/driver/routes')) {
         console.log(`[API][RES] ${response.status} ${url}`, response.data);
       }
@@ -60,6 +76,16 @@ apiClient.interceptors.response.use(
     return response;
   },
   (error) => {
+    if (__DEV__) {
+      const url = `${error.config?.baseURL || ''}${error.config?.url || ''}`;
+      const startTime = error.config?.metadata?.startTime;
+      if (startTime) {
+        const duration = Date.now() - startTime;
+        if (duration > 1200) {
+          console.log(`[API][SLOW-ERR] ${error.config?.method?.toUpperCase()} ${url} - ${duration}ms`);
+        }
+      }
+    }
     if (!error.response) {
       return Promise.reject(new Error(`Không kết nối được backend (${API_CONFIG.BASE_URL}). Nếu test trên điện thoại thật, hãy đổi localhost thành IP LAN của máy chạy backend.`));
     }
@@ -71,6 +97,54 @@ apiClient.interceptors.response.use(
 
 // Helper: lấy .result từ ApiResponse wrapper
 const unwrap = (res) => res.data?.result;
+
+const getCached = async (key, ttlMs, fetcher) => {
+  const now = Date.now();
+  const current = _apiCache.get(key);
+
+  if (current?.data !== undefined && current.expiresAt > now) {
+    return current.data;
+  }
+
+  if (current?.promise) {
+    return current.promise;
+  }
+
+  const promise = (async () => {
+    try {
+      const data = await fetcher();
+      _apiCache.set(key, {
+        data,
+        expiresAt: Date.now() + ttlMs,
+      });
+      return data;
+    } finally {
+      const latest = _apiCache.get(key);
+      if (latest?.promise) {
+        _apiCache.set(key, {
+          data: latest.data,
+          expiresAt: latest.expiresAt || 0,
+        });
+      }
+    }
+  })();
+
+  _apiCache.set(key, {
+    data: current?.data,
+    expiresAt: current?.expiresAt || 0,
+    promise,
+  });
+
+  return promise;
+};
+
+const invalidateCacheByPrefix = (prefix) => {
+  for (const key of _apiCache.keys()) {
+    if (key.startsWith(prefix)) {
+      _apiCache.delete(key);
+    }
+  }
+};
 
 /** Gọi khi khởi động app để khôi phục token đã lưu */
 export const loadStoredAuth = async () => {
@@ -186,8 +260,10 @@ export const getAdminStats = async () => {
     await mockApiDelay();
     return MOCK_ADMIN_STATS;
   }
-  const res = await apiClient.get('/admin/stats');
-  return res.data;
+  return getCached('admin:stats', API_CACHE_TTL.ADMIN_STATS, async () => {
+    const res = await apiClient.get('/admin/stats');
+    return res.data?.result || res.data || {};
+  });
 };
 
 export const getAllUsers = async () => {
@@ -195,8 +271,10 @@ export const getAllUsers = async () => {
     await mockApiDelay();
     return MOCK_ACCOUNTS.filter((a) => a.role !== 'ADMIN');
   }
-  const res = await apiClient.get('/admin/users');
-  return res.data;
+  return getCached('admin:users', API_CACHE_TTL.USERS, async () => {
+    const res = await apiClient.get('/admin/users');
+    return res.data?.result || res.data || [];
+  });
 };
 
 export const getAdminDriverProfiles = async () => {
@@ -206,11 +284,13 @@ export const getAdminDriverProfiles = async () => {
 
 export const approveDriverProfile = async (profileId) => {
   const res = await apiClient.put(`/admin/driver-profiles/${profileId}/approve`);
+  invalidateCacheByPrefix('admin:stats');
   return res.data?.result;
 };
 
 export const rejectDriverProfile = async (profileId, rejectionReason) => {
   const res = await apiClient.put(`/admin/driver-profiles/${profileId}/reject`, { rejectionReason });
+  invalidateCacheByPrefix('admin:stats');
   return res.data?.result;
 };
 
@@ -358,12 +438,31 @@ export const createTrip = async (tripData) => {
 };
 
 /** Hủy chuyến xe đã tạo */
-export const cancelDriverTrip = async (tripId) => {
+export const cancelDriverTrip = async (tripId, cancellationReason = null) => {
   if (USE_MOCK_DATA) {
     await mockApiDelay(700);
-    return { success: true, id: tripId, status: 'cancelled' };
+    return { success: true, id: tripId, status: 'cancelled', cancellationReason };
   }
-  const res = await apiClient.put(`/driver/trips/${tripId}/cancel`);
+  const payload = cancellationReason ? { cancellationReason } : {};
+  const res = await apiClient.put(`/driver/trips/${tripId}/cancel`, payload);
+  return res.data;
+};
+
+export const startDriverTrip = async (tripId) => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(600);
+    return { id: tripId, status: 'ongoing' };
+  }
+  const res = await apiClient.put(`/driver/trips/${tripId}/start`);
+  return res.data;
+};
+
+export const completeDriverTrip = async (tripId) => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(600);
+    return { id: tripId, status: 'completed' };
+  }
+  const res = await apiClient.put(`/driver/trips/${tripId}/complete`);
   return res.data;
 };
 
@@ -465,13 +564,17 @@ export const rateRide = async (bookingId, rating, comment) => {
 
 /** Lấy trạng thái đồng bộ và số lượng tỉnh/xã trong DB */
 export const getLocationStats = async () => {
-  const res = await apiClient.get('/api/locations/admin/stats');
-  return res.data.result;
+  return getCached('admin:location-stats', API_CACHE_TTL.LOCATION_STATS, async () => {
+    const res = await apiClient.get('/api/locations/admin/stats');
+    return res.data.result;
+  });
 };
 
 /** Kích hoạt đồng bộ lại dữ liệu tỉnh/xã từ Overpass (chạy nền) */
 export const triggerLocationSync = async () => {
   const res = await apiClient.post('/api/locations/admin/sync');
+  invalidateCacheByPrefix('admin:location-stats');
+  invalidateCacheByPrefix('admin:stats');
   return res.data;
 };
 
