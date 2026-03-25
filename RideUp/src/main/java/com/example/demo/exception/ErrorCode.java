@@ -22,7 +22,12 @@ public enum ErrorCode {
     DRIVER_PROFILE_NOT_FOUND(1018,"Driver profile not found. Please complete driver registration first", HttpStatus.FORBIDDEN),
     DRIVER_PROFILE_NOT_APPROVED(1019,"Driver profile is not approved. You cannot create trips yet", HttpStatus.FORBIDDEN),
     DRIVER_PROFILE_LOCKED(1020,"Driver profile is pending review and cannot be edited", HttpStatus.FORBIDDEN),
-    DRIVER_PROFILE_INCOMPLETE(1021,"Driver profile is incomplete. Please provide required fields before submit", HttpStatus.BAD_REQUEST);
+    DRIVER_PROFILE_INCOMPLETE(1021,"Driver profile is incomplete. Please provide required fields before submit", HttpStatus.BAD_REQUEST),
+    TRIP_NOT_FOUND(1022, "Trip not found", HttpStatus.NOT_FOUND),
+    TRIP_CANCEL_NOT_ALLOWED(1023, "Trip cannot be cancelled at current status", HttpStatus.BAD_REQUEST),
+    TRIP_START_NOT_ALLOWED(1024, "Trip cannot be started at current status", HttpStatus.BAD_REQUEST),
+    TRIP_COMPLETE_NOT_ALLOWED(1025, "Trip cannot be completed at current status", HttpStatus.BAD_REQUEST),
+    TRIP_START_BEFORE_SCHEDULE(1026, "Chua den gio khoi hanh. Ban chi co the bat dau chuyen sau thoi gian da khai bao", HttpStatus.BAD_REQUEST);
 
     private Integer code;
     private String message;

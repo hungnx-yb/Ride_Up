@@ -38,6 +38,7 @@ public class DriverProfileService {
     public DriverProfileResponse updateMyProfile(DriverProfileUpdateRequest request) {
         User user = userService.getCurrentUser();
         DriverProfile profile = getOrCreateDriverProfile(user);
+        DriverStatus originalStatus = profile.getStatus();
         if (isProfileLocked(profile)) {
             throw new AppException(ErrorCode.DRIVER_PROFILE_LOCKED);
         }
@@ -145,6 +146,16 @@ public class DriverProfileService {
             profile.setVehicle(vehicle);
         }
 
+        // If an already approved profile is edited, it must be re-reviewed by admin.
+        if (originalStatus == DriverStatus.APPROVED) {
+            profile.setStatus(DriverStatus.PENDING);
+            profile.setSubmitted(true);
+            profile.setApprovedAt(null);
+            profile.setApprovedBy(null);
+            profile.setRejectedAt(null);
+            profile.setRejectionReason(null);
+        }
+
         DriverProfile savedProfile = driverProfileRepository.save(profile);
         return toResponse(user, savedProfile, savedProfile.getVehicle());
     }
@@ -155,7 +166,7 @@ public class DriverProfileService {
         DriverProfile profile = getOrCreateDriverProfile(user);
 
         if (Boolean.TRUE.equals(profile.getSubmitted()) && profile.getStatus() == DriverStatus.PENDING) {
-            throw new AppException(ErrorCode.DRIVER_PROFILE_LOCKED);
+            return toResponse(user, profile, profile.getVehicle());
         }
 
         validateProfileForSubmit(profile);

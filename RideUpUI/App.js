@@ -15,6 +15,9 @@ import AdminHomeScreen from './src/screens/admin/AdminHomeScreen';
 import DriverHomeScreen from './src/screens/driver/DriverHomeScreen';
 import CustomerHomeScreen from './src/screens/customer/CustomerHomeScreen';
 import AdminDriverApprovalScreen from './src/screens/admin/AdminDriverApprovalScreen';
+import ManageUsersScreen from './src/screens/admin/ManageUsersScreen';
+import ReportsScreen from './src/screens/admin/ReportsScreen';
+import SettingsScreen from './src/screens/admin/SettingsScreen';
 
 // Driver sub-screens
 import CreateTripScreen from './src/screens/driver/CreateTripScreen';
@@ -100,6 +103,9 @@ export default function App() {
               {(props) => <AdminHomeScreen {...props} user={user} onLogout={handleLogout} />}
             </Stack.Screen>
             <Stack.Screen name="AdminDriverApproval" component={AdminDriverApprovalScreen} />
+            <Stack.Screen name="ManageUsers" component={ManageUsersScreen} />
+            <Stack.Screen name="Reports" component={ReportsScreen} />
+            <Stack.Screen name="Settings" component={SettingsScreen} />
           </>
         );
       case ROLES.DRIVER:
