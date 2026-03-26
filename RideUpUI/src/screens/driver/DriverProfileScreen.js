@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { COLORS } from '../../config/config';
+import DriverBottomNav from '../../components/DriverBottomNav';
 import { getDriverProfile, submitDriverProfile, uploadFile } from '../../services/api';
 import { syncDriverProfileApprovalCache } from '../../services/driverProfileGuard';
 
@@ -344,10 +345,11 @@ const DriverProfileScreen = ({ navigation }) => {
   const vehicleTranslate = vehicleAnim.interpolate({ inputRange: [0, 1], outputRange: [24, 0] });
 
   return (
-    <ScrollView
-      style={styles.container}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => loadProfile(true)} tintColor={THEME.top} />}
-    >
+    <View style={styles.screen}>
+      <ScrollView
+        style={styles.container}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => loadProfile(true)} tintColor={THEME.top} />}
+      >
       <View style={styles.topBar}>
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation?.goBack()}>
           <Text style={styles.backBtnText}>‹ Quay lại</Text>
@@ -454,8 +456,10 @@ const DriverProfileScreen = ({ navigation }) => {
         </Modal>
       )}
 
-      <View style={styles.bottomGap} />
-    </ScrollView>
+        <View style={styles.bottomGap} />
+      </ScrollView>
+      <DriverBottomNav navigation={navigation} activeKey="profile" />
+    </View>
   );
 };
 
@@ -516,6 +520,7 @@ const FormField = ({ label, value, onChangeText, placeholder, keyboardType, edit
 );
 
 const styles = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: '#F4FBF7' },
   container: { flex: 1, backgroundColor: '#F4FBF7' },
   loadingWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F4FBF7' },
   loadingText: { marginTop: 10, color: COLORS.textLight },
@@ -576,7 +581,7 @@ const styles = StyleSheet.create({
   submitBtn: { marginTop: 16, marginHorizontal: 16, borderRadius: 14, paddingVertical: 14, alignItems: 'center', backgroundColor: '#1D4ED8', shadowColor: '#1D4ED8', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4 },
   saveBtnDisabled: { opacity: 0.8 },
   saveBtnText: { color: COLORS.white, fontSize: 15, fontWeight: '800' },
-  bottomGap: { height: 36 },
+  bottomGap: { height: 110 },
 });
 
 export default DriverProfileScreen;

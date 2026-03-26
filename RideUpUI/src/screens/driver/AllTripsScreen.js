@@ -6,6 +6,7 @@ import {
 } from 'react-native';
 import { COLORS } from '../../config/config';
 import { getDriverTrips, cancelDriverTrip, startDriverTrip, completeDriverTrip } from '../../services/api';
+import DriverBottomNav from '../../components/DriverBottomNav';
 import {
   ensureApprovedProfileBeforeCreateTrip,
   ensureApprovedProfileForTripFeature,
@@ -417,7 +418,7 @@ const AllTripsScreen = ({ navigation }) => {
             actioning={cancelingTripId === item.id || processingTripId === item.id}
           />
         )}
-        ListFooterComponent={<View style={{ height: 30 }} />}
+        ListFooterComponent={<View style={{ height: 110 }} />}
       />
 
       <Modal
@@ -476,6 +477,8 @@ const AllTripsScreen = ({ navigation }) => {
         onClose={() => setApprovalModalVisible(false)}
         onGoProfile={goToDriverProfile}
       />
+
+      <DriverBottomNav navigation={navigation} activeKey="trips" />
     </View>
   );
 };
