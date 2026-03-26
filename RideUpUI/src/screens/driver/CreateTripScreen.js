@@ -17,6 +17,7 @@ import {
 import { createTrip } from '../../services/api';
 import ProvincePicker from '../../components/ProvincePicker';
 import WardPicker from '../../components/WardPicker';
+import DriverBottomNav from '../../components/DriverBottomNav';
 import { ensureApprovedProfileBeforeCreateTrip } from '../../services/driverProfileGuard';
 
 const THEME = {
@@ -461,7 +462,7 @@ const CreateTripScreen = ({ navigation }) => {
             {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitBtnText}>Luu va tao chuyen</Text>}
           </TouchableOpacity>
 
-          <View style={{ height: 30 }} />
+          <View style={{ height: 110 }} />
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -587,6 +588,8 @@ const CreateTripScreen = ({ navigation }) => {
           </View>
         </View>
       </Modal>
+
+      <DriverBottomNav navigation={navigation} activeKey="create" />
     </View>
   );
 };

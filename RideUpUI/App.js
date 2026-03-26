@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { View, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator, Alert } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { COLORS, ROLES } from './src/config/config';
-import { loadStoredAuth, logoutApi } from './src/services/api';
+import { loadStoredAuth, logoutApi, onAuthExpired } from './src/services/api';
 
 // Auth screens
 import LoginScreen from './src/screens/auth/LoginScreen';
@@ -23,6 +23,7 @@ import SettingsScreen from './src/screens/admin/SettingsScreen';
 import CreateTripScreen from './src/screens/driver/CreateTripScreen';
 import AllTripsScreen from './src/screens/driver/AllTripsScreen';
 import DriverProfileScreen from './src/screens/driver/DriverProfileScreen';
+import TripDetailScreen from './src/screens/driver/TripDetailScreen';
 import LoginTransitionOverlay from './src/components/LoginTransitionOverlay';
 
 const Stack = createNativeStackNavigator();
@@ -51,6 +52,16 @@ export default function App() {
         setUser(storedUser);
       }
     }).finally(() => setBootstrapping(false));
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = onAuthExpired(() => {
+      Alert.alert('Phiên đăng nhập hết hạn', 'Vui lòng đăng nhập lại để tiếp tục.');
+      setUser(null);
+      setToken(null);
+    });
+
+    return unsubscribe;
   }, []);
 
   const handleLoginSuccess = (userData, authToken) => {
@@ -117,6 +128,7 @@ export default function App() {
             <Stack.Screen name="CreateTrip" component={CreateTripScreen} />
             <Stack.Screen name="AllTrips" component={AllTripsScreen} />
             <Stack.Screen name="DriverProfile" component={DriverProfileScreen} />
+            <Stack.Screen name="TripDetail" component={TripDetailScreen} />
           </>
         );
       case ROLES.CUSTOMER:

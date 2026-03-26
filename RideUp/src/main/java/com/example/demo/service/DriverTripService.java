@@ -2,9 +2,11 @@ package com.example.demo.service;
 
 import com.example.demo.dto.request.DriverTripRequest;
 import com.example.demo.dto.request.TripCancellationRequest;
+import com.example.demo.dto.response.DriverTripDetailResponse;
 import com.example.demo.dto.response.DriverTripResponse;
 import com.example.demo.entity.Booking;
 import com.example.demo.entity.DriverProfile;
+import com.example.demo.entity.Payment;
 import com.example.demo.entity.Province;
 import com.example.demo.entity.Trip;
 import com.example.demo.entity.TripDropoffPoint;
@@ -68,6 +70,61 @@ public class DriverTripService {
                 .map(trip -> toTripResponse(trip, routeTemplates))
                 .collect(Collectors.toList());
     }
+
+            @Transactional(readOnly = true)
+            public DriverTripDetailResponse getTripDetail(String tripId) {
+            DriverProfile driverProfile = getOrCreateDriverProfile();
+            Trip trip = tripRepository.findByIdAndDriverIdAndDepartureTimeIsNotNull(tripId, driverProfile.getId())
+                .orElseThrow(() -> new AppException(ErrorCode.TRIP_NOT_FOUND));
+
+            List<Trip> routeTemplates = tripRepository.findByDriverIdAndDepartureTimeIsNullOrderByUpdatedAtDesc(driverProfile.getId());
+
+            List<DriverTripDetailResponse.PointInfo> pickupPoints = mapPickupPoints(trip.getPickupPoints());
+            List<DriverTripDetailResponse.PointInfo> dropoffPoints = mapDropoffPoints(trip.getDropoffPoints());
+            List<DriverTripDetailResponse.BookingInfo> bookings = mapBookings(trip.getBookings());
+
+            int totalSeats = trip.getTotalSeats() == null ? 0 : trip.getTotalSeats();
+            int availableSeats = trip.getAvailableSeats() == null ? 0 : trip.getAvailableSeats();
+            int bookedSeats = Math.max(0, totalSeats - availableSeats);
+            long fixedFare = trip.getPricePerSeat() == null ? 0L : trip.getPricePerSeat().longValue();
+
+            String pickupProvince = pickupPoints.stream()
+                .map(DriverTripDetailResponse.PointInfo::getProvinceName)
+                .filter(StringUtils::hasText)
+                .findFirst()
+                .orElse("");
+
+            String dropoffProvince = dropoffPoints.stream()
+                .map(DriverTripDetailResponse.PointInfo::getProvinceName)
+                .filter(StringUtils::hasText)
+                .findFirst()
+                .orElse("");
+
+            LocalDateTime departure = trip.getDepartureTime();
+            return DriverTripDetailResponse.builder()
+                .id(trip.getId())
+                .routeId(matchTemplateId(trip, routeTemplates).orElse(trip.getId()))
+                .status(toUiStatus(trip.getStatus()))
+                .pickupProvince(pickupProvince)
+                .dropoffProvince(dropoffProvince)
+                .departureDate(departure == null ? null : departure.toLocalDate().format(isoDate))
+                .departureTime(departure == null ? null : departure.toLocalTime().format(uiTime))
+                .createdAt(formatDateTime(trip.getCreatedAt()))
+                .updatedAt(formatDateTime(trip.getUpdatedAt()))
+                .actualDepartureTime(formatDateTime(trip.getActualDepartureTime()))
+                .actualArrivalTime(formatDateTime(trip.getActualArrivalTime()))
+                .completedAt(formatDateTime(trip.getCompletedAt()))
+                .totalSeats(totalSeats)
+                .availableSeats(availableSeats)
+                .bookedSeats(bookedSeats)
+                .fixedFare(fixedFare)
+                .estimatedRevenue(fixedFare * bookedSeats)
+                .driverNote(trip.getDriverNote())
+                .pickupPoints(pickupPoints)
+                .dropoffPoints(dropoffPoints)
+                .bookings(bookings)
+                .build();
+            }
 
     @Transactional
     public DriverTripResponse createTrip(DriverTripRequest request) {
@@ -529,6 +586,96 @@ public class DriverTripService {
                 .fixedFare(trip.getPricePerSeat() == null ? 0L : trip.getPricePerSeat().longValue())
                 .status(toUiStatus(trip.getStatus()))
                 .build();
+    }
+
+    private List<DriverTripDetailResponse.PointInfo> mapPickupPoints(List<TripPickupPoint> points) {
+        if (points == null || points.isEmpty()) {
+            return List.of();
+        }
+
+        return points.stream()
+                .sorted(Comparator.comparingInt(p -> p.getSortOrder() == null ? 0 : p.getSortOrder()))
+                .map(p -> DriverTripDetailResponse.PointInfo.builder()
+                        .id(p.getId())
+                        .wardName(p.getWard() == null ? null : p.getWard().getName())
+                        .provinceName(p.getWard() == null || p.getWard().getProvince() == null ? null : p.getWard().getProvince().getName())
+                        .address(p.getAddress())
+                        .sortOrder(p.getSortOrder())
+                        .time(p.getPickupTime() == null ? null : p.getPickupTime().toString())
+                        .note(p.getNote())
+                        .build())
+                .collect(Collectors.toList());
+    }
+
+    private List<DriverTripDetailResponse.PointInfo> mapDropoffPoints(List<TripDropoffPoint> points) {
+        if (points == null || points.isEmpty()) {
+            return List.of();
+        }
+
+        return points.stream()
+                .sorted(Comparator.comparingInt(p -> p.getSortOrder() == null ? 0 : p.getSortOrder()))
+                .map(p -> DriverTripDetailResponse.PointInfo.builder()
+                        .id(p.getId())
+                        .wardName(p.getWard() == null ? null : p.getWard().getName())
+                        .provinceName(p.getWard() == null || p.getWard().getProvince() == null ? null : p.getWard().getProvince().getName())
+                        .address(p.getAddress())
+                        .sortOrder(p.getSortOrder())
+                        .time(p.getDropoffTime() == null ? null : p.getDropoffTime().toString())
+                        .note(p.getNote())
+                        .build())
+                .collect(Collectors.toList());
+    }
+
+    private List<DriverTripDetailResponse.BookingInfo> mapBookings(List<Booking> bookings) {
+        if (bookings == null || bookings.isEmpty()) {
+            return List.of();
+        }
+
+        return bookings.stream()
+                .sorted(Comparator.comparing(Booking::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
+                .map(this::toBookingInfo)
+                .collect(Collectors.toList());
+    }
+
+    private DriverTripDetailResponse.BookingInfo toBookingInfo(Booking booking) {
+        Payment payment = booking.getPayment();
+        User customer = booking.getCustomer();
+
+        return DriverTripDetailResponse.BookingInfo.builder()
+                .id(booking.getId())
+                .status(booking.getStatus() == null ? null : booking.getStatus().name())
+                .seatCount(booking.getSeatCount())
+                .totalPrice(booking.getTotalPrice())
+                .distanceKm(booking.getDistanceKm())
+                .pickupAddress(booking.getPickupAddress())
+                .pickupLat(booking.getPickupLat())
+                .pickupLng(booking.getPickupLng())
+                .dropoffAddress(booking.getDropoffAddress())
+                .dropoffLat(booking.getDropoffLat())
+                .dropoffLng(booking.getDropoffLng())
+                .passengerName(booking.getPassengerName())
+                .contactPhone(booking.getContactPhone())
+                .customerNote(booking.getCustomerNote())
+                .createdAt(formatDateTime(booking.getCreatedAt()))
+                .confirmedAt(formatDateTime(booking.getConfirmedAt()))
+                .cancelledAt(formatDateTime(booking.getCancelledAt()))
+                .cancellationReason(booking.getCancellationReason())
+                .completedAt(formatDateTime(booking.getCompletedAt()))
+                .customerId(customer == null ? null : customer.getId())
+                .customerName(customer == null ? null : customer.getFullName())
+                .customerPhone(customer == null ? null : customer.getPhoneNumber())
+                .customerEmail(customer == null ? null : customer.getEmail())
+                .customerAvatarUrl(customer == null ? null : customer.getAvatarUrl())
+                .paymentMethod(payment == null || payment.getMethod() == null ? null : payment.getMethod().name())
+                .paymentStatus(payment == null || payment.getStatus() == null ? null : payment.getStatus().name())
+                .paymentAmount(payment == null ? null : payment.getAmount())
+                .transactionId(payment == null ? null : payment.getTransactionId())
+                .paidAt(payment == null ? null : formatDateTime(payment.getPaidAt()))
+                .build();
+    }
+
+    private String formatDateTime(LocalDateTime value) {
+        return value == null ? null : value.toString();
     }
 
     private Optional<String> matchTemplateId(Trip trip, List<Trip> templates) {
