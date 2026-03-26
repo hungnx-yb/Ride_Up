@@ -2,6 +2,7 @@ package com.example.demo.controller;
 
 import com.example.demo.dto.request.DriverTripRequest;
 import com.example.demo.dto.request.TripCancellationRequest;
+import com.example.demo.dto.response.DriverTripDetailResponse;
 import com.example.demo.dto.response.DriverTripResponse;
 import com.example.demo.service.DriverTripService;
 import lombok.AccessLevel;
@@ -31,6 +32,12 @@ public class DriverTripController {
     @PreAuthorize("isAuthenticated()")
     public DriverTripResponse createTrip(@RequestBody DriverTripRequest request) {
         return driverTripService.createTrip(request);
+    }
+
+    @GetMapping("/trips/{tripId}")
+    @PreAuthorize("isAuthenticated()")
+    public DriverTripDetailResponse getTripDetail(@PathVariable String tripId) {
+        return driverTripService.getTripDetail(tripId);
     }
 
     @PutMapping("/trips/{tripId}/cancel")
