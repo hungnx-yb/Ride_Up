@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { COLORS } from '../../config/config';
-import { getCustomerBookings, searchRidesAdvanced, bookRide } from '../../services/api';
+import { getCustomerBookings, searchRidesAdvanced, bookRide, confirmBookingPayment, rateRide } from '../../services/api';
 import ProvincePicker from '../../components/ProvincePicker';
 import WardPicker from '../../components/WardPicker';
 
@@ -24,8 +24,8 @@ const DEFAULT_VEHICLE_IMAGE = require('../../../assets/adaptive-icon.png');
 const HERO_BACKGROUND_IMAGE = require('../../../assets/anh-nen-sieu-xe_020255797.jpg');
 
 const STATUS_CONFIG = {
-  pending: { label: 'Chờ xác nhận', color: '#B45309', bg: '#FFFBEB' },
-  confirmed: { label: 'Đã xác nhận', color: '#1D4ED8', bg: '#EFF6FF' },
+  pending: { label: 'Chờ thanh toán', color: '#B45309', bg: '#FFFBEB' },
+  confirmed: { label: 'Đặt chỗ thành công', color: '#1D4ED8', bg: '#EFF6FF' },
   in_progress: { label: 'Đang di chuyển', color: '#0E7490', bg: '#ECFEFF' },
   completed: { label: 'Hoàn thành', color: '#15803D', bg: '#F0FDF4' },
   cancelled: { label: 'Đã hủy', color: '#B91C1C', bg: '#FEF2F2' },
@@ -84,6 +84,11 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
   const [vehicleImageFailed, setVehicleImageFailed] = useState(false);
   const [activeFooterTab, setActiveFooterTab] = useState('home');
   const [myTripsFilter, setMyTripsFilter] = useState('all');
+  const [ratingBooking, setRatingBooking] = useState(null);
+  const [ratingValue, setRatingValue] = useState(5);
+  const [ratingComment, setRatingComment] = useState('');
+  const [ratingSubmitting, setRatingSubmitting] = useState(false);
+  const [paymentConfirmSubmitting, setPaymentConfirmSubmitting] = useState(false);
 
   const [errorText, setErrorText] = useState('');
   const scrollRef = useRef(null);
@@ -142,7 +147,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
     return labels[type] || (type ? type.replaceAll('_', ' ') : '--');
   };
 
-  const activeBookings = bookings.filter((b) => ['pending', 'confirmed', 'in_progress'].includes(b.status));
+  const activeBookings = bookings.filter((b) => ['confirmed', 'in_progress'].includes(b.status));
   const completedBookings = bookings.filter((b) => b.status === 'completed');
   const bookingMatchesFilter = (booking, filterKey) => {
     switch (filterKey) {
@@ -211,6 +216,31 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
     setBookingDetail(booking);
   };
 
+  const openRatingModal = (booking) => {
+    if (!booking) return;
+    setBookingDetail(null);
+    setRatingBooking(booking);
+    setRatingValue(booking?.myRating || 5);
+    setRatingComment('');
+  };
+
+  const submitBookingRating = async () => {
+    if (!ratingBooking?.id) return;
+
+    try {
+      setRatingSubmitting(true);
+      await rateRide(ratingBooking.id, ratingValue, ratingComment);
+      setRatingBooking(null);
+      setRatingComment('');
+      await loadData();
+      setErrorText('');
+    } catch (e) {
+      setErrorText(e.message || 'Gửi đánh giá thất bại.');
+    } finally {
+      setRatingSubmitting(false);
+    }
+  };
+
   const submitTripDetailBooking = async () => {
     if (!tripDetail || !selectedPickupPointId || !selectedDropoffPointId) {
       setErrorText('Vui lòng chọn điểm đón và điểm trả.');
@@ -224,6 +254,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
         pickupPointId: selectedPickupPointId,
         dropoffPointId: selectedDropoffPointId,
         seatCount,
+        paymentMethod,
       });
 
       setTripDetail(null);
@@ -232,10 +263,36 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
       setSeatCount(1);
       await loadData();
       await runSearch();
+      if (paymentMethod === 'BANK_TRANSFER') {
+        setErrorText('Đã tạo đặt chỗ. Vui lòng xác nhận chuyển khoản để hoàn tất.');
+      }
     } catch (e) {
       setErrorText(e.message || 'Đặt chỗ thất bại.');
     } finally {
       setBookingSubmitting(false);
+    }
+  };
+
+  const isAwaitingBankTransfer = (booking) => {
+    if (!booking) return false;
+    return booking.status === 'pending'
+      && String(booking.paymentMethod || '').toUpperCase() === 'BANK_TRANSFER'
+      && String(booking.paymentStatus || '').toUpperCase() === 'UNPAID';
+  };
+
+  const submitConfirmTransfer = async () => {
+    if (!bookingDetail?.id) return;
+
+    try {
+      setPaymentConfirmSubmitting(true);
+      await confirmBookingPayment(bookingDetail.id);
+      setBookingDetail(null);
+      await loadData();
+      setErrorText('Xác nhận chuyển khoản thành công. Đặt chỗ đã được ghi nhận.');
+    } catch (e) {
+      setErrorText(e.message || 'Xác nhận chuyển khoản thất bại.');
+    } finally {
+      setPaymentConfirmSubmitting(false);
     }
   };
 
@@ -558,6 +615,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
                 formatTime={formatTime}
                 formatCurrency={formatCurrency}
                 onPress={() => openBookingDetail(booking)}
+                onRate={() => openRatingModal(booking)}
               />
             ))}
           </View>
@@ -996,6 +1054,29 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
             <Text style={styles.modalSub}>Số vé: {bookingDetail?.seatCount || 1}</Text>
             <Text style={styles.modalSub}>Tổng tiền: {formatCurrency(bookingDetail?.price)}</Text>
             <Text style={styles.modalSub}>Tài xế: {bookingDetail?.driverName} | ⭐ {bookingDetail?.driverRating || 0}</Text>
+            <Text style={styles.modalSub}>Thanh toán: {bookingDetail?.paymentMethod === 'BANK_TRANSFER' ? 'Chuyển khoản' : 'Tiền mặt'}</Text>
+            <Text style={styles.modalSub}>Trạng thái thanh toán: {bookingDetail?.paymentStatus === 'PAID' ? 'Đã thanh toán' : 'Chưa thanh toán'}</Text>
+
+            {isAwaitingBankTransfer(bookingDetail) && (
+              <TouchableOpacity style={styles.payNowBtn} onPress={submitConfirmTransfer} disabled={paymentConfirmSubmitting}>
+                <Ionicons name="card-outline" size={15} color="#FFFFFF" />
+                <Text style={styles.payNowBtnText}>{paymentConfirmSubmitting ? 'Đang xác nhận...' : 'Tôi đã chuyển khoản'}</Text>
+              </TouchableOpacity>
+            )}
+
+            {bookingDetail?.status === 'completed' && !bookingDetail?.hasRated && (
+              <TouchableOpacity style={styles.rateBtn} onPress={() => openRatingModal(bookingDetail)}>
+                <Ionicons name="star" size={15} color="#FFFFFF" />
+                <Text style={styles.rateBtnText}>Đánh giá chuyến đi</Text>
+              </TouchableOpacity>
+            )}
+
+            {bookingDetail?.hasRated && (
+              <View style={styles.ratedInfoRow}>
+                <Ionicons name="star" size={14} color="#F59E0B" />
+                <Text style={styles.ratedInfoText}>Bạn đã đánh giá {bookingDetail?.myRating || 0}/5</Text>
+              </View>
+            )}
 
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.confirmBtn} onPress={() => setBookingDetail(null)}>
@@ -1006,12 +1087,60 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
         </View>
       </Modal>
 
+      <Modal visible={!!ratingBooking} transparent animationType="fade" onRequestClose={() => setRatingBooking(null)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalTitleRow}>
+              <Ionicons name="star" size={20} color="#00B14F" />
+              <Text style={styles.modalTitle}>Đánh giá chuyến đi</Text>
+            </View>
+
+            <Text style={styles.modalSub}>Tài xế: {ratingBooking?.driverName || '--'}</Text>
+            <Text style={styles.modalSub}>Lộ trình: {ratingBooking?.from} - {ratingBooking?.to}</Text>
+
+            <Text style={styles.inputLabel}>Số sao</Text>
+            <View style={styles.ratingStarsRow}>
+              {[1, 2, 3, 4, 5].map((star) => {
+                const active = ratingValue >= star;
+                return (
+                  <TouchableOpacity key={`star-${star}`} onPress={() => setRatingValue(star)} style={styles.ratingStarBtn}>
+                    <Ionicons name={active ? 'star' : 'star-outline'} size={26} color={active ? '#F59E0B' : '#94A3B8'} />
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <Text style={styles.inputLabel}>Nhận xét (tuỳ chọn)</Text>
+            <TextInput
+              style={styles.reviewTextInput}
+              value={ratingComment}
+              onChangeText={setRatingComment}
+              multiline
+              numberOfLines={4}
+              placeholder="Chia sẻ trải nghiệm chuyến đi của bạn"
+              textAlignVertical="top"
+              maxLength={500}
+            />
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setRatingBooking(null)} disabled={ratingSubmitting}>
+                <Text style={styles.cancelBtnText}>Hủy</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.confirmBtn} onPress={submitBookingRating} disabled={ratingSubmitting}>
+                <Text style={styles.confirmBtnText}>{ratingSubmitting ? 'Đang gửi...' : 'Gửi đánh giá'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
     </>
   );
 };
 
-const BookingCard = ({ booking, formatTime, formatCurrency, onPress }) => {
+const BookingCard = ({ booking, formatTime, formatCurrency, onPress, onRate }) => {
   const status = STATUS_CONFIG[booking.status] || STATUS_CONFIG.pending;
+  const canRate = booking.status === 'completed' && !booking.hasRated;
 
   return (
     <TouchableOpacity style={styles.bookingCard} onPress={onPress} activeOpacity={0.9}>
@@ -1051,6 +1180,23 @@ const BookingCard = ({ booking, formatTime, formatCurrency, onPress }) => {
         <Text style={styles.bookingPrice}>{formatCurrency(booking.price)}</Text>
         <Ionicons name="chevron-forward-circle" size={20} color="#94A3B8" />
       </View>
+
+      {(canRate || booking.hasRated) && (
+        <View style={styles.bookingRateRow}>
+          {canRate && (
+            <TouchableOpacity style={styles.bookingRateBtn} onPress={onRate}>
+              <Ionicons name="star" size={14} color="#FFFFFF" />
+              <Text style={styles.bookingRateBtnText}>Đánh giá</Text>
+            </TouchableOpacity>
+          )}
+          {booking.hasRated && (
+            <View style={styles.bookingRatedBadge}>
+              <Ionicons name="star" size={12} color="#F59E0B" />
+              <Text style={styles.bookingRatedBadgeText}>{booking.myRating || 0}/5</Text>
+            </View>
+          )}
+        </View>
+      )}
     </TouchableOpacity>
   );
 };
@@ -1376,6 +1522,28 @@ const styles = StyleSheet.create({
   bookingRouteSub: { fontSize: 12, color: '#64748B', marginTop: 2 },
   bookingBottomRow: { flexDirection: 'row', alignItems: 'center', marginTop: 12, gap: 8 },
   bookingPrice: { marginLeft: 'auto', fontSize: 16, fontWeight: '900', color: '#008A3E' },
+  bookingRateRow: { marginTop: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  bookingRateBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#0F172A',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  bookingRateBtnText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
+  bookingRatedBadge: {
+    marginLeft: 'auto',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#FFFBEB',
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+  },
+  bookingRatedBadgeText: { color: '#92400E', fontSize: 11, fontWeight: '800' },
 
   modalOverlay: {
     flex: 1,
@@ -1559,6 +1727,53 @@ const styles = StyleSheet.create({
   modalTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
   modalTitle: { fontSize: 18, fontWeight: '800', color: '#0F172A', marginBottom: 6 },
   modalSub: { color: '#475569', marginBottom: 4 },
+  rateBtn: {
+    marginTop: 8,
+    borderRadius: 10,
+    backgroundColor: '#0F172A',
+    paddingVertical: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 7,
+  },
+  rateBtnText: { color: '#FFFFFF', fontWeight: '800', fontSize: 13 },
+  payNowBtn: {
+    marginTop: 8,
+    borderRadius: 10,
+    backgroundColor: '#00B14F',
+    paddingVertical: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 7,
+  },
+  payNowBtnText: { color: '#FFFFFF', fontWeight: '800', fontSize: 13 },
+  ratedInfoRow: {
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#FFFBEB',
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+  },
+  ratedInfoText: { color: '#92400E', fontWeight: '700', fontSize: 12 },
+  ratingStarsRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6, marginBottom: 8 },
+  ratingStarBtn: { paddingVertical: 6, paddingHorizontal: 2 },
+  reviewTextInput: {
+    borderWidth: 1,
+    borderColor: '#DCE3EA',
+    borderRadius: 10,
+    backgroundColor: '#FAFCFF',
+    minHeight: 92,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    color: '#0F172A',
+    fontSize: 13,
+    marginTop: 4,
+  },
   infoSection: {
     borderWidth: 1,
     borderColor: '#E2E8F0',

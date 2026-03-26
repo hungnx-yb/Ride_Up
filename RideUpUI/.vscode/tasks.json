@@ -1,0 +1,15 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Run RideUpUI Web",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"web"
+			],
+			"isBackground": true
+		}
+	]
+}

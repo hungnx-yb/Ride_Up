@@ -245,7 +245,7 @@ public class DriverTripService {
                 continue;
             }
 
-            if (booking.getStatus() == BookingStatus.PENDING || booking.getStatus() == BookingStatus.CONFIRMED) {
+            if (booking.getStatus() == BookingStatus.CONFIRMED) {
                 booking.setStatus(BookingStatus.CONFIRMED);
                 if (booking.getConfirmedAt() == null) {
                     booking.setConfirmedAt(startedAt);
@@ -267,7 +267,7 @@ public class DriverTripService {
                 continue;
             }
 
-            if (booking.getStatus() == BookingStatus.PENDING || booking.getStatus() == BookingStatus.CONFIRMED) {
+            if (booking.getStatus() == BookingStatus.CONFIRMED) {
                 booking.setStatus(BookingStatus.COMPLETED);
                 if (booking.getConfirmedAt() == null) {
                     booking.setConfirmedAt(completedAt);

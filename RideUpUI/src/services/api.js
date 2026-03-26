@@ -547,6 +547,18 @@ export const bookRide = async (payload) => {
   return res.data?.result ?? res.data;
 };
 
+/** Xác nhận đã chuyển khoản cho booking */
+export const confirmBookingPayment = async (bookingId, transactionId) => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(800);
+    return { success: true, bookingId, status: 'confirmed' };
+  }
+  const res = await apiClient.post(`/customer/bookings/${bookingId}/payment/confirm`, {
+    transactionId,
+  });
+  return res.data?.result ?? res.data;
+};
+
 /** Đánh giá chuyến xe */
 export const rateRide = async (bookingId, rating, comment) => {
   if (USE_MOCK_DATA) {

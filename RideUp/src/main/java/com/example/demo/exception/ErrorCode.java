@@ -27,7 +27,13 @@ public enum ErrorCode {
     TRIP_CANCEL_NOT_ALLOWED(1023, "Trip cannot be cancelled at current status", HttpStatus.BAD_REQUEST),
     TRIP_START_NOT_ALLOWED(1024, "Trip cannot be started at current status", HttpStatus.BAD_REQUEST),
     TRIP_COMPLETE_NOT_ALLOWED(1025, "Trip cannot be completed at current status", HttpStatus.BAD_REQUEST),
-    TRIP_START_BEFORE_SCHEDULE(1026, "Chua den gio khoi hanh. Ban chi co the bat dau chuyen sau thoi gian da khai bao", HttpStatus.BAD_REQUEST);
+    TRIP_START_BEFORE_SCHEDULE(1026, "Chua den gio khoi hanh. Ban chi co the bat dau chuyen sau thoi gian da khai bao", HttpStatus.BAD_REQUEST),
+    BOOKING_NOT_FOUND(1027, "Booking not found", HttpStatus.NOT_FOUND),
+    REVIEW_ALREADY_EXISTS(1028, "Booking already reviewed", HttpStatus.BAD_REQUEST),
+    REVIEW_NOT_ALLOWED(1029, "Only completed bookings can be reviewed", HttpStatus.BAD_REQUEST),
+    REVIEW_INVALID_RATING(1030, "Rating must be between 1 and 5", HttpStatus.BAD_REQUEST),
+    PAYMENT_NOT_FOUND(1031, "Payment not found", HttpStatus.NOT_FOUND),
+    PAYMENT_CONFIRM_NOT_ALLOWED(1032, "Payment confirmation is not allowed", HttpStatus.BAD_REQUEST);
 
     private Integer code;
     private String message;

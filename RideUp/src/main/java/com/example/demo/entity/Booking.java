@@ -79,6 +79,10 @@ public class Booking {
     @OneToOne(mappedBy = "booking", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     Payment payment;
 
+    // Đánh giá chuyến đi (1-1)
+    @OneToOne(mappedBy = "booking", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    BookingReview review;
+
     // Khoảng cách pickup→dropoff của khách (từ Routing API), đơn vị km
     @Column(name = "distance_km", precision = 10, scale = 2)
     BigDecimal distanceKm;
