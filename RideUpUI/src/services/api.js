@@ -23,6 +23,8 @@ export const USE_MOCK_DATA = false;
 // ── Token module-level (loaded on app start) ─────────────────
 let _accessToken = null;
 let _refreshToken = null;
+let _isHandlingAuthExpiry = false;
+const _authExpiredListeners = new Set();
 
 export const STORAGE_KEYS = {
   ACCESS_TOKEN: '@rideup_access_token',
@@ -37,6 +39,45 @@ const API_CACHE_TTL = {
 };
 
 const _apiCache = new Map();
+
+const _notifyAuthExpired = (reason) => {
+  _authExpiredListeners.forEach((listener) => {
+    try {
+      listener(reason);
+    } catch {
+      // Ignore listener errors to avoid breaking API flow.
+    }
+  });
+};
+
+const _isTokenExpiredError = (error) => {
+  const status = error?.response?.status;
+  const rawMessage = String(
+    error?.response?.data?.message
+    || error?.response?.data?.error
+    || error?.message
+    || ''
+  ).toLowerCase();
+
+  // Some backend flows return 500 with auth-related message (e.g. Redis revoked token).
+  if (/expired|revoked|jwt|token|unauthorized|forbidden|invalid token/.test(rawMessage)) {
+    return true;
+  }
+
+  if (status !== 401 && status !== 403) return false;
+
+  return !!(_accessToken || error?.config?.headers?.Authorization || error?.config?.headers?.authorization);
+};
+
+export const onAuthExpired = (listener) => {
+  if (typeof listener !== 'function') {
+    return () => {};
+  }
+  _authExpiredListeners.add(listener);
+  return () => {
+    _authExpiredListeners.delete(listener);
+  };
+};
 
 // ── Khai báo apiClient TRƯỚC các helper dùng nó ──────────────
 const apiClient = axios.create({
@@ -86,6 +127,19 @@ apiClient.interceptors.response.use(
         }
       }
     }
+    if (_isTokenExpiredError(error) && !_isHandlingAuthExpiry) {
+      _isHandlingAuthExpiry = true;
+      clearStoredAuth()
+        .catch(() => {})
+        .finally(() => {
+          _notifyAuthExpired('TOKEN_EXPIRED');
+          _isHandlingAuthExpiry = false;
+        });
+      const authError = new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+      authError.code = 'AUTH_EXPIRED';
+      return Promise.reject(authError);
+    }
+
     if (!error.response) {
       return Promise.reject(new Error(`Không kết nối được backend (${API_CONFIG.BASE_URL}). Nếu test trên điện thoại thật, hãy đổi localhost thành IP LAN của máy chạy backend.`));
     }
@@ -361,6 +415,52 @@ export const getDriverTrips = async () => {
   return res.data;
 };
 
+export const getDriverTripDetail = async (tripId) => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(500);
+    const trip = MOCK_DRIVER_TRIPS.find((item) => item.id === tripId);
+    if (!trip) {
+      throw new Error('Khong tim thay chuyen xe');
+    }
+
+    const totalSeats = trip.totalSeats || 0;
+    const availableSeats = trip.availableSeats || 0;
+    const bookedSeats = Math.max(0, totalSeats - availableSeats);
+
+    return {
+      ...trip,
+      bookedSeats,
+      estimatedRevenue: (trip.fixedFare || 0) * bookedSeats,
+      pickupPoints: [
+        {
+          id: `${trip.id}-pickup-1`,
+          wardName: trip.pickupProvince,
+          provinceName: trip.pickupProvince,
+          address: `Diem don tai ${trip.pickupProvince}`,
+          sortOrder: 0,
+          time: null,
+          note: null,
+        },
+      ],
+      dropoffPoints: [
+        {
+          id: `${trip.id}-dropoff-1`,
+          wardName: trip.dropoffProvince,
+          provinceName: trip.dropoffProvince,
+          address: `Diem tra tai ${trip.dropoffProvince}`,
+          sortOrder: 0,
+          time: null,
+          note: null,
+        },
+      ],
+      bookings: [],
+    };
+  }
+
+  const res = await apiClient.get(`/driver/trips/${tripId}`);
+  return res.data;
+};
+
 /** Lấy danh sách chuyến của tài xế */
 export const getDriverRides = async () => {
   if (USE_MOCK_DATA) {
@@ -422,6 +522,27 @@ export const updateDriverProfile = async (payload) => {
 export const submitDriverProfile = async (payload) => {
   const res = await apiClient.post('/driver/profile/submit', payload || {});
   return res.data;
+};
+
+export const uploadFile = async ({ uri, name, type }) => {
+  if (!uri) {
+    throw new Error('Khong tim thay tep de tai len');
+  }
+
+  const formData = new FormData();
+  formData.append('file', {
+    uri,
+    name: name || `upload_${Date.now()}.jpg`,
+    type: type || 'image/jpeg',
+  });
+
+  const res = await apiClient.post('/file/upload', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+
+  return res.data?.result || res.data;
 };
 
 /** Không còn dùng - khách thanh toán là có chỗ luôn */

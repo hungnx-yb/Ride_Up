@@ -6,6 +6,7 @@ import {
 } from 'react-native';
 import { COLORS } from '../../config/config';
 import { getDriverTrips, getDriverStats } from '../../services/api';
+import DriverBottomNav from '../../components/DriverBottomNav';
 import {
   ensureApprovedProfileBeforeCreateTrip,
   ensureApprovedProfileForTripFeature,
@@ -144,16 +145,17 @@ const DriverHomeScreen = ({ user, onLogout, navigation }) => {
   const listTranslate   = listAnim.interpolate({ inputRange: [0, 1], outputRange: [40, 0] });
 
   return (
-    <ScrollView
-      style={styles.container}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          tintColor={THEME.gradientStart}
-          onRefresh={() => { setRefreshing(true); loadData(true); }}
-        />
-      }
-    >
+    <View style={styles.screen}>
+      <ScrollView
+        style={styles.container}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            tintColor={THEME.gradientStart}
+            onRefresh={() => { setRefreshing(true); loadData(true); }}
+          />
+        }
+      >
       {/* ── Header (orange-red gradient) ── */}
       <Animated.View style={[styles.header, { opacity: headerAnim, transform: [{ translateY: headerTranslate }] }]}>
         <View style={styles.headerPattern} />
@@ -262,13 +264,15 @@ const DriverHomeScreen = ({ user, onLogout, navigation }) => {
 
       <View style={styles.bottomPad} />
 
-      <ProfileApprovalModal
-        visible={approvalModalVisible}
-        message={approvalModalMessage}
-        onClose={() => setApprovalModalVisible(false)}
-        onGoProfile={goToDriverProfile}
-      />
-    </ScrollView>
+        <ProfileApprovalModal
+          visible={approvalModalVisible}
+          message={approvalModalMessage}
+          onClose={() => setApprovalModalVisible(false)}
+          onGoProfile={goToDriverProfile}
+        />
+      </ScrollView>
+      <DriverBottomNav navigation={navigation} activeKey="home" />
+    </View>
   );
 };
 
@@ -323,6 +327,7 @@ const EmptyCard = ({ text, btnText, onPress }) => (
 // ─── Styles ──────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
+  screen:           { flex: 1, backgroundColor: COLORS.background },
   container:        { flex: 1, backgroundColor: COLORS.background },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background },
   loadingText:      { marginTop: 12, color: COLORS.textLight },
@@ -424,7 +429,7 @@ const styles = StyleSheet.create({
   },
   emptyBtnText: { color: COLORS.white, fontWeight: '700', fontSize: 14 },
 
-  bottomPad: { height: 32 },
+  bottomPad: { height: 106 },
 });
 
 export default DriverHomeScreen;

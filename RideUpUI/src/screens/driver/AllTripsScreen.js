@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  FlatList, ActivityIndicator, RefreshControl, ScrollView,
+  FlatList, ActivityIndicator, ScrollView,
   Alert, Modal, TextInput,
 } from 'react-native';
 import { COLORS } from '../../config/config';
 import { getDriverTrips, cancelDriverTrip, startDriverTrip, completeDriverTrip } from '../../services/api';
+import DriverBottomNav from '../../components/DriverBottomNav';
 import {
   ensureApprovedProfileBeforeCreateTrip,
   ensureApprovedProfileForTripFeature,
@@ -26,11 +27,11 @@ const STATUS_CONFIG = {
 };
 
 const TABS = [
-  { key: 'all',       label: 'Tất cả', icon: '🧭' },
-  { key: 'scheduled', label: 'Đã lên lịch', icon: '📅' },
-  { key: 'ongoing',   label: 'Đang chạy', icon: '🚗' },
-  { key: 'completed', label: 'Hoàn thành', icon: '✅' },
-  { key: 'cancelled', label: 'Đã hủy', icon: '❌' },
+  { key: 'all', label: 'Tất cả', dot: '#9CA3AF' },
+  { key: 'scheduled', label: 'Đã lên lịch', dot: '#3B82F6' },
+  { key: 'ongoing', label: 'Đang chạy', dot: '#10B981' },
+  { key: 'completed', label: 'Hoàn thành', dot: '#64748B' },
+  { key: 'cancelled', label: 'Đã hủy', dot: '#EF4444' },
 ];
 
 const parseTripDeparture = (trip) => {
@@ -52,7 +53,7 @@ const parseTripDeparture = (trip) => {
 };
 
 // ─── Trip Card ────────────────────────────────────────────
-const TripCard = ({ trip, routeName, onCancel, onStart, onComplete, actioning }) => {
+const TripCard = ({ trip, routeName, onCancel, onStart, onComplete, onViewDetail, actioning }) => {
   const cfg   = STATUS_CONFIG[trip.status] ?? STATUS_CONFIG.scheduled;
   const filled = trip.totalSeats - trip.availableSeats;
   const fillPct = Math.round((filled / trip.totalSeats) * 100);
@@ -99,47 +100,57 @@ const TripCard = ({ trip, routeName, onCancel, onStart, onComplete, actioning })
           <Text style={styles.farePerSeat}>
             {trip.fixedFare.toLocaleString('vi-VN')} đ/ghế
           </Text>
-          {trip.status === 'scheduled' && (
-            <View style={styles.actionBtnsRow}>
+          <View style={styles.actionBtnsRow}>
+            {trip.status === 'scheduled' && (
+              <>
+                <TouchableOpacity
+                  style={[styles.startBtn, actioning && styles.cancelBtnDisabled]}
+                  onPress={() => onStart?.(trip)}
+                  disabled={actioning}
+                >
+                  {actioning ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <Text style={styles.startBtnText}>Bắt đầu</Text>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.cancelBtn, actioning && styles.cancelBtnDisabled]}
+                  onPress={() => onCancel?.(trip)}
+                  disabled={actioning}
+                >
+                  {actioning ? (
+                    <ActivityIndicator color="#B71C1C" size="small" />
+                  ) : (
+                    <Text style={styles.cancelBtnText}>Hủy</Text>
+                  )}
+                </TouchableOpacity>
+              </>
+            )}
+
+            {trip.status === 'ongoing' && (
               <TouchableOpacity
-                style={[styles.startBtn, actioning && styles.cancelBtnDisabled]}
-                onPress={() => onStart?.(trip)}
+                style={[styles.completeBtn, actioning && styles.cancelBtnDisabled]}
+                onPress={() => onComplete?.(trip)}
                 disabled={actioning}
               >
                 {actioning ? (
                   <ActivityIndicator color="#fff" size="small" />
                 ) : (
-                  <Text style={styles.startBtnText}>Bắt đầu chuyến</Text>
+                  <Text style={styles.completeBtnText}>Kết thúc</Text>
                 )}
               </TouchableOpacity>
+            )}
 
-              <TouchableOpacity
-                style={[styles.cancelBtn, actioning && styles.cancelBtnDisabled]}
-                onPress={() => onCancel?.(trip)}
-                disabled={actioning}
-              >
-                {actioning ? (
-                  <ActivityIndicator color="#B71C1C" size="small" />
-                ) : (
-                  <Text style={styles.cancelBtnText}>Hủy chuyến</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {trip.status === 'ongoing' && (
             <TouchableOpacity
-              style={[styles.completeBtn, actioning && styles.cancelBtnDisabled]}
-              onPress={() => onComplete?.(trip)}
+              style={styles.detailBtn}
+              onPress={() => onViewDetail?.(trip)}
               disabled={actioning}
             >
-              {actioning ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <Text style={styles.completeBtnText}>Kết thúc chuyến</Text>
-              )}
+              <Text style={styles.detailBtnText}>Chi tiết</Text>
             </TouchableOpacity>
-          )}
+          </View>
         </View>
       </View>
     </View>
@@ -302,6 +313,11 @@ const AllTripsScreen = ({ navigation }) => {
     }
   }, []);
 
+  const handleViewDetail = useCallback((trip) => {
+    if (!trip?.id) return;
+    navigation?.navigate('TripDetail', { tripId: trip.id });
+  }, [navigation]);
+
   const filtered = activeTab === 'all'
     ? trips
     : trips.filter(t => t.status === activeTab);
@@ -357,7 +373,7 @@ const AllTripsScreen = ({ navigation }) => {
             style={[styles.tab, activeTab === tab.key && styles.tabActive]}
             onPress={() => setActiveTab(tab.key)}
           >
-            <Text style={styles.tabIcon}>{tab.icon}</Text>
+            <View style={[styles.tabDot, { backgroundColor: tab.dot }]} />
             <Text style={[styles.tabText, activeTab === tab.key && styles.tabTextActive]} numberOfLines={1}>{tab.label}</Text>
             <View style={[styles.tabCountBadge, activeTab === tab.key && styles.tabCountBadgeActive]}>
               <Text style={[styles.tabCount, activeTab === tab.key && styles.tabCountActive]}>{getTabCount(tab.key)}</Text>
@@ -371,13 +387,8 @@ const AllTripsScreen = ({ navigation }) => {
         data={filtered}
         keyExtractor={item => item.id}
         contentContainerStyle={styles.list}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => { setRefreshing(true); loadData(); }}
-            tintColor={THEME.accent}
-          />
-        }
+        refreshing={refreshing}
+        onRefresh={() => { setRefreshing(true); loadData(); }}
         ListEmptyComponent={
           <View style={styles.emptyBox}>
             <Text style={styles.emptyIcon}>🗓️</Text>
@@ -403,10 +414,11 @@ const AllTripsScreen = ({ navigation }) => {
             onCancel={handleCancelTrip}
             onStart={handleStartTrip}
             onComplete={handleCompleteTrip}
+            onViewDetail={handleViewDetail}
             actioning={cancelingTripId === item.id || processingTripId === item.id}
           />
         )}
-        ListFooterComponent={<View style={{ height: 30 }} />}
+        ListFooterComponent={<View style={{ height: 110 }} />}
       />
 
       <Modal
@@ -465,6 +477,8 @@ const AllTripsScreen = ({ navigation }) => {
         onClose={() => setApprovalModalVisible(false)}
         onGoProfile={goToDriverProfile}
       />
+
+      <DriverBottomNav navigation={navigation} activeKey="trips" />
     </View>
   );
 };
@@ -540,9 +554,9 @@ const styles = StyleSheet.create({
   tab: {
     flexDirection: 'row',
     alignItems: 'center',
-    height: 34,
+    minHeight: 36,
     paddingVertical: 0,
-    paddingHorizontal: 9,
+    paddingHorizontal: 12,
     borderRadius: 999,
     marginRight: 6,
     backgroundColor: '#F3F4F6',
@@ -556,17 +570,19 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#FFC9A6',
   },
-  tabIcon: { fontSize: 13 },
-  tabText: { fontSize: 12, color: '#7A7D86', fontWeight: '700', marginLeft: 5 },
+  tabDot: { width: 8, height: 8, borderRadius: 99 },
+  tabText: { fontSize: 12, color: '#7A7D86', fontWeight: '700', marginLeft: 7 },
   tabTextActive: { color: THEME.gradientStart, fontWeight: '800' },
   tabCountBadge: {
-    marginLeft: 5,
+    marginLeft: 7,
     backgroundColor: '#FFFFFF',
     borderRadius: 10,
-    paddingHorizontal: 6,
+    minWidth: 22,
+    paddingHorizontal: 5,
     paddingVertical: 1,
     borderWidth: 1,
     borderColor: '#E5E7EB',
+    alignItems: 'center',
   },
   tabCountBadgeActive: {
     borderColor: '#FFBA8A',
@@ -607,40 +623,53 @@ const styles = StyleSheet.create({
   actionBtnsRow: {
     flexDirection: 'row',
     marginTop: 8,
-    gap: 8,
+    gap: 6,
   },
   startBtn: {
     backgroundColor: '#166534',
     borderRadius: 9,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     paddingVertical: 6,
     alignItems: 'center',
     justifyContent: 'center',
+    minWidth: 78,
   },
   startBtnText: { color: '#fff', fontSize: 12, fontWeight: '800' },
   cancelBtn: {
-    marginTop: 8,
     backgroundColor: '#FFF5F5',
     borderWidth: 1,
     borderColor: '#FECACA',
     borderRadius: 9,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     paddingVertical: 6,
-    minWidth: 92,
+    minWidth: 70,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   cancelBtnDisabled: { opacity: 0.7 },
   cancelBtnText: { color: '#B71C1C', fontSize: 12, fontWeight: '800' },
   completeBtn: {
-    marginTop: 8,
     backgroundColor: '#0F766E',
     borderRadius: 9,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     paddingVertical: 6,
     alignItems: 'center',
     justifyContent: 'center',
+    minWidth: 84,
   },
   completeBtnText: { color: '#fff', fontSize: 12, fontWeight: '800' },
+  detailBtn: {
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    borderRadius: 9,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    alignItems: 'center',
+    backgroundColor: '#FFFBEB',
+    minWidth: 76,
+    justifyContent: 'center',
+  },
+  detailBtnText: { color: '#92400E', fontSize: 12, fontWeight: '800' },
 
   // Empty
   emptyBox:      { alignItems: 'center', paddingTop: 36 },
