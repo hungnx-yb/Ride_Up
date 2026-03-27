@@ -680,6 +680,20 @@ export const confirmBookingPayment = async (bookingId, transactionId) => {
   return res.data?.result ?? res.data;
 };
 
+/** Chat hỗ trợ CSKH (FAQ + tra cứu booking/thanh toán) */
+export const supportChat = async (message) => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(500);
+    return {
+      intent: 'FAQ',
+      reply: 'Đây là phản hồi mock. Bạn có thể hỏi về hủy chuyến, thanh toán, kiểm tra booking gần nhất.',
+      suggestions: ['Kiểm tra booking gần nhất', 'Tôi muốn hủy chuyến'],
+    };
+  }
+  const res = await apiClient.post('/support/chat', { message });
+  return res.data?.result ?? res.data;
+};
+
 /** Đánh giá chuyến xe */
 export const rateRide = async (bookingId, rating, comment) => {
   if (USE_MOCK_DATA) {

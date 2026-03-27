@@ -11,11 +11,12 @@ import {
   Modal,
   Image,
   ImageBackground,
+  Linking,
   useWindowDimensions,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { COLORS } from '../../config/config';
-import { getCustomerBookings, searchRidesAdvanced, bookRide, confirmBookingPayment, rateRide } from '../../services/api';
+import { getCustomerBookings, searchRidesAdvanced, bookRide, confirmBookingPayment, rateRide, supportChat } from '../../services/api';
 import ProvincePicker from '../../components/ProvincePicker';
 import WardPicker from '../../components/WardPicker';
 
@@ -89,6 +90,17 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
   const [ratingComment, setRatingComment] = useState('');
   const [ratingSubmitting, setRatingSubmitting] = useState(false);
   const [paymentConfirmSubmitting, setPaymentConfirmSubmitting] = useState(false);
+  const [showSupportCenter, setShowSupportCenter] = useState(false);
+  const [messageView, setMessageView] = useState('drivers');
+  const [supportInput, setSupportInput] = useState('');
+  const [supportSending, setSupportSending] = useState(false);
+  const [supportMessages, setSupportMessages] = useState([
+    {
+      id: `bot-${Date.now()}`,
+      role: 'bot',
+      text: 'Xin chào, mình là Trợ lý RideUp. Bạn có thể hỏi FAQ hoặc gõ "kiểm tra booking gần nhất".',
+    },
+  ]);
 
   const [errorText, setErrorText] = useState('');
   const scrollRef = useRef(null);
@@ -296,6 +308,36 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
     }
   };
 
+  const submitSupportMessage = async (overrideMessage) => {
+    const message = String(overrideMessage ?? supportInput ?? '').trim();
+    if (!message || supportSending) return;
+
+    const userMessage = { id: `user-${Date.now()}`, role: 'user', text: message };
+    setSupportMessages((prev) => [...prev, userMessage]);
+    if (overrideMessage === undefined) {
+      setSupportInput('');
+    }
+
+    try {
+      setSupportSending(true);
+      const result = await supportChat(message);
+      const replyText = result?.reply || 'Mình chưa có phản hồi phù hợp, bạn thử hỏi lại giúp mình.';
+      const suggestions = Array.isArray(result?.suggestions) ? result.suggestions.filter(Boolean) : [];
+      const fullText = suggestions.length > 0
+        ? `${replyText}\n\nGợi ý: ${suggestions.join(' | ')}`
+        : replyText;
+
+      setSupportMessages((prev) => [...prev, { id: `bot-${Date.now()}`, role: 'bot', text: fullText }]);
+    } catch (e) {
+      setSupportMessages((prev) => [
+        ...prev,
+        { id: `bot-${Date.now()}`, role: 'bot', text: e.message || 'Không thể kết nối trợ lý lúc này.' },
+      ]);
+    } finally {
+      setSupportSending(false);
+    }
+  };
+
   const onSelectFromProvince = (province) => {
     setFromProvince(province);
     setFromWard(null);
@@ -322,6 +364,29 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
 
   const openMessages = () => {
     setActiveFooterTab('messages');
+    setMessageView('drivers');
+  };
+
+  const openSupportCenter = () => {
+    setShowSupportCenter(true);
+  };
+
+  const openSupportChat = () => {
+    setShowSupportCenter(false);
+    setActiveFooterTab('messages');
+    setMessageView('assistant');
+  };
+
+  const callSupportHotline = async () => {
+    const hotlineUrl = 'tel:19001234';
+    try {
+      const canCall = await Linking.canOpenURL(hotlineUrl);
+      if (canCall) {
+        await Linking.openURL(hotlineUrl);
+      }
+    } catch (e) {
+      setErrorText('Không thể mở ứng dụng gọi điện trên thiết bị này.');
+    }
   };
 
   const today = new Date();
@@ -732,6 +797,12 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
             <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
           </TouchableOpacity>
 
+          <TouchableOpacity style={styles.accountMenuItem} activeOpacity={0.9} onPress={openSupportCenter}>
+            <Ionicons name="headset-outline" size={18} color="#00B14F" />
+            <Text style={styles.accountMenuText}>Chăm sóc khách hàng</Text>
+            <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
+          </TouchableOpacity>
+
           <View style={styles.accountLogoutWrap}>
             <TouchableOpacity style={styles.accountLogoutBtn} onPress={onLogout}>
               <Ionicons name="log-out-outline" size={18} color="#fff" />
@@ -755,6 +826,72 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
         </View>
 
         <View style={[styles.section, { paddingHorizontal: horizontalGutter, marginTop: sectionTopGap }]}>
+          <View style={styles.messageModeRow}>
+            <TouchableOpacity
+              style={[styles.messageModeBtn, messageView === 'assistant' && styles.messageModeBtnActive]}
+              onPress={() => setMessageView('assistant')}
+              activeOpacity={0.9}
+            >
+              <Ionicons name="sparkles-outline" size={14} color={messageView === 'assistant' ? '#008A3E' : '#64748B'} />
+              <Text style={[styles.messageModeText, messageView === 'assistant' && styles.messageModeTextActive]}>Trợ lý CSKH</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.messageModeBtn, messageView === 'drivers' && styles.messageModeBtnActive]}
+              onPress={() => setMessageView('drivers')}
+              activeOpacity={0.9}
+            >
+              <Ionicons name="chatbubble-ellipses-outline" size={14} color={messageView === 'drivers' ? '#008A3E' : '#64748B'} />
+              <Text style={[styles.messageModeText, messageView === 'drivers' && styles.messageModeTextActive]}>Tin nhắn tài xế</Text>
+            </TouchableOpacity>
+          </View>
+
+          {messageView === 'assistant' && (
+          <View style={styles.supportCard}> 
+            <View style={styles.supportHeadRow}> 
+              <Ionicons name="headset" size={16} color="#00B14F" />
+              <Text style={styles.supportTitle}>Trợ lý RideUp</Text>
+            </View>
+
+            <View style={styles.supportQuickRow}>
+              <TouchableOpacity style={styles.supportQuickBtn} onPress={() => submitSupportMessage('Kiểm tra booking gần nhất')}>
+                <Text style={styles.supportQuickText}>Kiểm tra booking</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.supportQuickBtn} onPress={() => submitSupportMessage('Tôi đã chuyển khoản nhưng chưa xác nhận')}>
+                <Text style={styles.supportQuickText}>Thanh toán</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.supportQuickBtn} onPress={() => submitSupportMessage('Tôi muốn hủy chuyến')}>
+                <Text style={styles.supportQuickText}>Hủy chuyến</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.supportMessagesWrap}>
+              {supportMessages.slice(-6).map((m) => (
+                <View key={m.id} style={[styles.supportBubble, m.role === 'user' ? styles.supportBubbleUser : styles.supportBubbleBot]}>
+                  <Text style={[styles.supportBubbleText, m.role === 'user' && styles.supportBubbleTextUser]}>{m.text}</Text>
+                </View>
+              ))}
+            </View>
+
+            <View style={styles.supportInputRow}>
+              <TextInput
+                style={styles.supportInput}
+                placeholder="Hỏi về thanh toán, booking, hủy chuyến..."
+                value={supportInput}
+                onChangeText={setSupportInput}
+                editable={!supportSending}
+                onSubmitEditing={() => submitSupportMessage()}
+                returnKeyType="send"
+              />
+              <TouchableOpacity style={styles.supportSendBtn} onPress={() => submitSupportMessage()} disabled={supportSending}>
+                <Ionicons name="send" size={14} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
+          </View>
+          )}
+
+          {messageView === 'drivers' && (
+          <>
           <View style={styles.inboxBanner}>
             <Ionicons name="chatbubble-ellipses" size={18} color="#00B14F" />
             <Text style={styles.inboxBannerText}>Bạn có {inboxItems.filter((i) => i.unread).length} tin nhắn chưa đọc</Text>
@@ -783,6 +920,8 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
                 {item.unread && <View style={styles.unreadDot} />}
               </TouchableOpacity>
             ))
+          )}
+          </>
           )}
         </View>
 
@@ -827,6 +966,10 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
           <Text numberOfLines={1} style={[styles.footerText, { fontSize: isSmallPhone ? 9 : 10 }, activeFooterTab === 'account' && styles.footerTextActive]}>Tài khoản</Text>
         </TouchableOpacity>
       </View>
+
+      <TouchableOpacity style={[styles.supportFab, { bottom: isShortPhone ? 86 : 94 }]} onPress={openSupportCenter} activeOpacity={0.9}>
+        <Ionicons name="headset" size={20} color="#FFFFFF" />
+      </TouchableOpacity>
 
       <ProvincePicker
         visible={showFromProvincePicker}
@@ -1128,6 +1271,36 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
               </TouchableOpacity>
               <TouchableOpacity style={styles.confirmBtn} onPress={submitBookingRating} disabled={ratingSubmitting}>
                 <Text style={styles.confirmBtnText}>{ratingSubmitting ? 'Đang gửi...' : 'Gửi đánh giá'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={showSupportCenter} transparent animationType="fade" onRequestClose={() => setShowSupportCenter(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalTitleRow}>
+              <Ionicons name="headset" size={20} color="#00B14F" />
+              <Text style={styles.modalTitle}>Trung tâm hỗ trợ</Text>
+            </View>
+            <Text style={styles.modalSub}>Bạn cần hỗ trợ về chuyến đi, thanh toán hay tài khoản?</Text>
+
+            <TouchableOpacity style={styles.supportActionBtn} onPress={openSupportChat}>
+              <Ionicons name="chatbubble-ellipses-outline" size={17} color="#00B14F" />
+              <Text style={styles.supportActionText}>Chat với CSKH</Text>
+              <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.supportActionBtn} onPress={callSupportHotline}>
+              <Ionicons name="call-outline" size={17} color="#00B14F" />
+              <Text style={styles.supportActionText}>Gọi hotline 1900 1234</Text>
+              <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
+            </TouchableOpacity>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.confirmBtn} onPress={() => setShowSupportCenter(false)}>
+                <Text style={styles.confirmBtnText}>Đóng</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1678,6 +1851,109 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   accountLogoutText: { color: '#FFFFFF', fontSize: 13, fontWeight: '800' },
+  messageModeRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 10,
+  },
+  messageModeBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 999,
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 6,
+  },
+  messageModeBtnActive: {
+    borderColor: '#00B14F',
+    backgroundColor: '#ECFDF3',
+  },
+  messageModeText: { color: '#475569', fontSize: 12, fontWeight: '700' },
+  messageModeTextActive: { color: '#008A3E' },
+  supportCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E5EAF0',
+    padding: 12,
+    marginBottom: 10,
+  },
+  supportHeadRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  supportTitle: { color: '#0F172A', fontWeight: '900', fontSize: 14 },
+  supportQuickRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
+  supportQuickBtn: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#D9F3E4',
+    backgroundColor: '#F1FCF6',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  supportQuickText: { color: '#008A3E', fontSize: 11, fontWeight: '700' },
+  supportMessagesWrap: { gap: 7, marginBottom: 10 },
+  supportBubble: {
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    maxWidth: '90%',
+  },
+  supportBubbleBot: { backgroundColor: '#F1F5F9', alignSelf: 'flex-start' },
+  supportBubbleUser: { backgroundColor: '#00B14F', alignSelf: 'flex-end' },
+  supportBubbleText: { color: '#0F172A', fontSize: 12, lineHeight: 18 },
+  supportBubbleTextUser: { color: '#FFFFFF' },
+  supportInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  supportInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#DCE3EA',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    color: '#0F172A',
+    backgroundColor: '#FAFCFF',
+    fontSize: 13,
+  },
+  supportSendBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 999,
+    backgroundColor: '#00B14F',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  supportFab: {
+    position: 'absolute',
+    right: 14,
+    bottom: 94,
+    width: 48,
+    height: 48,
+    borderRadius: 999,
+    backgroundColor: '#00B14F',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.16,
+    shadowRadius: 8,
+    elevation: 9,
+  },
+  supportActionBtn: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    paddingVertical: 11,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+  },
+  supportActionText: { flex: 1, color: '#0F172A', fontSize: 13, fontWeight: '700' },
   inboxBanner: {
     borderWidth: 1,
     borderColor: '#D9F3E4',
