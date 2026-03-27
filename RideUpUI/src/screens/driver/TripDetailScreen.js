@@ -1,18 +1,26 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Modal,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { COLORS } from '../../config/config';
 import DriverBottomNav from '../../components/DriverBottomNav';
-import { getDriverTripDetail } from '../../services/api';
+import {
+  getChatMessages,
+  getDriverTripDetail,
+  markChatThreadRead,
+  openChatThread,
+  sendChatMessage,
+} from '../../services/api';
 
 const statusText = {
   scheduled: 'Đã lên lịch',
@@ -27,6 +35,21 @@ const fmtDateTime = (dateText, timeText) => {
   if (!dateText) return '--';
   if (!timeText) return dateText;
   return `${dateText} ${timeText}`;
+};
+
+const formatTime = (value) => {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+};
+
+const normalizeDriverMessage = (msg) => {
+  if (!msg) return msg;
+  return {
+    ...msg,
+    mine: String(msg.senderRole || '').toUpperCase() === 'DRIVER',
+  };
 };
 
 const DetailRow = ({ label, value }) => (
@@ -63,7 +86,7 @@ const PointList = ({ title, points }) => (
   </SectionCard>
 );
 
-const BookingCard = ({ booking }) => (
+const BookingCard = ({ booking, canChat, onOpenChat }) => (
   <View style={styles.bookingCard}>
     <Text style={styles.bookingHead}>Booking #{booking.id?.slice?.(0, 8) || '--'}</Text>
     <DetailRow label="Trạng thái" value={booking.status} />
@@ -74,6 +97,15 @@ const BookingCard = ({ booking }) => (
     <DetailRow label="Tên khách" value={booking.customerName || booking.passengerName} />
     <DetailRow label="SĐT" value={booking.contactPhone || booking.customerPhone} />
     <DetailRow label="Email" value={booking.customerEmail} />
+    <View style={styles.chatActionRow}>
+      <TouchableOpacity
+        style={[styles.chatBtn, !canChat && styles.chatBtnDisabled]}
+        disabled={!canChat}
+        onPress={() => onOpenChat?.(booking)}
+      >
+        <Text style={styles.chatBtnText}>{canChat ? 'Chat với khách hàng' : 'Chỉ chat khi chuyến chưa hoàn thành'}</Text>
+      </TouchableOpacity>
+    </View>
 
     <Text style={styles.subTitle}>Hành trình booking</Text>
     <DetailRow label="Điểm đón" value={booking.pickupAddress} />
@@ -101,6 +133,60 @@ const TripDetailScreen = ({ navigation, route }) => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [chatVisible, setChatVisible] = useState(false);
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatSending, setChatSending] = useState(false);
+  const [chatThread, setChatThread] = useState(null);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatDraft, setChatDraft] = useState('');
+  const [chatBooking, setChatBooking] = useState(null);
+  const realtimeRef = useRef(null);
+  const chatScrollRef = useRef(null);
+
+  const appendUniqueMessage = useCallback((incoming) => {
+    if (!incoming?.id) return;
+    setChatMessages((prev) => {
+      const normalizedIncoming = normalizeDriverMessage(incoming);
+      const existed = prev.some((item) => item?.id === normalizedIncoming.id);
+      if (existed) {
+        return prev;
+      }
+      return [...prev, normalizedIncoming];
+    });
+  }, []);
+
+  const stopRealtime = useCallback(() => {
+    realtimeRef.current?.disconnect?.();
+    realtimeRef.current = null;
+  }, []);
+
+  const startRealtime = useCallback((threadId) => {
+    if (!threadId) return;
+    stopRealtime();
+    realtimeRef.current = createChatRealtimeClient({
+      threadId,
+      onMessage: (incoming) => {
+        appendUniqueMessage(incoming);
+      },
+    });
+  }, [appendUniqueMessage, stopRealtime]);
+
+  const refreshChatMessages = useCallback(async (threadId, options = {}) => {
+    if (!threadId) return;
+    const shouldMarkRead = options.markRead !== false;
+    try {
+      const latestMessages = await getChatMessages(threadId, 100);
+      const normalized = Array.isArray(latestMessages)
+        ? latestMessages.map(normalizeDriverMessage)
+        : [];
+      setChatMessages(normalized);
+      if (shouldMarkRead) {
+        await markChatThreadRead(threadId);
+      }
+    } catch (_) {
+      // Ignore transient polling errors to keep chat modal stable.
+    }
+  }, []);
 
   const load = useCallback(async (isRefresh = false) => {
     if (!tripId) {
@@ -126,6 +212,73 @@ const TripDetailScreen = ({ navigation, route }) => {
   }, [load]);
 
   const status = useMemo(() => statusText[data?.status] || data?.status || '--', [data?.status]);
+  const canChatThisTrip = useMemo(() => {
+    const tripStatus = String(data?.status || '').toLowerCase();
+    return tripStatus !== 'completed' && tripStatus !== 'cancelled';
+  }, [data?.status]);
+
+  const closeChatModal = useCallback(() => {
+    stopRealtime();
+    setChatVisible(false);
+    setChatDraft('');
+    setChatMessages([]);
+    setChatThread(null);
+    setChatBooking(null);
+  }, [stopRealtime]);
+
+  const openChatForBooking = useCallback(async (booking) => {
+    if (!canChatThisTrip) {
+      Alert.alert('Thông báo', 'Chỉ chat khi chuyến chưa hoàn thành.');
+      return;
+    }
+    if (!booking?.id) {
+      Alert.alert('Lỗi', 'Không tìm thấy mã booking để chat.');
+      return;
+    }
+    try {
+      setChatVisible(true);
+      setChatLoading(true);
+      setChatBooking(booking);
+      const thread = await openChatThread(booking.id);
+      setChatThread(thread);
+      await refreshChatMessages(thread.id);
+      startRealtime(thread.id);
+    } catch (e) {
+      Alert.alert('Lỗi', e?.message || 'Không mở được cuộc trò chuyện');
+    } finally {
+      setChatLoading(false);
+    }
+  }, [canChatThisTrip, refreshChatMessages, startRealtime]);
+
+  const submitChatMessage = useCallback(async () => {
+    if (!chatThread?.id || !chatDraft.trim()) return;
+    try {
+      setChatSending(true);
+      const sent = await sendChatMessage(chatThread.id, chatDraft.trim());
+      appendUniqueMessage(sent);
+      setChatDraft('');
+    } catch (e) {
+      Alert.alert('Lỗi', e?.message || 'Gửi tin nhắn thất bại');
+    } finally {
+      setChatSending(false);
+    }
+  }, [chatThread?.id, chatDraft, appendUniqueMessage]);
+
+  useEffect(() => {
+    return () => {
+      stopRealtime();
+    };
+  }, [stopRealtime]);
+
+  useEffect(() => {
+    if (!chatVisible || !chatThread?.id) return undefined;
+
+    const syncId = setInterval(() => {
+      refreshChatMessages(chatThread.id, { markRead: false });
+    }, 1500);
+
+    return () => clearInterval(syncId);
+  }, [chatVisible, chatThread?.id, refreshChatMessages]);
 
   if (loading) {
     return (
@@ -189,7 +342,9 @@ const TripDetailScreen = ({ navigation, route }) => {
           <FlatList
             data={data.bookings}
             keyExtractor={(item, index) => item?.id || `booking-${index}`}
-            renderItem={({ item }) => <BookingCard booking={item} />}
+            renderItem={({ item }) => (
+              <BookingCard booking={item} canChat={canChatThisTrip} onOpenChat={openChatForBooking} />
+            )}
             scrollEnabled={false}
           />
         )}
@@ -197,6 +352,67 @@ const TripDetailScreen = ({ navigation, route }) => {
 
         <View style={{ height: 110 }} />
       </ScrollView>
+
+      <Modal visible={chatVisible} transparent animationType="fade" onRequestClose={closeChatModal}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Chat với khách hàng</Text>
+            <Text style={styles.modalSub}>Booking: {chatBooking?.id || '--'}</Text>
+            <Text style={styles.modalSyncHint}>Realtime push đang bật</Text>
+
+            {chatLoading ? (
+              <View style={styles.chatLoadingWrap}>
+                <ActivityIndicator size="small" color="#E65100" />
+                <Text style={styles.chatLoadingText}>Đang tải tin nhắn...</Text>
+              </View>
+            ) : (
+              <ScrollView
+                ref={chatScrollRef}
+                style={styles.chatMessagesList}
+                contentContainerStyle={styles.chatMessagesContent}
+                onContentSizeChange={() => chatScrollRef.current?.scrollToEnd({ animated: true })}
+              >
+                {chatMessages.length === 0 && (
+                  <Text style={styles.chatEmptyText}>Chưa có tin nhắn. Bạn có thể bắt đầu cuộc trò chuyện.</Text>
+                )}
+                {chatMessages.map((msg, idx) => (
+                  <View
+                    key={msg.id || `msg-${idx}`}
+                    style={[styles.chatBubble, msg.mine ? styles.chatBubbleMine : styles.chatBubbleOther]}
+                  >
+                    <Text style={[styles.chatBubbleText, msg.mine && styles.chatBubbleTextMine]}>{msg.content}</Text>
+                    <Text style={[styles.chatBubbleTime, msg.mine && styles.chatBubbleTimeMine]}>{formatTime(msg.sentAt)}</Text>
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+
+            <View style={styles.chatComposerRow}>
+              <TextInput
+                style={styles.chatInput}
+                value={chatDraft}
+                onChangeText={setChatDraft}
+                placeholder="Nhập tin nhắn..."
+                maxLength={2000}
+              />
+              <TouchableOpacity
+                style={[styles.chatSendBtn, (chatSending || !chatDraft.trim()) && styles.chatSendBtnDisabled]}
+                onPress={submitChatMessage}
+                disabled={chatSending || !chatDraft.trim()}
+              >
+                <Text style={styles.chatSendBtnText}>Gửi</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.closeBtn} onPress={closeChatModal}>
+                <Text style={styles.closeBtnText}>Đóng</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <DriverBottomNav navigation={navigation} activeKey="trips" />
     </View>
   );
@@ -291,6 +507,159 @@ const styles = StyleSheet.create({
   },
   bookingHead: { color: '#1F2937', fontWeight: '800', fontSize: 13, marginBottom: 7 },
   subTitle: { marginTop: 8, marginBottom: 4, color: '#B45309', fontWeight: '800', fontSize: 12 },
+  chatActionRow: {
+    marginBottom: 8,
+  },
+  chatBtn: {
+    backgroundColor: '#E65100',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+  },
+  chatBtnDisabled: {
+    backgroundColor: '#D1D5DB',
+  },
+  chatBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  modalCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 14,
+    maxHeight: '78%',
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  modalSub: {
+    marginTop: 4,
+    marginBottom: 4,
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  modalSyncHint: {
+    marginBottom: 10,
+    fontSize: 11,
+    color: '#9CA3AF',
+  },
+  chatLoadingWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    gap: 8,
+  },
+  chatLoadingText: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  chatMessagesList: {
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 10,
+    maxHeight: 320,
+    backgroundColor: '#F9FAFB',
+  },
+  chatMessagesContent: {
+    padding: 10,
+    gap: 8,
+  },
+  chatEmptyText: {
+    color: '#6B7280',
+    fontSize: 12,
+    textAlign: 'center',
+    marginVertical: 10,
+  },
+  chatBubble: {
+    maxWidth: '88%',
+    borderRadius: 10,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+  },
+  chatBubbleMine: {
+    alignSelf: 'flex-end',
+    backgroundColor: '#E65100',
+  },
+  chatBubbleOther: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#E5E7EB',
+  },
+  chatBubbleText: {
+    color: '#111827',
+    fontSize: 13,
+  },
+  chatBubbleTextMine: {
+    color: '#FFFFFF',
+  },
+  chatBubbleTime: {
+    fontSize: 10,
+    color: '#4B5563',
+    marginTop: 4,
+    textAlign: 'right',
+  },
+  chatBubbleTimeMine: {
+    color: '#FDE68A',
+  },
+  chatComposerRow: {
+    flexDirection: 'row',
+    marginTop: 10,
+    gap: 8,
+    alignItems: 'center',
+  },
+  chatInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 13,
+    color: '#111827',
+    backgroundColor: '#FFFFFF',
+  },
+  chatSendBtn: {
+    backgroundColor: '#E65100',
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  chatSendBtnDisabled: {
+    backgroundColor: '#D1D5DB',
+  },
+  chatSendBtnText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  modalActions: {
+    marginTop: 10,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
+  closeBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: '#E5E7EB',
+  },
+  closeBtnText: {
+    color: '#111827',
+    fontSize: 12,
+    fontWeight: '700',
+  },
 });
 
 export default TripDetailScreen;

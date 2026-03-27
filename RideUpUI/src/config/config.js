@@ -6,7 +6,7 @@
 export const API_CONFIG = {
   // Backend context-path: /rideUp, port: 8080
   // Thay IP bên dưới theo máy đang chạy backend (dùng IP LAN, không dùng localhost trên thiết bị thật)
-  BASE_URL: 'http://localhost:8080/rideUp',
+  BASE_URL: 'http://192.168.1.26:8080/rideUp',
   TIMEOUT: 30000,
 };
 

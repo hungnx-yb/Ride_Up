@@ -55,6 +55,7 @@ public class DriverTripService {
     TripRepository tripRepository;
     ProvinceRepository provinceRepository;
     WardRepository wardRepository;
+    ChatService chatService;
 
     DateTimeFormatter isoDate = DateTimeFormatter.ISO_LOCAL_DATE;
     DateTimeFormatter viDate = DateTimeFormatter.ofPattern("dd/MM/yyyy");
@@ -212,6 +213,7 @@ public class DriverTripService {
         markBookingsCancelledByDriver(trip, reason);
 
         Trip saved = tripRepository.save(trip);
+        chatService.closeThreadsByTripId(saved.getId(), "Trip was cancelled by driver");
 
         List<Trip> routeTemplates = tripRepository.findByDriverIdAndDepartureTimeIsNullOrderByUpdatedAtDesc(driverProfile.getId());
         return toTripResponse(saved, routeTemplates);
@@ -265,6 +267,7 @@ public class DriverTripService {
         markBookingsCompleted(trip, now);
 
         Trip saved = tripRepository.save(trip);
+        chatService.closeThreadsByTripId(saved.getId(), "Trip has been completed");
         List<Trip> routeTemplates = tripRepository.findByDriverIdAndDepartureTimeIsNullOrderByUpdatedAtDesc(driverProfile.getId());
         return toTripResponse(saved, routeTemplates);
     }

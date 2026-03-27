@@ -46,6 +46,7 @@ public class CustomerBookingService {
     TripRepository tripRepository;
     BookingRepository bookingRepository;
         BookingReviewRepository bookingReviewRepository;
+        ChatService chatService;
     UserService userService;
 
     @Transactional(readOnly = true)
@@ -141,6 +142,7 @@ public class CustomerBookingService {
         trip.setStatus(newAvailable == 0 ? TripStatus.FULL : TripStatus.OPEN);
 
         Booking saved = bookingRepository.save(booking);
+                chatService.ensureThreadForConfirmedBooking(saved.getId());
         return toCustomerBookingResponse(saved);
     }
 
@@ -185,6 +187,7 @@ public class CustomerBookingService {
                 }
 
                 Booking saved = bookingRepository.save(booking);
+                chatService.ensureThreadForConfirmedBooking(saved.getId());
                 return toCustomerBookingResponse(saved);
         }
 

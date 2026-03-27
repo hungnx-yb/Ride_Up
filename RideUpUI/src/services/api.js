@@ -1,5 +1,6 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Client } from '@stomp/stompjs';
 import { API_CONFIG } from '../config/config';
 import {
   MOCK_ACCOUNTS,
@@ -198,6 +199,60 @@ const invalidateCacheByPrefix = (prefix) => {
       _apiCache.delete(key);
     }
   }
+};
+
+const _buildChatWebSocketUrl = () => {
+  const base = String(API_CONFIG.BASE_URL || '').replace(/\/+$/, '');
+  return `${base.replace(/^http/i, 'ws')}/ws`;
+};
+
+export const createChatRealtimeClient = ({ threadId, onMessage, onConnect, onError }) => {
+  if (!threadId || USE_MOCK_DATA) {
+    return {
+      disconnect: () => {},
+    };
+  }
+
+  const wsUrl = _buildChatWebSocketUrl();
+  const client = new Client({
+    webSocketFactory: () => new WebSocket(wsUrl),
+    reconnectDelay: 3000,
+    heartbeatIncoming: 10000,
+    heartbeatOutgoing: 10000,
+    debug: () => {},
+  });
+
+  client.onConnect = () => {
+    client.subscribe(`/topic/chat.thread.${threadId}`, (frame) => {
+      try {
+        const payload = JSON.parse(frame.body);
+        onMessage?.(payload);
+      } catch (error) {
+        onError?.(error);
+      }
+    });
+    onConnect?.();
+  };
+
+  client.onStompError = (frame) => {
+    onError?.(new Error(frame?.body || 'STOMP broker error'));
+  };
+
+  client.onWebSocketError = (event) => {
+    onError?.(new Error(event?.message || 'WebSocket connection error'));
+  };
+
+  client.activate();
+
+  return {
+    disconnect: () => {
+      try {
+        client.deactivate();
+      } catch {
+        // Ignore disconnect errors.
+      }
+    },
+  };
 };
 
 /** Gọi khi khởi động app để khôi phục token đã lưu */
@@ -691,6 +746,77 @@ export const rateRide = async (bookingId, rating, comment) => {
     comment,
   });
   return res.data;
+};
+
+// ==============================
+// CHAT
+// ==============================
+
+/** Mở (hoặc tạo) phòng chat theo booking */
+export const openChatThread = async (bookingId) => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(500);
+    return {
+      id: `thread_${bookingId}`,
+      bookingId,
+      tripId: 'trip_mock',
+      status: 'ACTIVE',
+      customerUnreadCount: 0,
+      driverUnreadCount: 0,
+      myUnreadCount: 0,
+    };
+  }
+  const res = await apiClient.post('/chat/threads/open', { bookingId });
+  return res.data?.result ?? res.data;
+};
+
+/** Lấy danh sách phòng chat của user hiện tại */
+export const getMyChatThreads = async () => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(400);
+    return [];
+  }
+  const res = await apiClient.get('/chat/threads');
+  return res.data?.result ?? res.data;
+};
+
+/** Lấy tin nhắn của một phòng chat */
+export const getChatMessages = async (threadId, limit = 50) => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(400);
+    return [];
+  }
+  const res = await apiClient.get(`/chat/threads/${threadId}/messages`, {
+    params: { limit },
+  });
+  return res.data?.result ?? res.data;
+};
+
+/** Gửi tin nhắn text */
+export const sendChatMessage = async (threadId, content) => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(300);
+    return {
+      id: `msg_${Date.now()}`,
+      threadId,
+      content,
+      type: 'TEXT',
+      mine: true,
+      sentAt: new Date().toISOString(),
+    };
+  }
+  const res = await apiClient.post(`/chat/threads/${threadId}/messages`, { content });
+  return res.data?.result ?? res.data;
+};
+
+/** Đánh dấu đã đọc phòng chat */
+export const markChatThreadRead = async (threadId) => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(250);
+    return { id: threadId, myUnreadCount: 0 };
+  }
+  const res = await apiClient.post(`/chat/threads/${threadId}/read`);
+  return res.data?.result ?? res.data;
 };
 
 // ── Admin: đồng bộ dữ liệu địa lý ──────────────────────────────────────
