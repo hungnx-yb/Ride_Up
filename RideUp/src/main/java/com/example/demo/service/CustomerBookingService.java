@@ -93,6 +93,22 @@ public class CustomerBookingService {
                 .findFirst()
                 .orElseThrow(() -> new AppException(ErrorCode.INVALID_KEY));
 
+        Double pickupLat = request.getPickupLat();
+        Double pickupLng = request.getPickupLng();
+        Double dropoffLat = request.getDropoffLat();
+        Double dropoffLng = request.getDropoffLng();
+
+        validateCoordinatePair(pickupLat, pickupLng);
+        validateCoordinatePair(dropoffLat, dropoffLng);
+
+        Double pickupWardLat = pickupPoint.getWard() != null && pickupPoint.getWard().getLat() != null ? pickupPoint.getWard().getLat().doubleValue() : null;
+        Double pickupWardLng = pickupPoint.getWard() != null && pickupPoint.getWard().getLng() != null ? pickupPoint.getWard().getLng().doubleValue() : null;
+        Double dropoffWardLat = dropoffPoint.getWard() != null && dropoffPoint.getWard().getLat() != null ? dropoffPoint.getWard().getLat().doubleValue() : null;
+        Double dropoffWardLng = dropoffPoint.getWard() != null && dropoffPoint.getWard().getLng() != null ? dropoffPoint.getWard().getLng().doubleValue() : null;
+
+        validateWithinRadius(pickupWardLat, pickupWardLng, pickupLat, pickupLng, 20.0);
+        validateWithinRadius(dropoffWardLat, dropoffWardLng, dropoffLat, dropoffLng, 20.0);
+
         int seatCount = request.getSeatCount() == null ? 1 : request.getSeatCount();
         if (seatCount < 1) {
             throw new AppException(ErrorCode.INVALID_KEY);
@@ -123,8 +139,12 @@ public class CustomerBookingService {
                 .customerNote(StringUtils.hasText(request.getCustomerNote()) ? request.getCustomerNote().trim() : null)
                 .passengerName(StringUtils.hasText(request.getPassengerName()) ? request.getPassengerName().trim() : currentUser.getFullName())
                 .contactPhone(StringUtils.hasText(request.getContactPhone()) ? request.getContactPhone().trim() : currentUser.getPhoneNumber())
-                .pickupAddress(pickupPoint.getAddress())
-                .dropoffAddress(dropoffPoint.getAddress())
+                .pickupAddress(StringUtils.hasText(request.getPickupAddress()) ? request.getPickupAddress().trim() : pickupPoint.getAddress())
+                .pickupLat(pickupLat)
+                .pickupLng(pickupLng)
+                .dropoffAddress(StringUtils.hasText(request.getDropoffAddress()) ? request.getDropoffAddress().trim() : dropoffPoint.getAddress())
+                .dropoffLat(dropoffLat)
+                .dropoffLng(dropoffLng)
                 .build();
 
         Payment payment = Payment.builder()
@@ -277,6 +297,8 @@ public class CustomerBookingService {
                         .wardId(p.getWard() != null ? p.getWard().getId() : null)
                         .wardName(p.getWard() != null ? p.getWard().getName() : null)
                         .address(StringUtils.hasText(p.getAddress()) ? p.getAddress() : (p.getWard() != null ? p.getWard().getName() : ""))
+                        .lat(p.getWard() != null && p.getWard().getLat() != null ? p.getWard().getLat().doubleValue() : null)
+                        .lng(p.getWard() != null && p.getWard().getLng() != null ? p.getWard().getLng().doubleValue() : null)
                         .build())
                 .toList();
 
@@ -287,6 +309,8 @@ public class CustomerBookingService {
                         .wardId(p.getWard() != null ? p.getWard().getId() : null)
                         .wardName(p.getWard() != null ? p.getWard().getName() : null)
                         .address(StringUtils.hasText(p.getAddress()) ? p.getAddress() : (p.getWard() != null ? p.getWard().getName() : ""))
+                        .lat(p.getWard() != null && p.getWard().getLat() != null ? p.getWard().getLat().doubleValue() : null)
+                        .lng(p.getWard() != null && p.getWard().getLng() != null ? p.getWard().getLng().doubleValue() : null)
                         .build())
                 .toList();
 
@@ -344,6 +368,7 @@ public class CustomerBookingService {
                 .dropPoint(booking.getDropoffPoint() != null && booking.getDropoffPoint().getWard() != null ? booking.getDropoffPoint().getWard().getName() : "")
                 .departureTime(trip.getDepartureTime())
                 .driverName(trip.getDriver() != null && trip.getDriver().getUser() != null ? trip.getDriver().getUser().getFullName() : "")
+                .driverAvatarUrl(trip.getDriver() != null && trip.getDriver().getUser() != null ? trip.getDriver().getUser().getAvatarUrl() : null)
                 .driverRating(trip.getDriver() != null ? trip.getDriver().getDriverRating() : 0.0)
                 .paymentMethod(booking.getPayment() != null && booking.getPayment().getMethod() != null ? booking.getPayment().getMethod().name() : null)
                 .paymentStatus(booking.getPayment() != null && booking.getPayment().getStatus() != null ? booking.getPayment().getStatus().name() : null)
@@ -378,5 +403,43 @@ public class CustomerBookingService {
                 } catch (IllegalArgumentException ex) {
                         throw new AppException(ErrorCode.INVALID_KEY);
                 }
+        }
+
+        private void validateCoordinatePair(Double lat, Double lng) {
+                if (lat == null && lng == null) {
+                        return;
+                }
+                if (lat == null || lng == null) {
+                        throw new AppException(ErrorCode.INVALID_KEY);
+                }
+                if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+                        throw new AppException(ErrorCode.INVALID_KEY);
+                }
+        }
+
+        private void validateWithinRadius(Double centerLat, Double centerLng, Double pickedLat, Double pickedLng, double radiusKm) {
+                if (pickedLat == null || pickedLng == null) {
+                        return;
+                }
+                if (centerLat == null || centerLng == null) {
+                        return;
+                }
+
+                double distanceKm = haversineKm(centerLat, centerLng, pickedLat, pickedLng);
+                if (distanceKm > radiusKm) {
+                        throw new AppException(ErrorCode.BOOKING_LOCATION_OUT_OF_RANGE);
+                }
+        }
+
+        private double haversineKm(double lat1, double lng1, double lat2, double lng2) {
+                final double earthRadiusKm = 6371.0;
+                double dLat = Math.toRadians(lat2 - lat1);
+                double dLng = Math.toRadians(lng2 - lng1);
+
+                double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
+                                * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+                double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                return earthRadiusKm * c;
         }
 }

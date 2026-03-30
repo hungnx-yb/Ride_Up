@@ -324,7 +324,7 @@ public class DriverTripService {
                 continue;
             }
 
-            if (booking.getStatus() == BookingStatus.CONFIRMED) {
+            if (booking.getStatus() == BookingStatus.CONFIRMED || booking.getStatus() == BookingStatus.PENDING) {
                 booking.setStatus(BookingStatus.COMPLETED);
                 if (booking.getConfirmedAt() == null) {
                     booking.setConfirmedAt(completedAt);

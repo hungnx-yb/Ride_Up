@@ -33,7 +33,8 @@ public enum ErrorCode {
     REVIEW_NOT_ALLOWED(1029, "Only completed bookings can be reviewed", HttpStatus.BAD_REQUEST),
     REVIEW_INVALID_RATING(1030, "Rating must be between 1 and 5", HttpStatus.BAD_REQUEST),
     PAYMENT_NOT_FOUND(1031, "Payment not found", HttpStatus.NOT_FOUND),
-    PAYMENT_CONFIRM_NOT_ALLOWED(1032, "Payment confirmation is not allowed", HttpStatus.BAD_REQUEST);
+    PAYMENT_CONFIRM_NOT_ALLOWED(1032, "Payment confirmation is not allowed", HttpStatus.BAD_REQUEST),
+    BOOKING_LOCATION_OUT_OF_RANGE(1033, "Selected pickup/dropoff location must be within 20km of ward center", HttpStatus.BAD_REQUEST);
 
     private Integer code;
     private String message;

@@ -54,5 +54,7 @@ public class RideSearchResponse {
         String wardId;
         String wardName;
         String address;
+        Double lat;
+        Double lng;
     }
 }

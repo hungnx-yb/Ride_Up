@@ -305,6 +305,30 @@ export const getMyInfo = async () => {
   return unwrap(res);
 };
 
+export const updateMyInfo = async (payload) => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(600);
+    return payload || {};
+  }
+  const res = await apiClient.put('/users/me', payload || {});
+  return unwrap(res);
+};
+
+export const requestChangePasswordOtp = async (currentPassword) => {
+  const res = await apiClient.post('/auth/request-otp', {
+    password: currentPassword,
+  });
+  return unwrap(res);
+};
+
+export const changeMyPassword = async ({ otp, newPassword }) => {
+  const res = await apiClient.post('/auth/change-password', {
+    otp,
+    newPassword,
+  });
+  return unwrap(res);
+};
+
 // ==============================
 // ADMIN
 // ==============================
@@ -645,6 +669,17 @@ export const searchRidesAdvanced = async ({
       departureDate,
     },
   });
+  return res.data?.result ?? res.data;
+};
+
+/** Lấy chi tiết xã/phường theo wardId */
+export const getWardById = async (wardId) => {
+  if (!wardId) return null;
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(300);
+    return null;
+  }
+  const res = await apiClient.get(`/api/locations/wards/${wardId}`);
   return res.data?.result ?? res.data;
 };
 

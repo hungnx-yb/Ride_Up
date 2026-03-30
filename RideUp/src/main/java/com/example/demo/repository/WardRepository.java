@@ -30,4 +30,7 @@ public interface WardRepository extends JpaRepository<Ward, String> {
 
     @Query("SELECT w FROM Ward w JOIN FETCH w.province WHERE w.province.id = :provinceId AND LOWER(w.name) = LOWER(:wardName)")
     Optional<Ward> findByProvinceIdAndWardName(@Param("provinceId") String provinceId, @Param("wardName") String wardName);
+
+    @Query("SELECT w FROM Ward w JOIN FETCH w.province WHERE w.id = :wardId")
+    Optional<Ward> findByIdWithProvince(@Param("wardId") String wardId);
 }
