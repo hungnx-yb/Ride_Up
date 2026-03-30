@@ -37,7 +37,8 @@ public enum ErrorCode {
     CHAT_THREAD_NOT_FOUND(1033, "Chat thread not found", HttpStatus.NOT_FOUND),
     CHAT_FORBIDDEN(1034, "You are not allowed to access this chat", HttpStatus.FORBIDDEN),
     CHAT_NOT_ALLOWED(1035, "Chat is only allowed before the trip ends", HttpStatus.BAD_REQUEST),
-    CHAT_MESSAGE_INVALID(1036, "Chat message is invalid", HttpStatus.BAD_REQUEST);
+    CHAT_MESSAGE_INVALID(1036, "Chat message is invalid", HttpStatus.BAD_REQUEST),
+    VNPAY_NOT_CONFIGURED(1037, "VNPAY is not configured on backend", HttpStatus.BAD_REQUEST);
 
     private Integer code;
     private String message;

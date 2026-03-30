@@ -33,9 +33,12 @@ import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 @Service
@@ -48,6 +51,7 @@ public class CustomerBookingService {
         BookingReviewRepository bookingReviewRepository;
         ChatService chatService;
     UserService userService;
+        VnPayService vnPayService;
 
     @Transactional(readOnly = true)
     public List<RideSearchResponse> searchRides(String fromProvinceId,
@@ -76,7 +80,7 @@ public class CustomerBookingService {
     }
 
     @Transactional
-    public CustomerBookingResponse createBooking(CreateBookingRequest request) {
+        public CustomerBookingResponse createBooking(CreateBookingRequest request, String ipAddress) {
         validateCreateRequest(request);
 
         User currentUser = userService.getCurrentUser();
@@ -108,7 +112,7 @@ public class CustomerBookingService {
         BigDecimal totalPrice = fare.multiply(BigDecimal.valueOf(seatCount));
 
         PaymentMethod paymentMethod = parsePaymentMethod(request.getPaymentMethod());
-        BookingStatus initialStatus = paymentMethod == PaymentMethod.BANK_TRANSFER
+        BookingStatus initialStatus = paymentMethod == PaymentMethod.VNPAY
                 ? BookingStatus.PENDING
                 : BookingStatus.CONFIRMED;
 
@@ -132,7 +136,7 @@ public class CustomerBookingService {
                 .booking(booking)
                 .amount(totalPrice)
                 .method(paymentMethod)
-                .status(paymentMethod == PaymentMethod.BANK_TRANSFER ? PaymentStatus.UNPAID : PaymentStatus.UNPAID)
+                .status(PaymentStatus.UNPAID)
                 .paidAt(null)
                 .build();
         booking.setPayment(payment);
@@ -143,8 +147,95 @@ public class CustomerBookingService {
 
         Booking saved = bookingRepository.save(booking);
                 chatService.ensureThreadForConfirmedBooking(saved.getId());
-        return toCustomerBookingResponse(saved);
+
+                String paymentUrl = null;
+                if (paymentMethod == PaymentMethod.VNPAY) {
+                        paymentUrl = createVnPayPaymentUrlForBooking(saved, currentUser.getId(), ipAddress);
+                }
+                return toCustomerBookingResponse(saved, paymentUrl);
     }
+
+        @Transactional
+        public Map<String, String> createVnpayPaymentUrl(String bookingId, String ipAddress) {
+                if (!StringUtils.hasText(bookingId)) {
+                        throw new AppException(ErrorCode.INVALID_KEY);
+                }
+
+                User currentUser = userService.getCurrentUser();
+                Booking booking = bookingRepository.findByIdWithPayment(bookingId)
+                                .orElseThrow(() -> new AppException(ErrorCode.BOOKING_NOT_FOUND));
+
+                if (booking.getCustomer() == null || !Objects.equals(booking.getCustomer().getId(), currentUser.getId())) {
+                        throw new AppException(ErrorCode.UNAUTHORIZED);
+                }
+
+                String paymentUrl = createVnPayPaymentUrlForBooking(booking, currentUser.getId(), ipAddress);
+                Map<String, String> result = new LinkedHashMap<>();
+                result.put("bookingId", booking.getId());
+                result.put("paymentUrl", paymentUrl);
+                result.put("transactionRef", booking.getPayment() != null ? booking.getPayment().getTransactionId() : null);
+                return result;
+        }
+
+        @Transactional
+        public Map<String, String> handleVnpayGatewayCallback(Map<String, String> params, boolean ipnRequest) {
+                if (params == null || params.isEmpty()) {
+                        if (ipnRequest) {
+                                return Map.of("RspCode", "99", "Message", "Invalid request");
+                        }
+                        return Map.of("status", "FAILED", "message", "Invalid callback payload");
+                }
+
+                String txnRef = params.get("vnp_TxnRef");
+                String responseCode = params.get("vnp_ResponseCode");
+                String transactionStatus = params.get("vnp_TransactionStatus");
+
+                if (!StringUtils.hasText(txnRef)) {
+                        if (ipnRequest) {
+                                return Map.of("RspCode", "01", "Message", "Transaction reference not found");
+                        }
+                        return Map.of("status", "FAILED", "message", "Missing transaction reference");
+                }
+
+                Booking booking = bookingRepository.findByPaymentTransactionId(txnRef).orElse(null);
+                if (booking == null) {
+                        if (ipnRequest) {
+                                return Map.of("RspCode", "01", "Message", "Order not found");
+                        }
+                        return Map.of("status", "FAILED", "message", "Order not found");
+                }
+
+                boolean validSignature = vnPayService.verifyReturn(params);
+                if (!validSignature) {
+                        if (ipnRequest) {
+                                return Map.of("RspCode", "97", "Message", "Invalid signature");
+                        }
+                        return Map.of("status", "FAILED", "message", "Invalid signature");
+                }
+
+                boolean success = "00".equals(responseCode)
+                                && (!StringUtils.hasText(transactionStatus) || "00".equals(transactionStatus));
+
+                Payment payment = booking.getPayment();
+                boolean alreadyPaid = payment != null && payment.getStatus() == PaymentStatus.PAID;
+
+                if (ipnRequest && alreadyPaid) {
+                        return Map.of("RspCode", "02", "Message", "Order already confirmed");
+                }
+
+                completeVnpayPayment(booking, success, params.get("vnp_TransactionNo"));
+
+                if (ipnRequest) {
+                        return Map.of("RspCode", "00", "Message", "Confirm Success");
+                }
+
+                return Map.of(
+                                "status", (success || alreadyPaid) ? "PAID" : "FAILED",
+                                "bookingId", booking.getId(),
+                                "transactionRef", txnRef,
+                                "message", (success || alreadyPaid) ? "Payment success" : "Payment failed"
+                );
+        }
 
         @Transactional
         public CustomerBookingResponse confirmBookingPayment(String bookingId, ConfirmPaymentRequest request) {
@@ -321,7 +412,11 @@ public class CustomerBookingService {
                 .build();
     }
 
-    private CustomerBookingResponse toCustomerBookingResponse(Booking booking) {
+        private CustomerBookingResponse toCustomerBookingResponse(Booking booking) {
+                return toCustomerBookingResponse(booking, null);
+        }
+
+        private CustomerBookingResponse toCustomerBookingResponse(Booking booking, String paymentUrl) {
         Trip trip = booking.getTrip();
 
         String fromProvince = trip.getPickupPoints().stream()
@@ -350,10 +445,82 @@ public class CustomerBookingService {
                 .driverRating(trip.getDriver() != null ? trip.getDriver().getDriverRating() : 0.0)
                 .paymentMethod(booking.getPayment() != null && booking.getPayment().getMethod() != null ? booking.getPayment().getMethod().name() : null)
                 .paymentStatus(booking.getPayment() != null && booking.getPayment().getStatus() != null ? booking.getPayment().getStatus().name() : null)
+                                .paymentUrl(paymentUrl)
+                                .paymentTransactionRef(booking.getPayment() != null ? booking.getPayment().getTransactionId() : null)
                 .hasRated(booking.getReview() != null)
                 .myRating(booking.getReview() != null ? booking.getReview().getRating() : null)
                 .build();
     }
+
+        private String createVnPayPaymentUrlForBooking(Booking booking, String customerId, String ipAddress) {
+                if (booking == null || !StringUtils.hasText(booking.getId())) {
+                        throw new AppException(ErrorCode.BOOKING_NOT_FOUND);
+                }
+
+                Payment payment = booking.getPayment();
+                if (payment == null) {
+                        throw new AppException(ErrorCode.PAYMENT_NOT_FOUND);
+                }
+
+                if (booking.getCustomer() == null || !Objects.equals(booking.getCustomer().getId(), customerId)) {
+                        throw new AppException(ErrorCode.UNAUTHORIZED);
+                }
+
+                if (payment.getMethod() != PaymentMethod.VNPAY) {
+                        throw new AppException(ErrorCode.PAYMENT_CONFIRM_NOT_ALLOWED);
+                }
+
+                if (payment.getStatus() == PaymentStatus.PAID || booking.getStatus() == BookingStatus.CONFIRMED) {
+                        throw new AppException(ErrorCode.PAYMENT_CONFIRM_NOT_ALLOWED);
+                }
+
+                if (!vnPayService.isConfigured()) {
+                        throw new AppException(ErrorCode.VNPAY_NOT_CONFIGURED);
+                }
+
+                String txnRef = vnPayService.generateTxnRef(booking.getId());
+                payment.setTransactionId(txnRef);
+                bookingRepository.save(booking);
+
+                String route = "";
+                if (booking.getTrip() != null) {
+                        route = booking.getTrip().getId();
+                }
+                String orderInfo = "Thanh toan RideUp " + route + " " + booking.getId();
+                return vnPayService.buildPaymentUrl(txnRef, payment.getAmount(), ipAddress, orderInfo);
+        }
+
+        private void completeVnpayPayment(Booking booking, boolean success, String gatewayTransactionId) {
+                if (booking == null || booking.getPayment() == null) {
+                        return;
+                }
+
+                Payment payment = booking.getPayment();
+                if (payment.getMethod() != PaymentMethod.VNPAY) {
+                        return;
+                }
+
+                if (payment.getStatus() == PaymentStatus.PAID) {
+                        return;
+                }
+
+                if (success) {
+                        payment.setStatus(PaymentStatus.PAID);
+                        payment.setPaidAt(LocalDateTime.now());
+                        if (StringUtils.hasText(gatewayTransactionId)) {
+                                payment.setTransactionId(gatewayTransactionId.trim());
+                        }
+                        booking.setStatus(BookingStatus.CONFIRMED);
+                        if (booking.getConfirmedAt() == null) {
+                                booking.setConfirmedAt(LocalDateTime.now());
+                        }
+                        chatService.ensureThreadForConfirmedBooking(booking.getId());
+                } else {
+                        payment.setStatus(PaymentStatus.FAILED);
+                }
+
+                bookingRepository.save(booking);
+        }
 
     private String toUiBookingStatus(BookingStatus status) {
                 if (status == null) return "confirmed";
@@ -377,7 +544,9 @@ public class CustomerBookingService {
         private PaymentMethod parsePaymentMethod(String method) {
                 if (!StringUtils.hasText(method)) return PaymentMethod.CASH;
                 try {
-                        return PaymentMethod.valueOf(method.trim().toUpperCase());
+                        PaymentMethod parsed = PaymentMethod.valueOf(method.trim().toUpperCase());
+                        // Keep compatibility with older clients that still send BANK_TRANSFER.
+                        return parsed == PaymentMethod.BANK_TRANSFER ? PaymentMethod.VNPAY : parsed;
                 } catch (IllegalArgumentException ex) {
                         throw new AppException(ErrorCode.INVALID_KEY);
                 }

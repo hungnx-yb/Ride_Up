@@ -7,6 +7,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface BookingRepository extends JpaRepository<Booking, String> {
@@ -28,4 +29,18 @@ public interface BookingRepository extends JpaRepository<Booking, String> {
             ORDER BY b.createdAt DESC
             """)
     List<Booking> findByCustomerIdWithDetails(@Param("customerId") String customerId);
+
+        @Query("""
+            SELECT b FROM Booking b
+            LEFT JOIN FETCH b.payment pay
+            WHERE b.id = :bookingId
+            """)
+        Optional<Booking> findByIdWithPayment(@Param("bookingId") String bookingId);
+
+        @Query("""
+            SELECT b FROM Booking b
+            LEFT JOIN FETCH b.payment pay
+            WHERE pay.transactionId = :transactionId
+            """)
+        Optional<Booking> findByPaymentTransactionId(@Param("transactionId") String transactionId);
 }
