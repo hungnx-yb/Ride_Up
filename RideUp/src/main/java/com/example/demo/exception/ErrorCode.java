@@ -34,10 +34,11 @@ public enum ErrorCode {
     REVIEW_INVALID_RATING(1030, "Rating must be between 1 and 5", HttpStatus.BAD_REQUEST),
     PAYMENT_NOT_FOUND(1031, "Payment not found", HttpStatus.NOT_FOUND),
     PAYMENT_CONFIRM_NOT_ALLOWED(1032, "Payment confirmation is not allowed", HttpStatus.BAD_REQUEST),
-    CHAT_THREAD_NOT_FOUND(1033, "Chat thread not found", HttpStatus.NOT_FOUND),
-    CHAT_FORBIDDEN(1034, "You are not allowed to access this chat", HttpStatus.FORBIDDEN),
-    CHAT_NOT_ALLOWED(1035, "Chat is only allowed before the trip ends", HttpStatus.BAD_REQUEST),
-    CHAT_MESSAGE_INVALID(1036, "Chat message is invalid", HttpStatus.BAD_REQUEST);
+    BOOKING_LOCATION_OUT_OF_RANGE(1033, "Selected pickup/dropoff location must be within 20km of ward center", HttpStatus.BAD_REQUEST),
+    CHAT_THREAD_NOT_FOUND(1035, "Chat thread not found", HttpStatus.NOT_FOUND),
+    CHAT_FORBIDDEN(1036, "You are not allowed to access this chat", HttpStatus.FORBIDDEN),
+    CHAT_NOT_ALLOWED(1037, "Chat is only allowed before the trip ends", HttpStatus.BAD_REQUEST),
+    CHAT_MESSAGE_INVALID(1038, "Chat message is invalid", HttpStatus.BAD_REQUEST);
 
     private Integer code;
     private String message;

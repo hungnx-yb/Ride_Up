@@ -23,6 +23,7 @@ public class CustomerBookingResponse {
     String dropPoint;
     LocalDateTime departureTime;
     String driverName;
+    String driverAvatarUrl;
     Double driverRating;
     String paymentMethod;
     String paymentStatus;
