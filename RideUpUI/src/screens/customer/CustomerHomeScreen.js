@@ -11,9 +11,9 @@ import {
   Modal,
   Image,
   ImageBackground,
-  useWindowDimensions,
-  Alert,
   Linking,
+  Alert,
+  useWindowDimensions,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -25,19 +25,58 @@ import {
   bookRide,
   createVnpayPaymentUrl,
   rateRide,
+  supportChat,
+  getWardById,
+  getMyInfo,
+  updateMyInfo,
+  uploadFile,
+  requestChangePasswordOtp,
+  changeMyPassword,
   openChatThread,
   getMyChatThreads,
   getChatMessages,
   sendChatMessage,
   markChatThreadRead,
-  uploadFile,
 } from '../../services/api';
 import ProvincePicker from '../../components/ProvincePicker';
 import WardPicker from '../../components/WardPicker';
+import RadiusMap from '../../components/RadiusMap';
 
 const DEFAULT_DRIVER_IMAGE = require('../../../assets/icon.png');
 const DEFAULT_VEHICLE_IMAGE = require('../../../assets/adaptive-icon.png');
 const HERO_BACKGROUND_IMAGE = require('../../../assets/anh-nen-sieu-xe_020255797.jpg');
+const MAP_PICK_RADIUS_KM = 20;
+const MAP_PICK_RADIUS_METERS = MAP_PICK_RADIUS_KM * 1000;
+const REVERSE_GEOCODE_ENDPOINT = 'https://nominatim.openstreetmap.org/reverse';
+const RATING_LABELS = {
+  1: 'Rất tệ',
+  2: 'Chưa ổn',
+  3: 'Bình thường',
+  4: 'Khá tốt',
+  5: 'Tuyệt vời',
+};
+const SUPPORT_INTENT_META = {
+  BOOKING_LOOKUP: { icon: 'document-text-outline', title: 'Booking', color: '#0EA5E9' },
+  FAQ_PAYMENT: { icon: 'card-outline', title: 'Thanh toán', color: '#0284C7' },
+  FAQ_CANCEL: { icon: 'close-circle-outline', title: 'Hủy chuyến', color: '#DC2626' },
+  FAQ_REFUND: { icon: 'cash-outline', title: 'Hoàn tiền', color: '#16A34A' },
+  FAQ_REVIEW: { icon: 'star-outline', title: 'Đánh giá', color: '#D97706' },
+  FAQ_ACCOUNT: { icon: 'person-circle-outline', title: 'Tài khoản', color: '#7C3AED' },
+  FAQ_DELAY: { icon: 'time-outline', title: 'Đi trễ', color: '#EA580C' },
+  FAQ_LUGGAGE: { icon: 'briefcase-outline', title: 'Hành lý', color: '#0891B2' },
+  FAQ_APP_ISSUE: { icon: 'build-outline', title: 'Sự cố app', color: '#334155' },
+  FAQ_GREETING: { icon: 'happy-outline', title: 'Chào bạn', color: '#0EA5E9' },
+  FAQ_THANKS: { icon: 'thumbs-up-outline', title: 'Không có chi', color: '#16A34A' },
+  FAQ_GENERAL: { icon: 'sparkles-outline', title: 'Trợ lý RideUp', color: '#00B14F' },
+};
+const SUPPORT_QUICK_ACTIONS = [
+  'Kiểm tra booking gần nhất',
+  'Tôi đã chuyển khoản nhưng chưa xác nhận',
+  'Tôi muốn hủy chuyến',
+  'Hoàn tiền như thế nào',
+  'Tài xế đến trễ thì sao',
+  'Có được mang thú cưng không',
+];
 
 const STATUS_CONFIG = {
   pending: { label: 'Chờ thanh toán', color: '#B45309', bg: '#FFFBEB' },
@@ -80,6 +119,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
   const footerSpacer = (isSmallPhone ? 100 : isLargePhone ? 120 : 112) + (isShortPhone ? 0 : 4);
 
   const [bookings, setBookings] = useState([]);
+  const [profileUser, setProfileUser] = useState(user || null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -112,6 +152,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
   const [ratingValue, setRatingValue] = useState(5);
   const [ratingComment, setRatingComment] = useState('');
   const [ratingSubmitting, setRatingSubmitting] = useState(false);
+  const [ratingAvatarFailed, setRatingAvatarFailed] = useState(false);
   const [paymentConfirmSubmitting, setPaymentConfirmSubmitting] = useState(false);
   const [chatThreads, setChatThreads] = useState([]);
   const [chatThread, setChatThread] = useState(null);
@@ -124,6 +165,52 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
   const [chatVisible, setChatVisible] = useState(false);
   const chatRealtimeRef = useRef(null);
   const chatMessagesScrollRef = useRef(null);
+  const [bookingSuccessModal, setBookingSuccessModal] = useState({ visible: false, title: '', message: '' });
+  const [showSupportCenter, setShowSupportCenter] = useState(false);
+  const [showPersonalInfo, setShowPersonalInfo] = useState(false);
+  const [accountAvatarFailed, setAccountAvatarFailed] = useState(false);
+  const [profileSubmitting, setProfileSubmitting] = useState(false);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+  const [otpSending, setOtpSending] = useState(false);
+  const [passwordSubmitting, setPasswordSubmitting] = useState(false);
+  const [personalForm, setPersonalForm] = useState({
+    fullName: '',
+    phoneNumber: '',
+    dateOfBirth: '',
+    gender: '',
+  });
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: '',
+    otp: '',
+    newPassword: '',
+    confirmPassword: '',
+  });
+  const [messageView, setMessageView] = useState('drivers');
+  const [supportInput, setSupportInput] = useState('');
+  const [supportSending, setSupportSending] = useState(false);
+  const [supportMessages, setSupportMessages] = useState([
+    {
+      id: `bot-${Date.now()}`,
+      role: 'bot',
+      intent: 'FAQ_GREETING',
+      text: '👋 Xin chào! Mình là Trợ lý RideUp. Bạn hỏi mình về booking, thanh toán, hủy chuyến, hoàn tiền, đi trễ... đều được nha.',
+      suggestions: SUPPORT_QUICK_ACTIONS.slice(0, 4),
+    },
+  ]);
+  const [pickupDetailLocation, setPickupDetailLocation] = useState({ address: '', lat: null, lng: null });
+  const [dropoffDetailLocation, setDropoffDetailLocation] = useState({ address: '', lat: null, lng: null });
+  const [isMapInteracting, setIsMapInteracting] = useState(false);
+  const [pickupLiveAddress, setPickupLiveAddress] = useState('');
+  const [dropoffLiveAddress, setDropoffLiveAddress] = useState('');
+  const [pickupResolving, setPickupResolving] = useState(false);
+  const [dropoffResolving, setDropoffResolving] = useState(false);
+  const [pickupWardCenter, setPickupWardCenter] = useState(null);
+  const [dropoffWardCenter, setDropoffWardCenter] = useState(null);
+  const pickupReverseSeq = useRef(0);
+  const dropoffReverseSeq = useRef(0);
+  const pickupWardCenterSeq = useRef(0);
+  const dropoffWardCenterSeq = useRef(0);
 
   const [errorText, setErrorText] = useState('');
   const scrollRef = useRef(null);
@@ -132,11 +219,15 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
 
   const loadData = async () => {
     try {
-      const [data, threads] = await Promise.all([
+      const [data, threads, me] = await Promise.all([
         getCustomerBookings(),
         getMyChatThreads().catch(() => []),
+        getMyInfo().catch(() => null),
       ]);
       setBookings(Array.isArray(data) ? data : []);
+      if (me) {
+        setProfileUser(me);
+      }
       setChatThreads(Array.isArray(threads) ? threads : []);
     } catch (e) {
       setErrorText(e.message || 'Không thể tải lịch sử đặt chỗ.');
@@ -152,6 +243,10 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
     runSearch();
   }, []);
 
+  useEffect(() => {
+    setProfileUser(user || null);
+  }, [user]);
+
   const formatTime = (isoStr) => {
     if (!isoStr) return '--';
     const d = new Date(isoStr);
@@ -163,7 +258,33 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
     return `${new Intl.NumberFormat('vi-VN').format(num)} đ`;
   };
 
-  const customerFullName = (user?.fullName || '').trim() || 'Khách hàng';
+  const customerFullName = (profileUser?.fullName || '').trim() || 'Khách hàng';
+  const customerEmail = (profileUser?.email || '').trim() || '--';
+  const customerPhone = (profileUser?.phoneNumber || profileUser?.phone || '').trim() || '--';
+  const customerAvatarUrl = String(profileUser?.avatarUrl || '').trim();
+  const roleValues = Array.isArray(profileUser?.roles)
+    ? profileUser.roles
+    : (profileUser?.role ? [profileUser.role] : []);
+  const primaryRole = String(roleValues?.[0] || 'CUSTOMER').toUpperCase();
+  const roleLabelMap = {
+    CUSTOMER: 'Khách hàng',
+    DRIVER: 'Tài xế',
+    ADMIN: 'Quản trị viên',
+  };
+  const customerRoleLabel = roleLabelMap[primaryRole] || primaryRole;
+  const dobText = profileUser?.dateOfBirth
+    ? new Date(profileUser.dateOfBirth).toLocaleDateString('vi-VN')
+    : '--';
+
+  const initPersonalForm = (candidate) => {
+    const source = candidate || profileUser || user || {};
+    setPersonalForm({
+      fullName: String(source?.fullName || '').trim(),
+      phoneNumber: String(source?.phoneNumber || source?.phone || '').trim(),
+      dateOfBirth: String(source?.dateOfBirth || '').trim(),
+      gender: String(source?.gender || '').toUpperCase(),
+    });
+  };
 
   const formatDuration = (minutes) => {
     const total = Number(minutes || 0);
@@ -188,6 +309,129 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
     return labels[type] || (type ? type.replaceAll('_', ' ') : '--');
   };
 
+  const calculateDistanceKm = (lat1, lng1, lat2, lng2) => {
+    const toRad = (deg) => (deg * Math.PI) / 180;
+    const earthRadiusKm = 6371;
+    const dLat = toRad(lat2 - lat1);
+    const dLng = toRad(lng2 - lng1);
+
+    const a = Math.sin(dLat / 2) ** 2
+      + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return earthRadiusKm * c;
+  };
+
+  const reverseGeocode = async (lat, lng) => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 7000);
+    try {
+      const params = new URLSearchParams({
+        format: 'jsonv2',
+        lat: String(lat),
+        lon: String(lng),
+        'accept-language': 'vi',
+      });
+      const response = await fetch(`${REVERSE_GEOCODE_ENDPOINT}?${params.toString()}`, {
+        signal: controller.signal,
+        headers: {
+          Accept: 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Geocoding failed');
+      }
+
+      const data = await response.json();
+      return data?.display_name || '';
+    } finally {
+      clearTimeout(timeout);
+    }
+  };
+
+  const getActiveTripPoint = (mode = 'pickup') => {
+    const points = mode === 'pickup' ? (tripDetail?.pickupPoints || []) : (tripDetail?.dropoffPoints || []);
+    const selectedId = mode === 'pickup' ? selectedPickupPointId : selectedDropoffPointId;
+    return points.find((p) => p.id === selectedId) || null;
+  };
+
+  const toMapCenter = (point) => {
+    const lat = Number(point?.lat);
+    const lng = Number(point?.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return null;
+    }
+    return {
+      lat,
+      lng,
+      wardName: point?.wardName || point?.address || '',
+    };
+  };
+
+  const applyPickedCoordinate = (mode, coordinate) => {
+    const point = getActiveTripPoint(mode);
+    if (!point) {
+      setErrorText(mode === 'pickup' ? 'Vui lòng chọn điểm đón trước.' : 'Vui lòng chọn điểm trả trước.');
+      return;
+    }
+
+    const center = toMapCenter(point);
+    if (!center) {
+      setErrorText('Điểm phường hiện chưa có tọa độ để hiển thị bản đồ.');
+      return;
+    }
+
+    const lat = coordinate?.latitude;
+    const lng = coordinate?.longitude;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return;
+    }
+
+    const distance = calculateDistanceKm(
+      center.lat,
+      center.lng,
+      lat,
+      lng,
+    );
+
+    if (distance > MAP_PICK_RADIUS_KM) {
+      setErrorText(`Vị trí chọn phải nằm trong bán kính ${MAP_PICK_RADIUS_KM}km từ phường đã chọn.`);
+      return;
+    }
+
+    if (mode === 'pickup') {
+      setPickupDetailLocation((prev) => ({
+        address: String(prev?.address || '').trim() || point?.address || point?.wardName || '',
+        lat,
+        lng,
+      }));
+    } else {
+      setDropoffDetailLocation((prev) => ({
+        address: String(prev?.address || '').trim() || point?.address || point?.wardName || '',
+        lat,
+        lng,
+      }));
+    }
+
+    setErrorText('');
+  };
+
+  const handlePickupMapPress = (event) => {
+    applyPickedCoordinate('pickup', event?.nativeEvent?.coordinate);
+  };
+
+  const handleDropoffMapPress = (event) => {
+    applyPickedCoordinate('dropoff', event?.nativeEvent?.coordinate);
+  };
+
+  const handlePickupViewportCenterChange = (center) => {
+    applyPickedCoordinate('pickup', { latitude: center?.lat, longitude: center?.lng });
+  };
+
+  const handleDropoffViewportCenterChange = (center) => {
+    applyPickedCoordinate('dropoff', { latitude: center?.lat, longitude: center?.lng });
+  };
+
   const activeBookings = bookings.filter((b) => ['confirmed', 'in_progress'].includes(b.status));
   const completedBookings = bookings.filter((b) => b.status === 'completed');
   const bookingMatchesFilter = (booking, filterKey) => {
@@ -207,7 +451,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
   };
   const filteredMyTrips = bookings.filter((b) => bookingMatchesFilter(b, myTripsFilter));
   const totalSpent = bookings.reduce((sum, b) => sum + Number(b.price || 0), 0);
-  const profileCompletion = Math.min(100, (user?.email ? 35 : 0) + (bookings.length > 0 ? 35 : 0) + (completedBookings.length > 0 ? 30 : 0));
+  const profileCompletion = Math.min(100, (profileUser?.email ? 35 : 0) + (bookings.length > 0 ? 35 : 0) + (completedBookings.length > 0 ? 30 : 0));
   const membershipLevel = totalSpent >= 2000000 ? 'RideUp Gold' : totalSpent >= 700000 ? 'RideUp Silver' : 'RideUp Basic';
   const inboxItems = activeBookings.slice(0, 6).map((b, idx) => ({
     id: b.id,
@@ -220,6 +464,156 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
   const avgRating = searchResults.length
     ? (searchResults.reduce((sum, t) => sum + Number(t.driverRating || 0), 0) / searchResults.length).toFixed(1)
     : '0.0';
+  const selectedPickupPoint = getActiveTripPoint('pickup');
+  const selectedDropoffPoint = getActiveTripPoint('dropoff');
+  const pickupMapCenter = pickupWardCenter;
+  const dropoffMapCenter = dropoffWardCenter;
+
+  useEffect(() => {
+    const point = selectedPickupPoint;
+    if (!point) {
+      setPickupWardCenter(null);
+      return;
+    }
+
+    const fallback = toMapCenter(point);
+    if (fallback) {
+      setPickupWardCenter(fallback);
+    }
+
+    if (!point.wardId) {
+      return;
+    }
+
+    const seq = ++pickupWardCenterSeq.current;
+    getWardById(point.wardId)
+      .then((ward) => {
+        if (seq !== pickupWardCenterSeq.current) return;
+        const lat = Number(ward?.lat);
+        const lng = Number(ward?.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+          return;
+        }
+        setPickupWardCenter({
+          lat,
+          lng,
+          wardName: ward?.name || point?.wardName || point?.address || '',
+        });
+      })
+      .catch(() => {
+        // Keep fallback center when ward lookup fails.
+      });
+  }, [selectedPickupPointId, tripDetail?.id]);
+
+  useEffect(() => {
+    const point = selectedDropoffPoint;
+    if (!point) {
+      setDropoffWardCenter(null);
+      return;
+    }
+
+    const fallback = toMapCenter(point);
+    if (fallback) {
+      setDropoffWardCenter(fallback);
+    }
+
+    if (!point.wardId) {
+      return;
+    }
+
+    const seq = ++dropoffWardCenterSeq.current;
+    getWardById(point.wardId)
+      .then((ward) => {
+        if (seq !== dropoffWardCenterSeq.current) return;
+        const lat = Number(ward?.lat);
+        const lng = Number(ward?.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+          return;
+        }
+        setDropoffWardCenter({
+          lat,
+          lng,
+          wardName: ward?.name || point?.wardName || point?.address || '',
+        });
+      })
+      .catch(() => {
+        // Keep fallback center when ward lookup fails.
+      });
+  }, [selectedDropoffPointId, tripDetail?.id]);
+
+  useEffect(() => {
+    const lat = pickupDetailLocation?.lat;
+    const lng = pickupDetailLocation?.lng;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      setPickupLiveAddress('');
+      setPickupResolving(false);
+      return;
+    }
+
+    const seq = ++pickupReverseSeq.current;
+    setPickupResolving(true);
+
+    const timer = setTimeout(async () => {
+      try {
+        const address = await reverseGeocode(lat, lng);
+        if (seq !== pickupReverseSeq.current) return;
+        setPickupLiveAddress(address);
+        if (address) {
+          setPickupDetailLocation((prev) => {
+            if (!prev) return prev;
+            if (String(prev.address || '').trim()) return prev;
+            return { ...prev, address };
+          });
+        }
+      } catch {
+        if (seq !== pickupReverseSeq.current) return;
+        setPickupLiveAddress('Không thể tải địa chỉ realtime lúc này.');
+      } finally {
+        if (seq === pickupReverseSeq.current) {
+          setPickupResolving(false);
+        }
+      }
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [pickupDetailLocation?.lat, pickupDetailLocation?.lng]);
+
+  useEffect(() => {
+    const lat = dropoffDetailLocation?.lat;
+    const lng = dropoffDetailLocation?.lng;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      setDropoffLiveAddress('');
+      setDropoffResolving(false);
+      return;
+    }
+
+    const seq = ++dropoffReverseSeq.current;
+    setDropoffResolving(true);
+
+    const timer = setTimeout(async () => {
+      try {
+        const address = await reverseGeocode(lat, lng);
+        if (seq !== dropoffReverseSeq.current) return;
+        setDropoffLiveAddress(address);
+        if (address) {
+          setDropoffDetailLocation((prev) => {
+            if (!prev) return prev;
+            if (String(prev.address || '').trim()) return prev;
+            return { ...prev, address };
+          });
+        }
+      } catch {
+        if (seq !== dropoffReverseSeq.current) return;
+        setDropoffLiveAddress('Không thể tải địa chỉ realtime lúc này.');
+      } finally {
+        if (seq === dropoffReverseSeq.current) {
+          setDropoffResolving(false);
+        }
+      }
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [dropoffDetailLocation?.lat, dropoffDetailLocation?.lng]);
 
   const runSearch = async () => {
     setErrorText('');
@@ -248,6 +642,8 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
     setSelectedDropoffPointId(firstDropoff);
     setSeatCount(1);
     setPaymentMethod('CASH');
+    setPickupDetailLocation({ address: '', lat: null, lng: null });
+    setDropoffDetailLocation({ address: '', lat: null, lng: null });
     setDriverImageFailed(false);
     setVehicleImageFailed(false);
     setTripDetail(trip);
@@ -263,6 +659,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
     setRatingBooking(booking);
     setRatingValue(booking?.myRating || 5);
     setRatingComment('');
+    setRatingAvatarFailed(false);
   };
 
   const submitBookingRating = async () => {
@@ -288,6 +685,9 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
       return;
     }
 
+    const selectedPickupPoint = (tripDetail?.pickupPoints || []).find((p) => p.id === selectedPickupPointId) || null;
+    const selectedDropoffPoint = (tripDetail?.dropoffPoints || []).find((p) => p.id === selectedDropoffPointId) || null;
+
     try {
       setBookingSubmitting(true);
       const booking = await bookRide({
@@ -296,6 +696,12 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
         dropoffPointId: selectedDropoffPointId,
         seatCount,
         paymentMethod,
+        pickupAddress: String(pickupDetailLocation?.address || '').trim() || selectedPickupPoint?.address || selectedPickupPoint?.wardName || null,
+        pickupLat: pickupDetailLocation?.lat,
+        pickupLng: pickupDetailLocation?.lng,
+        dropoffAddress: String(dropoffDetailLocation?.address || '').trim() || selectedDropoffPoint?.address || selectedDropoffPoint?.wardName || null,
+        dropoffLat: dropoffDetailLocation?.lat,
+        dropoffLng: dropoffDetailLocation?.lng,
       });
 
       if (paymentMethod === 'VNPAY') {
@@ -315,11 +721,28 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
       setTripDetail(null);
       setSelectedPickupPointId(null);
       setSelectedDropoffPointId(null);
+      setPickupDetailLocation({ address: '', lat: null, lng: null });
+      setDropoffDetailLocation({ address: '', lat: null, lng: null });
       setSeatCount(1);
       await loadData();
       await runSearch();
       if (paymentMethod === 'VNPAY') {
         setErrorText('Đã chuyển sang VNPAY. Sau khi thanh toán xong, vào lại Chi tiết đặt chỗ để kiểm tra trạng thái.');
+      } else {
+        const successTitle = 'Đặt chỗ thành công';
+        const successMessage = paymentMethod === 'BANK_TRANSFER'
+          ? 'Bạn đã giữ chỗ thành công. Vui lòng vào Chi tiết đặt chỗ và bấm "Tôi đã chuyển khoản" để hoàn tất.'
+          : 'Chuyến đi của bạn đã được ghi nhận. Tài xế sẽ đón bạn theo điểm đã chọn.';
+
+        setBookingSuccessModal({
+          visible: true,
+          title: successTitle,
+          message: successMessage,
+        });
+
+        if (paymentMethod === 'BANK_TRANSFER') {
+          setErrorText('');
+        }
       }
     } catch (e) {
       setErrorText(e.message || 'Đặt chỗ thất bại.');
@@ -374,6 +797,49 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
     }
   };
 
+  const submitSupportMessage = async (overrideMessage) => {
+    const message = String(overrideMessage ?? supportInput ?? '').trim();
+    if (!message || supportSending) return;
+
+    const userMessage = { id: `user-${Date.now()}`, role: 'user', text: message };
+    setSupportMessages((prev) => [...prev, userMessage]);
+    if (overrideMessage === undefined) {
+      setSupportInput('');
+    }
+
+    try {
+      setSupportSending(true);
+      const result = await supportChat(message);
+      const replyText = result?.reply || 'Mình chưa có phản hồi phù hợp, bạn thử hỏi lại giúp mình.';
+      const suggestions = Array.isArray(result?.suggestions) ? result.suggestions.filter(Boolean) : [];
+      setSupportMessages((prev) => [
+        ...prev,
+        {
+          id: `bot-${Date.now()}`,
+          role: 'bot',
+          intent: String(result?.intent || 'FAQ_GENERAL').toUpperCase(),
+          text: replyText,
+          suggestions: suggestions.slice(0, 6),
+        },
+      ]);
+    } catch (e) {
+      setSupportMessages((prev) => [
+        ...prev,
+        {
+          id: `bot-${Date.now()}`,
+          role: 'bot',
+          intent: 'FAQ_APP_ISSUE',
+          text: e.message || '😵 Oops, mình đang hơi nghẽn mạng. Bạn thử lại sau vài giây nhé!',
+          suggestions: ['Kiểm tra booking gần nhất', 'Tôi muốn hủy chuyến', 'Gọi hotline 1900 1234'],
+        },
+      ]);
+    } finally {
+      setSupportSending(false);
+    }
+  };
+
+  const getSupportIntentMeta = (intent) => SUPPORT_INTENT_META[String(intent || '').toUpperCase()] || SUPPORT_INTENT_META.FAQ_GENERAL;
+
   const onSelectFromProvince = (province) => {
     setFromProvince(province);
     setFromWard(null);
@@ -392,14 +858,165 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
   const goMyTrips = () => {
     setActiveFooterTab('myTrips');
     setMyTripsFilter('all');
+    setRefreshing(true);
+    loadData();
   };
 
   const openAccount = () => {
     setActiveFooterTab('account');
   };
 
+  const openPersonalInfo = () => {
+    setAccountAvatarFailed(false);
+    initPersonalForm();
+    setShowPersonalInfo(true);
+  };
+
+  const onChangePersonalField = (field, value) => {
+    setPersonalForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const savePersonalInfo = async () => {
+    try {
+      setProfileSubmitting(true);
+      const payload = {
+        fullName: String(personalForm.fullName || '').trim(),
+        phoneNumber: String(personalForm.phoneNumber || '').trim(),
+        dateOfBirth: String(personalForm.dateOfBirth || '').trim() || null,
+        gender: String(personalForm.gender || '').trim() || null,
+      };
+      const updated = await updateMyInfo(payload);
+      if (updated) {
+        setProfileUser(updated);
+        initPersonalForm(updated);
+      }
+      setErrorText('Cập nhật thông tin cá nhân thành công.');
+      Alert.alert('Thành công', 'Thông tin cá nhân đã được cập nhật.');
+    } catch (e) {
+      Alert.alert('Không thể cập nhật', e?.message || 'Vui lòng thử lại sau.');
+    } finally {
+      setProfileSubmitting(false);
+    }
+  };
+
+  const pickAndUploadAvatar = async () => {
+    if (avatarUploading) return;
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission?.granted) {
+        Alert.alert('Thiếu quyền truy cập', 'Vui lòng cấp quyền thư viện ảnh để đổi avatar.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        quality: 0.9,
+      });
+
+      if (result.canceled || !result.assets?.length) return;
+
+      const selected = result.assets[0];
+      setAvatarUploading(true);
+
+      const uploadedUrl = await uploadFile({
+        uri: selected.uri,
+        name: selected.fileName || `customer-avatar-${Date.now()}.jpg`,
+        type: selected.mimeType || 'image/jpeg',
+      });
+
+      const updated = await updateMyInfo({ avatarUrl: uploadedUrl || null });
+      if (updated) {
+        setProfileUser(updated);
+        initPersonalForm(updated);
+      }
+      setAccountAvatarFailed(false);
+      Alert.alert('Thành công', 'Avatar đã được cập nhật.');
+    } catch (e) {
+      Alert.alert('Không thể đổi avatar', e?.message || 'Vui lòng thử lại.');
+    } finally {
+      setAvatarUploading(false);
+    }
+  };
+
+  const openChangePasswordModal = () => {
+    setPasswordForm({ currentPassword: '', otp: '', newPassword: '', confirmPassword: '' });
+    setShowChangePasswordModal(true);
+  };
+
+  const sendPasswordOtp = async () => {
+    const currentPassword = String(passwordForm.currentPassword || '').trim();
+    if (!currentPassword) {
+      Alert.alert('Thiếu thông tin', 'Vui lòng nhập mật khẩu hiện tại để nhận OTP.');
+      return;
+    }
+
+    try {
+      setOtpSending(true);
+      await requestChangePasswordOtp(currentPassword);
+      Alert.alert('Đã gửi OTP', 'OTP đã được gửi về email của bạn.');
+    } catch (e) {
+      Alert.alert('Không thể gửi OTP', e?.message || 'Vui lòng thử lại sau.');
+    } finally {
+      setOtpSending(false);
+    }
+  };
+
+  const submitPasswordChange = async () => {
+    const otp = String(passwordForm.otp || '').trim();
+    const newPassword = String(passwordForm.newPassword || '').trim();
+    const confirmPassword = String(passwordForm.confirmPassword || '').trim();
+
+    if (!otp || !newPassword || !confirmPassword) {
+      Alert.alert('Thiếu thông tin', 'Vui lòng nhập OTP và mật khẩu mới đầy đủ.');
+      return;
+    }
+    if (newPassword.length < 6) {
+      Alert.alert('Mật khẩu chưa hợp lệ', 'Mật khẩu mới cần tối thiểu 6 ký tự.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      Alert.alert('Không khớp mật khẩu', 'Mật khẩu xác nhận chưa trùng khớp.');
+      return;
+    }
+
+    try {
+      setPasswordSubmitting(true);
+      await changeMyPassword({ otp, newPassword });
+      setShowChangePasswordModal(false);
+      Alert.alert('Thành công', 'Đổi mật khẩu thành công. Vui lòng đăng nhập lại nếu hệ thống yêu cầu.');
+    } catch (e) {
+      Alert.alert('Đổi mật khẩu thất bại', e?.message || 'Vui lòng kiểm tra OTP và thử lại.');
+    } finally {
+      setPasswordSubmitting(false);
+    }
+  };
+
   const openMessages = () => {
     setActiveFooterTab('messages');
+    setMessageView('drivers');
+  };
+
+  const openSupportCenter = () => {
+    setShowSupportCenter(true);
+  };
+
+  const openSupportChat = () => {
+    setShowSupportCenter(false);
+    setActiveFooterTab('messages');
+    setMessageView('assistant');
+  };
+
+  const callSupportHotline = async () => {
+    const hotlineUrl = 'tel:19001234';
+    try {
+      const canCall = await Linking.canOpenURL(hotlineUrl);
+      if (canCall) {
+        await Linking.openURL(hotlineUrl);
+      }
+    } catch (e) {
+      setErrorText('Không thể mở ứng dụng gọi điện trên thiết bị này.');
+    }
   };
 
   const appendChatMessageIfNotExists = (incoming) => {
@@ -942,11 +1559,19 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadData(); }} />}
       >
         <View style={[styles.accountPageHeader, { marginHorizontal: horizontalGutter, marginTop: isSmallPhone ? 14 : 18 }]}>
-          <View style={styles.accountAvatarWrapLarge}>
-            <Ionicons name="person" size={34} color="#0F172A" />
-          </View>
+          <TouchableOpacity style={styles.accountAvatarWrapLarge} onPress={openPersonalInfo} activeOpacity={0.9}>
+            {customerAvatarUrl && !accountAvatarFailed ? (
+              <Image
+                source={{ uri: customerAvatarUrl }}
+                style={styles.accountAvatarImageLarge}
+                onError={() => setAccountAvatarFailed(true)}
+              />
+            ) : (
+              <Ionicons name="person" size={34} color="#0F172A" />
+            )}
+          </TouchableOpacity>
           <Text style={styles.accountPageName}>{customerFullName}</Text>
-          <Text style={styles.accountPageEmail}>{user?.email || '--'}</Text>
+          <Text style={styles.accountPageEmail}>{customerEmail}</Text>
         </View>
 
         <View style={[styles.section, { paddingHorizontal: horizontalGutter, marginTop: sectionTopGap }]}>
@@ -968,7 +1593,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
 
           <Text style={styles.accountSectionTitle}>Truy cập nhanh</Text>
           <View style={styles.quickGrid}>
-            <TouchableOpacity style={styles.quickCard} activeOpacity={0.9}>
+            <TouchableOpacity style={styles.quickCard} activeOpacity={0.9} onPress={openPersonalInfo}>
               <Ionicons name="person-circle-outline" size={20} color="#00B14F" />
               <Text style={styles.quickCardText}>Thông tin cá nhân</Text>
             </TouchableOpacity>
@@ -1012,7 +1637,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
 
           <Text style={styles.accountSectionTitle}>Tiện ích & hỗ trợ</Text>
 
-          <TouchableOpacity style={styles.accountMenuItem} activeOpacity={0.9}>
+          <TouchableOpacity style={styles.accountMenuItem} activeOpacity={0.9} onPress={openPersonalInfo}>
             <Ionicons name="person-circle-outline" size={18} color="#00B14F" />
             <Text style={styles.accountMenuText}>Thông tin cá nhân</Text>
             <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
@@ -1030,6 +1655,12 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
           <TouchableOpacity style={styles.accountMenuItem} activeOpacity={0.9}>
             <Ionicons name="help-circle-outline" size={18} color="#00B14F" />
             <Text style={styles.accountMenuText}>Hỗ trợ</Text>
+            <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.accountMenuItem} activeOpacity={0.9} onPress={openSupportCenter}>
+            <Ionicons name="headset-outline" size={18} color="#00B14F" />
+            <Text style={styles.accountMenuText}>Chăm sóc khách hàng</Text>
             <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
           </TouchableOpacity>
 
@@ -1056,6 +1687,86 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
         </View>
 
         <View style={[styles.section, { paddingHorizontal: horizontalGutter, marginTop: sectionTopGap }]}>
+          <View style={styles.messageModeRow}>
+            <TouchableOpacity
+              style={[styles.messageModeBtn, messageView === 'assistant' && styles.messageModeBtnActive]}
+              onPress={() => setMessageView('assistant')}
+              activeOpacity={0.9}
+            >
+              <Ionicons name="sparkles-outline" size={14} color={messageView === 'assistant' ? '#008A3E' : '#64748B'} />
+              <Text style={[styles.messageModeText, messageView === 'assistant' && styles.messageModeTextActive]}>Trợ lý CSKH</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.messageModeBtn, messageView === 'drivers' && styles.messageModeBtnActive]}
+              onPress={() => setMessageView('drivers')}
+              activeOpacity={0.9}
+            >
+              <Ionicons name="chatbubble-ellipses-outline" size={14} color={messageView === 'drivers' ? '#008A3E' : '#64748B'} />
+              <Text style={[styles.messageModeText, messageView === 'drivers' && styles.messageModeTextActive]}>Tin nhắn tài xế</Text>
+            </TouchableOpacity>
+          </View>
+
+          {messageView === 'assistant' && (
+          <View style={styles.supportCard}>
+            <View style={styles.supportHeadRow}>
+              <Ionicons name="headset" size={16} color="#00B14F" />
+              <Text style={styles.supportTitle}>Trợ lý RideUp</Text>
+            </View>
+
+            <View style={styles.supportQuickRow}>
+              {SUPPORT_QUICK_ACTIONS.map((question) => (
+                <TouchableOpacity key={question} style={styles.supportQuickBtn} onPress={() => submitSupportMessage(question)}>
+                  <Text style={styles.supportQuickText}>{question}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <View style={styles.supportMessagesWrap}>
+              {supportMessages.slice(-6).map((m) => (
+                <View key={m.id} style={[styles.supportBubble, m.role === 'user' ? styles.supportBubbleUser : styles.supportBubbleBot]}>
+                  {m.role === 'bot' && (
+                    <View style={styles.supportBotTagRow}>
+                      <Ionicons name={getSupportIntentMeta(m.intent).icon} size={12} color={getSupportIntentMeta(m.intent).color} />
+                      <Text style={[styles.supportBotTagText, { color: getSupportIntentMeta(m.intent).color }]}>
+                        {getSupportIntentMeta(m.intent).title}
+                      </Text>
+                    </View>
+                  )}
+                  <Text style={[styles.supportBubbleText, m.role === 'user' && styles.supportBubbleTextUser]}>{m.text}</Text>
+
+                  {m.role === 'bot' && Array.isArray(m.suggestions) && m.suggestions.length > 0 && (
+                    <View style={styles.supportSuggestRow}>
+                      {m.suggestions.slice(0, 4).map((s) => (
+                        <TouchableOpacity key={`${m.id}-${s}`} style={styles.supportSuggestBtn} onPress={() => submitSupportMessage(s)}>
+                          <Text style={styles.supportSuggestText}>{s}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                </View>
+              ))}
+            </View>
+
+            <View style={styles.supportInputRow}>
+              <TextInput
+                style={styles.supportInput}
+                placeholder="Hỏi về thanh toán, booking, hủy chuyến..."
+                value={supportInput}
+                onChangeText={setSupportInput}
+                editable={!supportSending}
+                onSubmitEditing={() => submitSupportMessage()}
+                returnKeyType="send"
+              />
+              <TouchableOpacity style={styles.supportSendBtn} onPress={() => submitSupportMessage()} disabled={supportSending}>
+                <Ionicons name="send" size={14} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
+          </View>
+          )}
+
+          {messageView === 'drivers' && (
+          <>
           <View style={styles.inboxBanner}>
             <Ionicons name="chatbubble-ellipses" size={18} color="#00B14F" />
             <Text style={styles.inboxBannerText}>Bạn có {inboxItems.filter((i) => i.unread).length} tin nhắn chưa đọc</Text>
@@ -1084,6 +1795,8 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
                 {!!item.myUnreadCount && <View style={styles.unreadDot} />}
               </TouchableOpacity>
             ))
+          )}
+          </>
           )}
         </View>
 
@@ -1128,6 +1841,179 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
           <Text numberOfLines={1} style={[styles.footerText, { fontSize: isSmallPhone ? 9 : 10 }, activeFooterTab === 'account' && styles.footerTextActive]}>Tài khoản</Text>
         </TouchableOpacity>
       </View>
+
+      <TouchableOpacity style={[styles.supportFab, { bottom: isShortPhone ? 86 : 94 }]} onPress={openSupportCenter} activeOpacity={0.9}>
+        <Ionicons name="headset" size={20} color="#FFFFFF" />
+      </TouchableOpacity>
+
+      <Modal visible={showPersonalInfo} transparent animationType="slide" onRequestClose={() => setShowPersonalInfo(false)}>
+        <View style={[styles.modalOverlay, styles.accountOverlay]}>
+          <View style={[styles.modalCard, styles.accountSheet]}>
+            <View style={styles.accountHandle} />
+
+            <View style={styles.accountHeaderRow}>
+              <View style={styles.accountAvatarWrap}>
+                {customerAvatarUrl && !accountAvatarFailed ? (
+                  <Image
+                    source={{ uri: customerAvatarUrl }}
+                    style={styles.accountAvatarImage}
+                    onError={() => setAccountAvatarFailed(true)}
+                  />
+                ) : (
+                  <Ionicons name="person" size={28} color="#0F172A" />
+                )}
+              </View>
+
+              <View style={{ flex: 1 }}>
+                <Text style={styles.accountName}>{customerFullName}</Text>
+                <Text style={styles.accountEmail}>{customerEmail}</Text>
+              </View>
+
+              <View style={styles.accountRoleChip}>
+                <Text style={styles.accountRoleText}>{customerRoleLabel}</Text>
+              </View>
+            </View>
+
+            <View style={styles.profileActionRow}>
+              <TouchableOpacity style={styles.profileActionBtn} onPress={pickAndUploadAvatar} disabled={avatarUploading}>
+                <Ionicons name="camera-outline" size={14} color="#0F172A" />
+                <Text style={styles.profileActionText}>{avatarUploading ? 'Đang tải...' : 'Đổi avatar'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.profileActionBtn} onPress={openChangePasswordModal}>
+                <Ionicons name="lock-closed-outline" size={14} color="#0F172A" />
+                <Text style={styles.profileActionText}>Đổi mật khẩu</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.profileInfoSection}>
+              <View style={styles.profileInfoRow}>
+                <Text style={styles.profileInfoLabel}>Họ và tên</Text>
+                <TextInput
+                  style={styles.profileInfoInput}
+                  value={personalForm.fullName}
+                  onChangeText={(value) => onChangePersonalField('fullName', value)}
+                  placeholder="Nhập họ tên"
+                />
+              </View>
+              <View style={styles.profileInfoRow}>
+                <Text style={styles.profileInfoLabel}>Số điện thoại</Text>
+                <TextInput
+                  style={styles.profileInfoInput}
+                  value={personalForm.phoneNumber}
+                  onChangeText={(value) => onChangePersonalField('phoneNumber', value)}
+                  placeholder="Nhập số điện thoại"
+                  keyboardType="phone-pad"
+                />
+              </View>
+              <View style={styles.profileInfoRow}>
+                <Text style={styles.profileInfoLabel}>Email</Text>
+                <Text style={styles.profileInfoValue}>{customerEmail}</Text>
+              </View>
+              <View style={styles.profileInfoRow}>
+                <Text style={styles.profileInfoLabel}>Ngày sinh</Text>
+                <TextInput
+                  style={styles.profileInfoInput}
+                  value={personalForm.dateOfBirth}
+                  onChangeText={(value) => onChangePersonalField('dateOfBirth', value)}
+                  placeholder="YYYY-MM-DD"
+                />
+              </View>
+              <View style={styles.profileInfoRow}>
+                <Text style={styles.profileInfoLabel}>Giới tính</Text>
+                <View style={styles.genderChipRow}>
+                  {[
+                    { key: 'MALE', label: 'Nam' },
+                    { key: 'FEMALE', label: 'Nữ' },
+                    { key: 'OTHER', label: 'Khác' },
+                  ].map((g) => {
+                    const active = String(personalForm.gender || '').toUpperCase() === g.key;
+                    return (
+                      <TouchableOpacity
+                        key={g.key}
+                        style={[styles.genderChip, active && styles.genderChipActive]}
+                        onPress={() => onChangePersonalField('gender', g.key)}
+                      >
+                        <Text style={[styles.genderChipText, active && styles.genderChipTextActive]}>{g.label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+              <View style={styles.profileInfoRow}>
+                <Text style={styles.profileInfoLabel}>Tổng chuyến</Text>
+                <Text style={styles.profileInfoValue}>{bookings.length}</Text>
+              </View>
+            </View>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.cancelBtn}
+                onPress={() => setShowPersonalInfo(false)}
+              >
+                <Text style={styles.cancelBtnText}>Đóng</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.confirmBtn} onPress={savePersonalInfo} disabled={profileSubmitting}>
+                <Text style={styles.confirmBtnText}>{profileSubmitting ? 'Đang lưu...' : 'Lưu thay đổi'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={showChangePasswordModal} transparent animationType="fade" onRequestClose={() => setShowChangePasswordModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalTitleRow}>
+              <Ionicons name="lock-closed-outline" size={20} color="#00B14F" />
+              <Text style={styles.modalTitle}>Đổi mật khẩu</Text>
+            </View>
+
+            <Text style={styles.modalSub}>Nhập mật khẩu hiện tại để nhận OTP qua email.</Text>
+            <TextInput
+              style={styles.profileInfoInputSingle}
+              value={passwordForm.currentPassword}
+              onChangeText={(value) => setPasswordForm((prev) => ({ ...prev, currentPassword: value }))}
+              secureTextEntry
+              placeholder="Mật khẩu hiện tại"
+            />
+            <TouchableOpacity style={styles.profileActionBtnWide} onPress={sendPasswordOtp} disabled={otpSending}>
+              <Ionicons name="mail-open-outline" size={14} color="#0F172A" />
+              <Text style={styles.profileActionText}>{otpSending ? 'Đang gửi OTP...' : 'Gửi OTP'}</Text>
+            </TouchableOpacity>
+
+            <TextInput
+              style={styles.profileInfoInputSingle}
+              value={passwordForm.otp}
+              onChangeText={(value) => setPasswordForm((prev) => ({ ...prev, otp: value }))}
+              placeholder="Nhập mã OTP"
+              keyboardType="number-pad"
+            />
+            <TextInput
+              style={styles.profileInfoInputSingle}
+              value={passwordForm.newPassword}
+              onChangeText={(value) => setPasswordForm((prev) => ({ ...prev, newPassword: value }))}
+              secureTextEntry
+              placeholder="Mật khẩu mới"
+            />
+            <TextInput
+              style={styles.profileInfoInputSingle}
+              value={passwordForm.confirmPassword}
+              onChangeText={(value) => setPasswordForm((prev) => ({ ...prev, confirmPassword: value }))}
+              secureTextEntry
+              placeholder="Xác nhận mật khẩu mới"
+            />
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowChangePasswordModal(false)} disabled={passwordSubmitting}>
+                <Text style={styles.cancelBtnText}>Hủy</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.confirmBtn} onPress={submitPasswordChange} disabled={passwordSubmitting}>
+                <Text style={styles.confirmBtnText}>{passwordSubmitting ? 'Đang đổi...' : 'Xác nhận'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <ProvincePicker
         visible={showFromProvincePicker}
@@ -1176,6 +2062,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
               style={styles.modalScroll}
               contentContainerStyle={styles.modalScrollContent}
               showsVerticalScrollIndicator
+              scrollEnabled={!isMapInteracting}
             >
               <View style={styles.infoSection}>
                 <View style={styles.infoSectionTitleRow}>
@@ -1257,7 +2144,10 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
               <TouchableOpacity
                 key={`pd-${p.id}`}
                 style={[styles.optionBtn, selectedPickupPointId === p.id && styles.optionBtnActive]}
-                onPress={() => setSelectedPickupPointId(p.id)}
+                onPress={() => {
+                  setSelectedPickupPointId(p.id);
+                  setPickupDetailLocation({ address: '', lat: null, lng: null });
+                }}
               >
                 <Text style={styles.optionText}>{p.wardName || p.address}</Text>
               </TouchableOpacity>
@@ -1267,12 +2157,66 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
               Điểm đón đã chọn: {(tripDetail?.pickupPoints || []).find((p) => p.id === selectedPickupPointId)?.wardName || '--'}
             </Text>
 
+            {pickupMapCenter ? (
+              <>
+                <View style={styles.mapCardBox}>
+                  <View style={styles.mapHeaderRow}>
+                    <Text style={styles.mapInlineLabel}>Bản đồ điểm đón</Text>
+                    <View style={styles.mapBadge}><Text style={styles.mapBadgeText}>20km</Text></View>
+                  </View>
+                  <Text style={styles.mapActionHint}>Kéo hoặc zoom bản đồ, vị trí tại ghim giữa sẽ tự cập nhật như Shopee/Grab.</Text>
+                  <RadiusMap
+                    key={`pickup-map-${tripDetail?.id || 'trip'}-${selectedPickupPointId || 'none'}`}
+                    center={pickupMapCenter}
+                    selectedLocation={pickupDetailLocation?.lat != null && pickupDetailLocation?.lng != null
+                      ? { lat: pickupDetailLocation.lat, lng: pickupDetailLocation.lng }
+                      : null}
+                    onPress={handlePickupMapPress}
+                    onViewportCenterChange={handlePickupViewportCenterChange}
+                    onInteractStart={() => setIsMapInteracting(true)}
+                    onInteractEnd={() => setIsMapInteracting(false)}
+                    radiusMeters={MAP_PICK_RADIUS_METERS}
+                    mode="pickup"
+                  />
+                  <View style={styles.liveAddressRow}>
+                    <Ionicons name="navigate-circle-outline" size={14} color="#1D4ED8" />
+                    <Text style={styles.liveAddressText}>
+                      {pickupResolving
+                        ? 'Đang cập nhật địa chỉ...'
+                        : (pickupLiveAddress || 'Kéo map để xem địa chỉ realtime tại tâm ghim')}
+                    </Text>
+                  </View>
+                </View>
+              </>
+            ) : (
+              <Text style={styles.mapUnavailableText}>Phường đón chưa có tọa độ để hiển thị bản đồ.</Text>
+            )}
+
+            <TextInput
+              style={styles.mapAddressInput}
+              value={pickupDetailLocation?.address || ''}
+              onChangeText={(text) => setPickupDetailLocation((prev) => ({ ...prev, address: text }))}
+              placeholder="Địa chỉ đón chi tiết (số nhà, tên đường...)"
+              multiline
+              numberOfLines={2}
+              textAlignVertical="top"
+            />
+
+            {pickupDetailLocation?.lat != null && pickupDetailLocation?.lng != null && (
+              <Text style={styles.mapPickedHint}>
+                Đã pin điểm đón: {pickupDetailLocation.address || 'Địa chỉ chi tiết'} ({pickupDetailLocation.lat.toFixed(6)}, {pickupDetailLocation.lng.toFixed(6)})
+              </Text>
+            )}
+
             <Text style={styles.inputLabel}>Chọn điểm trả</Text>
             {(tripDetail?.dropoffPoints || []).map((p) => (
               <TouchableOpacity
                 key={`dd-${p.id}`}
                 style={[styles.optionBtn, selectedDropoffPointId === p.id && styles.optionBtnActive]}
-                onPress={() => setSelectedDropoffPointId(p.id)}
+                onPress={() => {
+                  setSelectedDropoffPointId(p.id);
+                  setDropoffDetailLocation({ address: '', lat: null, lng: null });
+                }}
               >
                 <Text style={styles.optionText}>{p.wardName || p.address}</Text>
               </TouchableOpacity>
@@ -1281,6 +2225,57 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
             <Text style={styles.selectionHint}>
               Điểm trả đã chọn: {(tripDetail?.dropoffPoints || []).find((p) => p.id === selectedDropoffPointId)?.wardName || '--'}
             </Text>
+
+            {dropoffMapCenter ? (
+              <>
+                <View style={styles.mapCardBox}>
+                  <View style={styles.mapHeaderRow}>
+                    <Text style={styles.mapInlineLabel}>Bản đồ điểm trả</Text>
+                    <View style={styles.mapBadge}><Text style={styles.mapBadgeText}>20km</Text></View>
+                  </View>
+                  <Text style={styles.mapActionHint}>Kéo hoặc zoom bản đồ, vị trí tại ghim giữa sẽ tự cập nhật như Shopee/Grab.</Text>
+                  <RadiusMap
+                    key={`dropoff-map-${tripDetail?.id || 'trip'}-${selectedDropoffPointId || 'none'}`}
+                    center={dropoffMapCenter}
+                    selectedLocation={dropoffDetailLocation?.lat != null && dropoffDetailLocation?.lng != null
+                      ? { lat: dropoffDetailLocation.lat, lng: dropoffDetailLocation.lng }
+                      : null}
+                    onPress={handleDropoffMapPress}
+                    onViewportCenterChange={handleDropoffViewportCenterChange}
+                    onInteractStart={() => setIsMapInteracting(true)}
+                    onInteractEnd={() => setIsMapInteracting(false)}
+                    radiusMeters={MAP_PICK_RADIUS_METERS}
+                    mode="dropoff"
+                  />
+                  <View style={styles.liveAddressRow}>
+                    <Ionicons name="navigate-circle-outline" size={14} color="#1D4ED8" />
+                    <Text style={styles.liveAddressText}>
+                      {dropoffResolving
+                        ? 'Đang cập nhật địa chỉ...'
+                        : (dropoffLiveAddress || 'Kéo map để xem địa chỉ realtime tại tâm ghim')}
+                    </Text>
+                  </View>
+                </View>
+              </>
+            ) : (
+              <Text style={styles.mapUnavailableText}>Phường trả chưa có tọa độ để hiển thị bản đồ.</Text>
+            )}
+
+            <TextInput
+              style={styles.mapAddressInput}
+              value={dropoffDetailLocation?.address || ''}
+              onChangeText={(text) => setDropoffDetailLocation((prev) => ({ ...prev, address: text }))}
+              placeholder="Địa chỉ trả chi tiết (số nhà, tên đường...)"
+              multiline
+              numberOfLines={2}
+              textAlignVertical="top"
+            />
+
+            {dropoffDetailLocation?.lat != null && dropoffDetailLocation?.lng != null && (
+              <Text style={styles.mapPickedHint}>
+                Đã pin điểm trả: {dropoffDetailLocation.address || 'Địa chỉ chi tiết'} ({dropoffDetailLocation.lat.toFixed(6)}, {dropoffDetailLocation.lng.toFixed(6)})
+              </Text>
+            )}
 
             <Text style={styles.inputLabel}>Số chỗ</Text>
             <View style={styles.seatRow}>
@@ -1340,6 +2335,32 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
         </View>
       </Modal>
 
+      <Modal
+        visible={bookingSuccessModal.visible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setBookingSuccessModal((prev) => ({ ...prev, visible: false }))}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.successIconWrap}>
+              <Ionicons name="checkmark" size={22} color="#FFFFFF" />
+            </View>
+            <Text style={styles.successTitle}>{bookingSuccessModal.title}</Text>
+            <Text style={styles.successMessage}>{bookingSuccessModal.message}</Text>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.confirmBtn}
+                onPress={() => setBookingSuccessModal((prev) => ({ ...prev, visible: false }))}
+              >
+                <Text style={styles.confirmBtnText}>Đã hiểu</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <Modal visible={!!bookingDetail} transparent animationType="fade" onRequestClose={() => setBookingDetail(null)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
@@ -1390,25 +2411,49 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
 
       <Modal visible={!!ratingBooking} transparent animationType="fade" onRequestClose={() => setRatingBooking(null)}>
         <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
+          <View style={[styles.modalCard, styles.ratingModalCard]}>
             <View style={styles.modalTitleRow}>
               <Ionicons name="star" size={20} color="#00B14F" />
               <Text style={styles.modalTitle}>Đánh giá chuyến đi</Text>
             </View>
 
-            <Text style={styles.modalSub}>Tài xế: {ratingBooking?.driverName || '--'}</Text>
-            <Text style={styles.modalSub}>Lộ trình: {ratingBooking?.from} - {ratingBooking?.to}</Text>
+            <View style={styles.ratingDriverCard}>
+              {ratingBooking?.driverAvatarUrl && !ratingAvatarFailed ? (
+                <Image
+                  source={{ uri: ratingBooking.driverAvatarUrl }}
+                  style={styles.ratingDriverAvatar}
+                  onError={() => setRatingAvatarFailed(true)}
+                />
+              ) : (
+                <View style={styles.ratingDriverAvatarFallback}>
+                  <Ionicons name="person" size={20} color="#475569" />
+                </View>
+              )}
+
+              <View style={{ flex: 1 }}>
+                <Text style={styles.ratingDriverName}>{ratingBooking?.driverName || '--'}</Text>
+                <View style={styles.ratingRouteBadge}>
+                  <Ionicons name="navigate-outline" size={12} color="#0F172A" />
+                  <Text style={styles.ratingRouteText}>{ratingBooking?.from || '--'} - {ratingBooking?.to || '--'}</Text>
+                </View>
+              </View>
+            </View>
+
+            <Text style={styles.ratingPrompt}>Bạn thấy chuyến đi hôm nay thế nào?</Text>
 
             <Text style={styles.inputLabel}>Số sao</Text>
             <View style={styles.ratingStarsRow}>
               {[1, 2, 3, 4, 5].map((star) => {
                 const active = ratingValue >= star;
                 return (
-                  <TouchableOpacity key={`star-${star}`} onPress={() => setRatingValue(star)} style={styles.ratingStarBtn}>
+                  <TouchableOpacity key={`star-${star}`} onPress={() => setRatingValue(star)} style={[styles.ratingStarBtn, active && styles.ratingStarBtnActive]}>
                     <Ionicons name={active ? 'star' : 'star-outline'} size={26} color={active ? '#F59E0B' : '#94A3B8'} />
                   </TouchableOpacity>
                 );
               })}
+            </View>
+            <View style={styles.ratingSelectedPill}>
+              <Text style={styles.ratingSelectedText}>{ratingValue}/5 - {RATING_LABELS[ratingValue]}</Text>
             </View>
 
             <Text style={styles.inputLabel}>Nhận xét (tuỳ chọn)</Text>
@@ -1429,6 +2474,36 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
               </TouchableOpacity>
               <TouchableOpacity style={styles.confirmBtn} onPress={submitBookingRating} disabled={ratingSubmitting}>
                 <Text style={styles.confirmBtnText}>{ratingSubmitting ? 'Đang gửi...' : 'Gửi đánh giá'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={showSupportCenter} transparent animationType="fade" onRequestClose={() => setShowSupportCenter(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalTitleRow}>
+              <Ionicons name="headset" size={20} color="#00B14F" />
+              <Text style={styles.modalTitle}>Trung tâm hỗ trợ</Text>
+            </View>
+            <Text style={styles.modalSub}>Bạn cần hỗ trợ về chuyến đi, thanh toán hay tài khoản?</Text>
+
+            <TouchableOpacity style={styles.supportActionBtn} onPress={openSupportChat}>
+              <Ionicons name="chatbubble-ellipses-outline" size={17} color="#00B14F" />
+              <Text style={styles.supportActionText}>Chat với CSKH</Text>
+              <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.supportActionBtn} onPress={callSupportHotline}>
+              <Ionicons name="call-outline" size={17} color="#00B14F" />
+              <Text style={styles.supportActionText}>Gọi hotline 1900 1234</Text>
+              <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
+            </TouchableOpacity>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.confirmBtn} onPress={() => setShowSupportCenter(false)}>
+                <Text style={styles.confirmBtnText}>Đóng</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1780,6 +2855,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#D8F3E4',
   },
+  accountAvatarImageLarge: {
+    width: 72,
+    height: 72,
+    borderRadius: 999,
+  },
   accountPageName: {
     marginTop: 10,
     fontSize: 18,
@@ -1988,6 +3068,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#EAF8F0',
     marginRight: 12,
   },
+  accountAvatarImage: {
+    width: 58,
+    height: 58,
+    borderRadius: 999,
+  },
   accountName: { fontSize: 17, fontWeight: '900', color: '#0F172A' },
   accountEmail: { fontSize: 12, color: '#64748B', marginTop: 2 },
   accountRoleChip: {
@@ -1997,6 +3082,123 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
   accountRoleText: { color: '#00A63E', fontSize: 11, fontWeight: '800' },
+  profileActionRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 12,
+  },
+  profileActionBtn: {
+    flex: 1,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#DCE3EA',
+    backgroundColor: '#F8FAFC',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  profileActionBtnWide: {
+    marginTop: 8,
+    marginBottom: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#DCE3EA',
+    backgroundColor: '#F8FAFC',
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  profileActionText: {
+    color: '#0F172A',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  profileInfoSection: {
+    marginTop: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    backgroundColor: '#FBFCFD',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  profileInfoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 9,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEF2F7',
+  },
+  profileInfoLabel: {
+    color: '#64748B',
+    fontSize: 12,
+    fontWeight: '600',
+    flex: 1,
+  },
+  profileInfoValue: {
+    color: '#0F172A',
+    fontSize: 12,
+    fontWeight: '800',
+    maxWidth: '64%',
+    textAlign: 'right',
+  },
+  profileInfoInput: {
+    flex: 1.5,
+    borderWidth: 1,
+    borderColor: '#DCE3EA',
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    color: '#0F172A',
+    fontSize: 12,
+    textAlign: 'right',
+    fontWeight: '700',
+  },
+  profileInfoInputSingle: {
+    borderWidth: 1,
+    borderColor: '#DCE3EA',
+    borderRadius: 10,
+    backgroundColor: '#FAFCFF',
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    color: '#0F172A',
+    fontSize: 13,
+    marginTop: 8,
+  },
+  genderChipRow: {
+    flexDirection: 'row',
+    gap: 6,
+    flex: 1.5,
+    justifyContent: 'flex-end',
+  },
+  genderChip: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#DCE3EA',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  genderChipActive: {
+    borderColor: '#00B14F',
+    backgroundColor: '#ECFDF3',
+  },
+  genderChipText: {
+    color: '#475569',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  genderChipTextActive: {
+    color: '#008A3E',
+  },
   accountStatsRow: { flexDirection: 'row', gap: 8, marginTop: 14, marginBottom: 12 },
   membershipCard: {
     backgroundColor: '#0F172A',
@@ -2081,6 +3283,140 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   accountLogoutText: { color: '#FFFFFF', fontSize: 13, fontWeight: '800' },
+  messageModeRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 10,
+  },
+  messageModeBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 999,
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 6,
+  },
+  messageModeBtnActive: {
+    borderColor: '#00B14F',
+    backgroundColor: '#ECFDF3',
+  },
+  messageModeText: { color: '#475569', fontSize: 12, fontWeight: '700' },
+  messageModeTextActive: { color: '#008A3E' },
+  supportCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E5EAF0',
+    padding: 12,
+    marginBottom: 10,
+  },
+  supportHeadRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  supportTitle: { color: '#0F172A', fontWeight: '900', fontSize: 14 },
+  supportQuickRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
+  supportQuickBtn: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#D9F3E4',
+    backgroundColor: '#F1FCF6',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  supportQuickText: { color: '#008A3E', fontSize: 11, fontWeight: '700' },
+  supportMessagesWrap: { gap: 7, marginBottom: 10 },
+  supportBubble: {
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    maxWidth: '90%',
+  },
+  supportBubbleBot: { backgroundColor: '#F1F5F9', alignSelf: 'flex-start' },
+  supportBubbleUser: { backgroundColor: '#00B14F', alignSelf: 'flex-end' },
+  supportBotTagRow: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: '#FFFFFF',
+    marginBottom: 6,
+  },
+  supportBotTagText: { fontSize: 10, fontWeight: '800' },
+  supportBubbleText: { color: '#0F172A', fontSize: 12, lineHeight: 18 },
+  supportBubbleTextUser: { color: '#FFFFFF' },
+  supportSuggestRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 8,
+  },
+  supportSuggestBtn: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#D7E3EF',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  supportSuggestText: {
+    color: '#0F172A',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  supportInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  supportInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#DCE3EA',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    color: '#0F172A',
+    backgroundColor: '#FAFCFF',
+    fontSize: 13,
+  },
+  supportSendBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 999,
+    backgroundColor: '#00B14F',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  supportFab: {
+    position: 'absolute',
+    right: 14,
+    bottom: 94,
+    width: 48,
+    height: 48,
+    borderRadius: 999,
+    backgroundColor: '#00B14F',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.16,
+    shadowRadius: 8,
+    elevation: 9,
+  },
+  supportActionBtn: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    paddingVertical: 11,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+  },
+  supportActionText: { flex: 1, color: '#0F172A', fontSize: 13, fontWeight: '700' },
   inboxBanner: {
     borderWidth: 1,
     borderColor: '#D9F3E4',
@@ -2224,6 +3560,29 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#00B14F',
   },
+  successIconWrap: {
+    width: 46,
+    height: 46,
+    borderRadius: 999,
+    alignSelf: 'center',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#00B14F',
+    marginBottom: 10,
+  },
+  successTitle: {
+    textAlign: 'center',
+    color: '#0F172A',
+    fontSize: 20,
+    fontWeight: '900',
+  },
+  successMessage: {
+    textAlign: 'center',
+    color: '#475569',
+    fontSize: 13,
+    lineHeight: 20,
+    marginTop: 10,
+  },
   rateBtn: {
     marginTop: 8,
     borderRadius: 10,
@@ -2257,8 +3616,88 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   ratedInfoText: { color: '#92400E', fontWeight: '700', fontSize: 12 },
+  ratingModalCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF',
+  },
+  ratingDriverCard: {
+    marginTop: 2,
+    marginBottom: 10,
+    borderRadius: 14,
+    padding: 10,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  ratingDriverAvatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#E2E8F0',
+  },
+  ratingDriverAvatarFallback: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ratingDriverName: {
+    color: '#0F172A',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  ratingRouteBadge: {
+    marginTop: 5,
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#EEF2F6',
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  ratingRouteText: {
+    color: '#334155',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  ratingPrompt: {
+    color: '#334155',
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
   ratingStarsRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6, marginBottom: 8 },
-  ratingStarBtn: { paddingVertical: 6, paddingHorizontal: 2 },
+  ratingStarBtn: {
+    paddingVertical: 7,
+    paddingHorizontal: 6,
+    borderRadius: 12,
+    backgroundColor: '#F8FAFC',
+  },
+  ratingStarBtnActive: {
+    backgroundColor: '#FFFBEB',
+  },
+  ratingSelectedPill: {
+    alignSelf: 'flex-start',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    backgroundColor: '#F0FDF4',
+    marginBottom: 6,
+  },
+  ratingSelectedText: {
+    color: '#166534',
+    fontSize: 12,
+    fontWeight: '800',
+  },
   reviewTextInput: {
     borderWidth: 1,
     borderColor: '#DCE3EA',
@@ -2319,6 +3758,69 @@ const styles = StyleSheet.create({
   optionBtnActive: { borderColor: '#00B14F', backgroundColor: '#ECFDF3' },
   optionText: { color: COLORS.text, fontSize: 14 },
   selectionHint: { marginTop: -2, marginBottom: 8, color: '#334155', fontSize: 12, fontWeight: '600' },
+  mapInlineLabel: {
+    color: '#0F172A',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  mapCardBox: {
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#DCE3EA',
+    borderRadius: 14,
+    backgroundColor: '#F8FAFC',
+    padding: 10,
+  },
+  mapHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  mapBadge: {
+    backgroundColor: '#DBEAFE',
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  mapBadgeText: {
+    color: '#1D4ED8',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  mapUnavailableText: {
+    marginTop: 2,
+    marginBottom: 8,
+    color: '#92400E',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  mapActionHint: {
+    color: '#334155',
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  liveAddressRow: {
+    marginTop: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#DBEAFE',
+    backgroundColor: '#EFF6FF',
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+  },
+  liveAddressText: {
+    flex: 1,
+    color: '#1E3A8A',
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  mapPickedHint: { marginTop: -2, marginBottom: 8, color: '#0F766E', fontSize: 12, fontWeight: '600' },
   seatRow: { flexDirection: 'row', alignItems: 'center', marginTop: 4, marginBottom: 6 },
   seatBtn: {
     width: 34,
@@ -2348,6 +3850,19 @@ const styles = StyleSheet.create({
   paymentTextActive: { color: '#008A3E', fontWeight: '800' },
   totalHint: { fontSize: 13, color: '#008A3E', fontWeight: '800', marginBottom: 4 },
   modalActions: { flexDirection: 'row', marginTop: 12 },
+  mapAddressInput: {
+    marginTop: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#DCE3EA',
+    borderRadius: 10,
+    backgroundColor: '#FAFCFF',
+    minHeight: 68,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    color: '#0F172A',
+    fontSize: 13,
+  },
   cancelBtn: {
     flex: 1,
     paddingVertical: 11,

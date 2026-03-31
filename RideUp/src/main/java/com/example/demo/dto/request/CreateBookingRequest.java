@@ -18,4 +18,10 @@ public class CreateBookingRequest {
     String passengerName;
     String contactPhone;
     String customerNote;
+    String pickupAddress;
+    Double pickupLat;
+    Double pickupLng;
+    String dropoffAddress;
+    Double dropoffLat;
+    Double dropoffLng;
 }

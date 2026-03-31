@@ -363,6 +363,30 @@ export const getMyInfo = async () => {
   return unwrap(res);
 };
 
+export const updateMyInfo = async (payload) => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(600);
+    return payload || {};
+  }
+  const res = await apiClient.put('/users/me', payload || {});
+  return unwrap(res);
+};
+
+export const requestChangePasswordOtp = async (currentPassword) => {
+  const res = await apiClient.post('/auth/request-otp', {
+    password: currentPassword,
+  });
+  return unwrap(res);
+};
+
+export const changeMyPassword = async ({ otp, newPassword }) => {
+  const res = await apiClient.post('/auth/change-password', {
+    otp,
+    newPassword,
+  });
+  return unwrap(res);
+};
+
 // ==============================
 // ADMIN
 // ==============================
@@ -614,8 +638,9 @@ export const uploadFile = async ({ uri, name, type, file }) => {
 
   const requestConfig = {
     headers: {
-      // Override apiClient default JSON header for multipart payload.
-      'Content-Type': 'multipart/form-data',
+      // For web: remove JSON default header so browser can inject multipart boundary.
+      // For native: keep explicit multipart content type.
+      'Content-Type': isWebRuntime ? undefined : 'multipart/form-data',
     },
   };
 
@@ -732,6 +757,17 @@ export const searchRidesAdvanced = async ({
   return res.data?.result ?? res.data;
 };
 
+/** Lấy chi tiết xã/phường theo wardId */
+export const getWardById = async (wardId) => {
+  if (!wardId) return null;
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(300);
+    return null;
+  }
+  const res = await apiClient.get(`/api/locations/wards/${wardId}`);
+  return res.data?.result ?? res.data;
+};
+
 /** Lấy lịch sử đặt xe */
 export const getCustomerBookings = async () => {
   if (USE_MOCK_DATA) {
@@ -775,6 +811,20 @@ export const createVnpayPaymentUrl = async (bookingId) => {
     };
   }
   const res = await apiClient.post(`/customer/bookings/${bookingId}/payment/vnpay-url`);
+  return res.data?.result ?? res.data;
+};
+
+/** Chat hỗ trợ CSKH (FAQ + tra cứu booking/thanh toán) */
+export const supportChat = async (message) => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(500);
+    return {
+      intent: 'FAQ',
+      reply: 'Đây là phản hồi mock. Bạn có thể hỏi về hủy chuyến, thanh toán, kiểm tra booking gần nhất.',
+      suggestions: ['Kiểm tra booking gần nhất', 'Tôi muốn hủy chuyến'],
+    };
+  }
+  const res = await apiClient.post('/support/chat', { message });
   return res.data?.result ?? res.data;
 };
 

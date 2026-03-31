@@ -5,6 +5,8 @@ import com.example.demo.dto.response.ProvinceResponse;
 import com.example.demo.dto.response.WardResponse;
 import com.example.demo.entity.Province;
 import com.example.demo.entity.Ward;
+import com.example.demo.exception.AppException;
+import com.example.demo.exception.ErrorCode;
 import com.example.demo.repository.ProvinceRepository;
 import com.example.demo.repository.WardRepository;
 import com.example.demo.service.LocationDataSeeder;
@@ -61,6 +63,18 @@ public class LocationController {
         return ApiResponse.<List<WardResponse>>builder()
                 .result(data)
                 .count(data.size())
+                .build();
+    }
+
+    /** GET /api/locations/wards/{wardId} — chi tiết 1 xã/phường theo id */
+    @GetMapping("/wards/{wardId}")
+    @Transactional(readOnly = true)
+    public ApiResponse<WardResponse> getWardById(@PathVariable String wardId) {
+        Ward ward = wardRepository.findByIdWithProvince(wardId)
+                .orElseThrow(() -> new AppException(ErrorCode.INVALID_KEY));
+
+        return ApiResponse.<WardResponse>builder()
+                .result(toWardResponse(ward))
                 .build();
     }
 

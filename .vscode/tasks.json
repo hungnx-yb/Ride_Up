@@ -4,23 +4,27 @@
 		{
 			"label": "Run RideUpUI Web",
 			"type": "shell",
-			"command": "powershell",
+			"command": "npm",
 			"args": [
-				"-NoProfile",
-				"-Command",
-				"cd RideUpUI; npm run web"
+				"run",
+				"web"
 			],
+			"options": {
+				"cwd": "${workspaceFolder}/RideUpUI"
+			},
 			"isBackground": true
 		},
 		{
 			"label": "Run RideUpUI Web Foreground",
 			"type": "shell",
-			"command": "powershell",
+			"command": "npm",
 			"args": [
-				"-NoProfile",
-				"-Command",
-				"cd RideUpUI; npm run web"
+				"run",
+				"web"
 			],
+			"options": {
+				"cwd": "${workspaceFolder}/RideUpUI"
+			},
 			"isBackground": false
 		}
 	]
