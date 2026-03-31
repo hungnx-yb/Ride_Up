@@ -142,10 +142,7 @@ apiClient.interceptors.response.use(
     }
 
     if (!error.response) {
-      return Promise.reject(new Error(
-        `Không kết nối được backend (${API_CONFIG.BASE_URL}). `
-        + 'Nếu test trên điện thoại thật: dùng IP LAN của máy chạy backend, điện thoại và máy phải cùng Wi-Fi, và backend phải mở cổng 8080.'
-      ));
+      return Promise.reject(new Error(`Không kết nối được backend (${API_CONFIG.BASE_URL}). Nếu test trên điện thoại thật, hãy đổi localhost thành IP LAN của máy chạy backend.`));
     }
     const data = error.response?.data;
     const message = data?.message || error.message || 'Lỗi kết nối máy chủ';
@@ -606,52 +603,25 @@ export const submitDriverProfile = async (payload) => {
   return res.data;
 };
 
-export const uploadFile = async ({ uri, name, type, file }) => {
-  if (!uri && !file) {
+export const uploadFile = async ({ uri, name, type }) => {
+  if (!uri) {
     throw new Error('Khong tim thay tep de tai len');
   }
 
   const formData = new FormData();
-  const normalizedName = name || `upload_${Date.now()}.jpg`;
-  const normalizedType = type || 'image/jpeg';
-  const isWebRuntime = typeof window !== 'undefined' && typeof document !== 'undefined';
-  const isBlobLike = typeof Blob !== 'undefined' && file instanceof Blob;
+  formData.append('file', {
+    uri,
+    name: name || `upload_${Date.now()}.jpg`,
+    type: type || 'image/jpeg',
+  });
 
-  if (isWebRuntime) {
-    // Web: always ensure multipart part is a real Blob/File.
-    if (isBlobLike) {
-      formData.append('file', file, file?.name || normalizedName);
-    } else if (uri) {
-      const blobResponse = await fetch(uri);
-      const blob = await blobResponse.blob();
-      formData.append('file', blob, normalizedName);
-    } else {
-      throw new Error('Khong doc duoc du lieu anh tren web');
-    }
-  } else {
-    formData.append('file', {
-      uri,
-      name: normalizedName,
-      type: normalizedType,
-    });
-  }
-
-  const requestConfig = {
+  const res = await apiClient.post('/file/upload', formData, {
     headers: {
-      // For web: remove JSON default header so browser can inject multipart boundary.
-      // For native: keep explicit multipart content type.
-      'Content-Type': isWebRuntime ? undefined : 'multipart/form-data',
+      'Content-Type': 'multipart/form-data',
     },
-  };
+  });
 
-  try {
-    const res = await apiClient.post('/file/upload', formData, requestConfig);
-    return res.data?.result || res.data;
-  } catch (error) {
-    const status = error?.response?.status;
-    const serverMsg = error?.response?.data?.message || error?.response?.data?.error;
-    throw new Error(serverMsg || `Upload that bai${status ? ` (HTTP ${status})` : ''}`);
-  }
+  return res.data?.result || res.data;
 };
 
 /** Không còn dùng - khách thanh toán là có chỗ luôn */
@@ -814,6 +784,19 @@ export const createVnpayPaymentUrl = async (bookingId) => {
   return res.data?.result ?? res.data;
 };
 
+/** Đánh giá chuyến xe */
+export const rateRide = async (bookingId, rating, comment) => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(800);
+    return { success: true, message: 'Cảm ơn đánh giá của bạn!' };
+  }
+  const res = await apiClient.post(`/customer/bookings/${bookingId}/rate`, {
+    rating,
+    comment,
+  });
+  return res.data;
+};
+
 /** Chat hỗ trợ CSKH (FAQ + tra cứu booking/thanh toán) */
 export const supportChat = async (message) => {
   if (USE_MOCK_DATA) {
@@ -826,19 +809,6 @@ export const supportChat = async (message) => {
   }
   const res = await apiClient.post('/support/chat', { message });
   return res.data?.result ?? res.data;
-};
-
-/** Đánh giá chuyến xe */
-export const rateRide = async (bookingId, rating, comment) => {
-  if (USE_MOCK_DATA) {
-    await mockApiDelay(800);
-    return { success: true, message: 'Cảm ơn đánh giá của bạn!' };
-  }
-  const res = await apiClient.post(`/customer/bookings/${bookingId}/rate`, {
-    rating,
-    comment,
-  });
-  return res.data;
 };
 
 // ==============================
@@ -885,36 +855,20 @@ export const getChatMessages = async (threadId, limit = 50) => {
   return res.data?.result ?? res.data;
 };
 
-/** Gửi tin nhắn chat (text hoặc ảnh) */
-export const sendChatMessage = async (threadId, payloadOrContent) => {
-  const payload = typeof payloadOrContent === 'string'
-    ? { content: payloadOrContent }
-    : (payloadOrContent || {});
-  const normalizedContent = typeof payload.content === 'string' ? payload.content.trim() : '';
-  const normalizedImageUrl = typeof payload.imageUrl === 'string' ? payload.imageUrl.trim() : '';
-
-  if (!normalizedContent && !normalizedImageUrl) {
-    throw new Error('Tin nhan khong hop le');
-  }
-
+/** Gửi tin nhắn text */
+export const sendChatMessage = async (threadId, content) => {
   if (USE_MOCK_DATA) {
     await mockApiDelay(300);
     return {
       id: `msg_${Date.now()}`,
       threadId,
-      content: normalizedContent || null,
-      imageUrl: normalizedImageUrl || null,
-      type: normalizedImageUrl ? 'MEDIA' : 'MESSAGE',
+      content,
+      type: 'TEXT',
       mine: true,
       sentAt: new Date().toISOString(),
     };
   }
-
-  const res = await apiClient.post(`/chat/threads/${threadId}/messages`, {
-    content: normalizedContent || null,
-    imageUrl: normalizedImageUrl || null,
-    type: normalizedImageUrl ? 'MEDIA' : 'MESSAGE',
-  });
+  const res = await apiClient.post(`/chat/threads/${threadId}/messages`, { content });
   return res.data?.result ?? res.data;
 };
 

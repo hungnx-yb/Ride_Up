@@ -1868,7 +1868,6 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
                 <Text style={styles.accountName}>{customerFullName}</Text>
                 <Text style={styles.accountEmail}>{customerEmail}</Text>
               </View>
-
               <View style={styles.accountRoleChip}>
                 <Text style={styles.accountRoleText}>{customerRoleLabel}</Text>
               </View>
@@ -2078,87 +2077,30 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
                   <Text style={styles.infoValue}>{formatTime(tripDetail?.departureTime)}</Text>
                 </View>
                 <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>Giá/vé</Text>
-                  <Text style={styles.infoValueStrong}>{formatCurrency(tripDetail?.price)}</Text>
-                </View>
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>Ghế trống</Text>
-                  <Text style={styles.infoValue}>{tripDetail?.availableSeats}/{tripDetail?.totalSeats} ghế</Text>
-                </View>
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>Quãng đường</Text>
-                  <Text style={styles.infoValue}>{tripDetail?.estimatedDistanceKm ? `${tripDetail.estimatedDistanceKm} km` : '--'}</Text>
-                </View>
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>Thời lượng</Text>
-                  <Text style={styles.infoValue}>{formatDuration(tripDetail?.estimatedDurationMinutes)}</Text>
+                  <Text style={styles.infoLabel}>Tài xế</Text>
+                  <Text style={styles.infoValue}>{tripDetail?.driverName || '--'} • ⭐ {tripDetail?.driverRating || 0}</Text>
                 </View>
               </View>
 
-              <View style={styles.infoSection}>
-                <View style={styles.infoSectionTitleRow}>
-                  <Ionicons name="person" size={15} color="#00B14F" />
-                  <Text style={styles.infoSectionTitle}>Thông tin tài xế</Text>
-                </View>
-                <View style={styles.profileRow}>
-                  {tripDetail?.driverAvatarUrl && !driverImageFailed ? (
-                    <Image
-                      source={{ uri: tripDetail.driverAvatarUrl }}
-                      style={styles.profileImage}
-                      onError={() => setDriverImageFailed(true)}
-                    />
-                  ) : (
-                    <Image source={DEFAULT_DRIVER_IMAGE} style={styles.profileImage} />
-                  )}
-                  <View style={styles.profileTextWrap}>
-                    <Text style={styles.profileName}>{tripDetail?.driverName || '--'}</Text>
-                    <Text style={styles.profileMeta}>⭐ {tripDetail?.driverRating || 0}</Text>
-                  </View>
-                </View>
-              </View>
+              <Text style={styles.inputLabel}>Chọn điểm đón</Text>
+              {(tripDetail?.pickupPoints || []).map((p) => (
+                <TouchableOpacity
+                  key={`pd-${p.id}`}
+                  style={[styles.optionBtn, selectedPickupPointId === p.id && styles.optionBtnActive]}
+                  onPress={() => {
+                    setSelectedPickupPointId(p.id);
+                    setPickupDetailLocation({ address: '', lat: null, lng: null });
+                  }}
+                >
+                  <Text style={styles.optionText}>{p.wardName || p.address}</Text>
+                </TouchableOpacity>
+              ))}
 
-              <View style={styles.infoSection}>
-                <View style={styles.infoSectionTitleRow}>
-                  <Ionicons name="car" size={15} color="#00B14F" />
-                  <Text style={styles.infoSectionTitle}>Thông tin xe</Text>
-                </View>
-                <View style={styles.profileRow}>
-                  {tripDetail?.vehicleImageUrl && !vehicleImageFailed ? (
-                    <Image
-                      source={{ uri: tripDetail.vehicleImageUrl }}
-                      style={styles.vehicleImage}
-                      onError={() => setVehicleImageFailed(true)}
-                    />
-                  ) : (
-                    <Image source={DEFAULT_VEHICLE_IMAGE} style={styles.vehicleImage} />
-                  )}
-                  <View style={styles.profileTextWrap}>
-                    <Text style={styles.profileName}>{getVehicleTypeLabel(tripDetail?.vehicleType)}</Text>
-                    <Text style={styles.profileMeta}>Biển số: {tripDetail?.vehiclePlateNumber || '--'}</Text>
-                  </View>
-                </View>
-              </View>
+              <Text style={styles.selectionHint}>
+                Điểm đón đã chọn: {(tripDetail?.pickupPoints || []).find((p) => p.id === selectedPickupPointId)?.wardName || '--'}
+              </Text>
 
-            <Text style={styles.inputLabel}>Chọn điểm đón</Text>
-            {(tripDetail?.pickupPoints || []).map((p) => (
-              <TouchableOpacity
-                key={`pd-${p.id}`}
-                style={[styles.optionBtn, selectedPickupPointId === p.id && styles.optionBtnActive]}
-                onPress={() => {
-                  setSelectedPickupPointId(p.id);
-                  setPickupDetailLocation({ address: '', lat: null, lng: null });
-                }}
-              >
-                <Text style={styles.optionText}>{p.wardName || p.address}</Text>
-              </TouchableOpacity>
-            ))}
-
-            <Text style={styles.selectionHint}>
-              Điểm đón đã chọn: {(tripDetail?.pickupPoints || []).find((p) => p.id === selectedPickupPointId)?.wardName || '--'}
-            </Text>
-
-            {pickupMapCenter ? (
-              <>
+              {pickupMapCenter ? (
                 <View style={styles.mapCardBox}>
                   <View style={styles.mapHeaderRow}>
                     <Text style={styles.mapInlineLabel}>Bản đồ điểm đón</Text>
@@ -2187,47 +2129,45 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
                     </Text>
                   </View>
                 </View>
-              </>
-            ) : (
-              <Text style={styles.mapUnavailableText}>Phường đón chưa có tọa độ để hiển thị bản đồ.</Text>
-            )}
+              ) : (
+                <Text style={styles.mapUnavailableText}>Phường đón chưa có tọa độ để hiển thị bản đồ.</Text>
+              )}
 
-            <TextInput
-              style={styles.mapAddressInput}
-              value={pickupDetailLocation?.address || ''}
-              onChangeText={(text) => setPickupDetailLocation((prev) => ({ ...prev, address: text }))}
-              placeholder="Địa chỉ đón chi tiết (số nhà, tên đường...)"
-              multiline
-              numberOfLines={2}
-              textAlignVertical="top"
-            />
+              <TextInput
+                style={styles.mapAddressInput}
+                value={pickupDetailLocation?.address || ''}
+                onChangeText={(text) => setPickupDetailLocation((prev) => ({ ...prev, address: text }))}
+                placeholder="Địa chỉ đón chi tiết (số nhà, tên đường...)"
+                multiline
+                numberOfLines={2}
+                textAlignVertical="top"
+              />
 
-            {pickupDetailLocation?.lat != null && pickupDetailLocation?.lng != null && (
-              <Text style={styles.mapPickedHint}>
-                Đã pin điểm đón: {pickupDetailLocation.address || 'Địa chỉ chi tiết'} ({pickupDetailLocation.lat.toFixed(6)}, {pickupDetailLocation.lng.toFixed(6)})
+              {pickupDetailLocation?.lat != null && pickupDetailLocation?.lng != null && (
+                <Text style={styles.mapPickedHint}>
+                  Đã pin điểm đón: {pickupDetailLocation.address || 'Địa chỉ chi tiết'} ({pickupDetailLocation.lat.toFixed(6)}, {pickupDetailLocation.lng.toFixed(6)})
+                </Text>
+              )}
+
+              <Text style={styles.inputLabel}>Chọn điểm trả</Text>
+              {(tripDetail?.dropoffPoints || []).map((p) => (
+                <TouchableOpacity
+                  key={`dd-${p.id}`}
+                  style={[styles.optionBtn, selectedDropoffPointId === p.id && styles.optionBtnActive]}
+                  onPress={() => {
+                    setSelectedDropoffPointId(p.id);
+                    setDropoffDetailLocation({ address: '', lat: null, lng: null });
+                  }}
+                >
+                  <Text style={styles.optionText}>{p.wardName || p.address}</Text>
+                </TouchableOpacity>
+              ))}
+
+              <Text style={styles.selectionHint}>
+                Điểm trả đã chọn: {(tripDetail?.dropoffPoints || []).find((p) => p.id === selectedDropoffPointId)?.wardName || '--'}
               </Text>
-            )}
 
-            <Text style={styles.inputLabel}>Chọn điểm trả</Text>
-            {(tripDetail?.dropoffPoints || []).map((p) => (
-              <TouchableOpacity
-                key={`dd-${p.id}`}
-                style={[styles.optionBtn, selectedDropoffPointId === p.id && styles.optionBtnActive]}
-                onPress={() => {
-                  setSelectedDropoffPointId(p.id);
-                  setDropoffDetailLocation({ address: '', lat: null, lng: null });
-                }}
-              >
-                <Text style={styles.optionText}>{p.wardName || p.address}</Text>
-              </TouchableOpacity>
-            ))}
-
-            <Text style={styles.selectionHint}>
-              Điểm trả đã chọn: {(tripDetail?.dropoffPoints || []).find((p) => p.id === selectedDropoffPointId)?.wardName || '--'}
-            </Text>
-
-            {dropoffMapCenter ? (
-              <>
+              {dropoffMapCenter ? (
                 <View style={styles.mapCardBox}>
                   <View style={styles.mapHeaderRow}>
                     <Text style={styles.mapInlineLabel}>Bản đồ điểm trả</Text>
@@ -2256,80 +2196,79 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
                     </Text>
                   </View>
                 </View>
-              </>
-            ) : (
-              <Text style={styles.mapUnavailableText}>Phường trả chưa có tọa độ để hiển thị bản đồ.</Text>
-            )}
+              ) : (
+                <Text style={styles.mapUnavailableText}>Phường trả chưa có tọa độ để hiển thị bản đồ.</Text>
+              )}
 
-            <TextInput
-              style={styles.mapAddressInput}
-              value={dropoffDetailLocation?.address || ''}
-              onChangeText={(text) => setDropoffDetailLocation((prev) => ({ ...prev, address: text }))}
-              placeholder="Địa chỉ trả chi tiết (số nhà, tên đường...)"
-              multiline
-              numberOfLines={2}
-              textAlignVertical="top"
-            />
+              <TextInput
+                style={styles.mapAddressInput}
+                value={dropoffDetailLocation?.address || ''}
+                onChangeText={(text) => setDropoffDetailLocation((prev) => ({ ...prev, address: text }))}
+                placeholder="Địa chỉ trả chi tiết (số nhà, tên đường...)"
+                multiline
+                numberOfLines={2}
+                textAlignVertical="top"
+              />
 
-            {dropoffDetailLocation?.lat != null && dropoffDetailLocation?.lng != null && (
-              <Text style={styles.mapPickedHint}>
-                Đã pin điểm trả: {dropoffDetailLocation.address || 'Địa chỉ chi tiết'} ({dropoffDetailLocation.lat.toFixed(6)}, {dropoffDetailLocation.lng.toFixed(6)})
-              </Text>
-            )}
+              {dropoffDetailLocation?.lat != null && dropoffDetailLocation?.lng != null && (
+                <Text style={styles.mapPickedHint}>
+                  Đã pin điểm trả: {dropoffDetailLocation.address || 'Địa chỉ chi tiết'} ({dropoffDetailLocation.lat.toFixed(6)}, {dropoffDetailLocation.lng.toFixed(6)})
+                </Text>
+              )}
 
-            <Text style={styles.inputLabel}>Số chỗ</Text>
-            <View style={styles.seatRow}>
-              <TouchableOpacity
-                style={styles.seatBtn}
-                onPress={() => setSeatCount((prev) => Math.max(1, prev - 1))}
-                disabled={bookingSubmitting}
-              >
-                <Text style={styles.seatBtnText}>-</Text>
-              </TouchableOpacity>
-              <Text style={styles.seatValue}>{seatCount}</Text>
-              <TouchableOpacity
-                style={styles.seatBtn}
-                onPress={() => {
-                  const maxSeats = tripDetail?.availableSeats || 1;
-                  setSeatCount((prev) => Math.min(maxSeats, prev + 1));
-                }}
-                disabled={bookingSubmitting}
-              >
-                <Text style={styles.seatBtnText}>+</Text>
-              </TouchableOpacity>
-              <Text style={styles.seatHint}>Còn {tripDetail?.availableSeats || 0} ghế</Text>
-            </View>
+              <Text style={styles.inputLabel}>Số chỗ</Text>
+              <View style={styles.seatRow}>
+                <TouchableOpacity
+                  style={styles.seatBtn}
+                  onPress={() => setSeatCount((prev) => Math.max(1, prev - 1))}
+                  disabled={bookingSubmitting}
+                >
+                  <Text style={styles.seatBtnText}>-</Text>
+                </TouchableOpacity>
+                <Text style={styles.seatValue}>{seatCount}</Text>
+                <TouchableOpacity
+                  style={styles.seatBtn}
+                  onPress={() => {
+                    const maxSeats = tripDetail?.availableSeats || 1;
+                    setSeatCount((prev) => Math.min(maxSeats, prev + 1));
+                  }}
+                  disabled={bookingSubmitting}
+                >
+                  <Text style={styles.seatBtnText}>+</Text>
+                </TouchableOpacity>
+                <Text style={styles.seatHint}>Còn {tripDetail?.availableSeats || 0} ghế</Text>
+              </View>
 
-            <Text style={styles.inputLabel}>Phương thức thanh toán</Text>
-            <View style={styles.paymentRow}>
-              <TouchableOpacity
-                style={[styles.paymentBtn, paymentMethod === 'CASH' && styles.paymentBtnActive]}
-                onPress={() => setPaymentMethod('CASH')}
-              >
-                <Text style={[styles.paymentText, paymentMethod === 'CASH' && styles.paymentTextActive]}>Tiền mặt</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.paymentBtn, paymentMethod === 'VNPAY' && styles.paymentBtnActive]}
-                onPress={() => setPaymentMethod('VNPAY')}
-              >
-                <Text style={[styles.paymentText, paymentMethod === 'VNPAY' && styles.paymentTextActive]}>VNPAY</Text>
-              </TouchableOpacity>
-            </View>
+              <Text style={styles.inputLabel}>Phương thức thanh toán</Text>
+              <View style={styles.paymentRow}>
+                <TouchableOpacity
+                  style={[styles.paymentBtn, paymentMethod === 'CASH' && styles.paymentBtnActive]}
+                  onPress={() => setPaymentMethod('CASH')}
+                >
+                  <Text style={[styles.paymentText, paymentMethod === 'CASH' && styles.paymentTextActive]}>Tiền mặt</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.paymentBtn, paymentMethod === 'VNPAY' && styles.paymentBtnActive]}
+                  onPress={() => setPaymentMethod('VNPAY')}
+                >
+                  <Text style={[styles.paymentText, paymentMethod === 'VNPAY' && styles.paymentTextActive]}>VNPAY</Text>
+                </TouchableOpacity>
+              </View>
 
-            <Text style={styles.totalHint}>Tổng tiền: {formatCurrency((tripDetail?.price || 0) * seatCount)}</Text>
+              <Text style={styles.totalHint}>Tổng tiền: {formatCurrency((tripDetail?.price || 0) * seatCount)}</Text>
 
-            <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.cancelBtn} onPress={() => setTripDetail(null)} disabled={bookingSubmitting}>
-                <Text style={styles.cancelBtnText}>Đóng</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.confirmBtn}
-                onPress={submitTripDetailBooking}
-                disabled={bookingSubmitting}
-              >
-                <Text style={styles.confirmBtnText}>{bookingSubmitting ? 'Đang đặt...' : 'Xác nhận đặt chỗ'}</Text>
-              </TouchableOpacity>
-            </View>
+              <View style={styles.modalActions}>
+                <TouchableOpacity style={styles.cancelBtn} onPress={() => setTripDetail(null)} disabled={bookingSubmitting}>
+                  <Text style={styles.cancelBtnText}>Đóng</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.confirmBtn}
+                  onPress={submitTripDetailBooking}
+                  disabled={bookingSubmitting}
+                >
+                  <Text style={styles.confirmBtnText}>{bookingSubmitting ? 'Đang đặt...' : 'Xác nhận đặt chỗ'}</Text>
+                </TouchableOpacity>
+              </View>
             </ScrollView>
           </View>
         </View>

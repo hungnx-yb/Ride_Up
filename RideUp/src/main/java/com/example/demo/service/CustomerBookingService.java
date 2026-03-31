@@ -166,13 +166,13 @@ public class CustomerBookingService {
         trip.setStatus(newAvailable == 0 ? TripStatus.FULL : TripStatus.OPEN);
 
         Booking saved = bookingRepository.save(booking);
-                chatService.ensureThreadForConfirmedBooking(saved.getId());
+        chatService.ensureThreadForConfirmedBooking(saved.getId());
 
-                String paymentUrl = null;
-                if (paymentMethod == PaymentMethod.VNPAY) {
-                        paymentUrl = createVnPayPaymentUrlForBooking(saved, currentUser.getId(), ipAddress);
-                }
-                return toCustomerBookingResponse(saved, paymentUrl);
+        String paymentUrl = null;
+        if (paymentMethod == PaymentMethod.VNPAY) {
+                paymentUrl = createVnPayPaymentUrlForBooking(saved, currentUser.getId(), ipAddress);
+        }
+        return toCustomerBookingResponse(saved, paymentUrl);
     }
 
         @Transactional
@@ -466,6 +466,7 @@ public class CustomerBookingService {
                 .dropPoint(booking.getDropoffPoint() != null && booking.getDropoffPoint().getWard() != null ? booking.getDropoffPoint().getWard().getName() : "")
                 .departureTime(trip.getDepartureTime())
                 .driverName(trip.getDriver() != null && trip.getDriver().getUser() != null ? trip.getDriver().getUser().getFullName() : "")
+                .driverAvatarUrl(trip.getDriver() != null && trip.getDriver().getUser() != null ? trip.getDriver().getUser().getAvatarUrl() : null)
                 .driverRating(trip.getDriver() != null ? trip.getDriver().getDriverRating() : 0.0)
                 .paymentMethod(booking.getPayment() != null && booking.getPayment().getMethod() != null ? booking.getPayment().getMethod().name() : null)
                 .paymentStatus(booking.getPayment() != null && booking.getPayment().getStatus() != null ? booking.getPayment().getStatus().name() : null)
