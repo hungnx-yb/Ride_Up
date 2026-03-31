@@ -24,6 +24,7 @@ import CreateTripScreen from './src/screens/driver/CreateTripScreen';
 import AllTripsScreen from './src/screens/driver/AllTripsScreen';
 import DriverProfileScreen from './src/screens/driver/DriverProfileScreen';
 import TripDetailScreen from './src/screens/driver/TripDetailScreen';
+import DriverMessagesScreen from './src/screens/driver/DriverMessagesScreen';
 import LoginTransitionOverlay from './src/components/LoginTransitionOverlay';
 
 const Stack = createNativeStackNavigator();
@@ -127,6 +128,7 @@ export default function App() {
             </Stack.Screen>
             <Stack.Screen name="CreateTrip" component={CreateTripScreen} />
             <Stack.Screen name="AllTrips" component={AllTripsScreen} />
+            <Stack.Screen name="DriverMessages" component={DriverMessagesScreen} />
             <Stack.Screen name="DriverProfile" component={DriverProfileScreen} />
             <Stack.Screen name="TripDetail" component={TripDetailScreen} />
           </>

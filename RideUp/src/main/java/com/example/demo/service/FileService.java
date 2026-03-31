@@ -5,6 +5,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
+import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -21,7 +23,9 @@ public class FileService {
 
     public String upload(MultipartFile file, String prefix) {
         try {
-            String fileName = prefix + "/" + UUID.randomUUID() + "-" + file.getOriginalFilename();
+            String originalName = file.getOriginalFilename();
+            String safeOriginalName = sanitizeFileName(originalName);
+            String fileName = prefix + "/" + UUID.randomUUID() + "-" + safeOriginalName;
 
             String uploadUrl = supabaseConfig.getStorageApiUrl()
                     + "/object/" + supabaseConfig.getBucket() + "/" + fileName;
@@ -29,9 +33,16 @@ public class FileService {
             HttpHeaders headers = new HttpHeaders();
             headers.set("Authorization", "Bearer " + supabaseConfig.getApiKey());
             headers.set("apikey", supabaseConfig.getApiKey());
-            headers.setContentType(MediaType.parseMediaType(
-                    file.getContentType() != null ? file.getContentType() : "application/octet-stream"
-            ));
+            String rawContentType = file.getContentType();
+            MediaType mediaType;
+            try {
+                mediaType = StringUtils.hasText(rawContentType)
+                        ? MediaType.parseMediaType(rawContentType)
+                        : MediaType.APPLICATION_OCTET_STREAM;
+            } catch (InvalidMediaTypeException ex) {
+                mediaType = MediaType.APPLICATION_OCTET_STREAM;
+            }
+            headers.setContentType(mediaType);
             headers.set("x-upsert", "true");
 
             HttpEntity<byte[]> requestEntity = new HttpEntity<>(file.getBytes(), headers);
@@ -47,7 +58,11 @@ public class FileService {
                 throw new RuntimeException("Upload failed with status: " + response.getStatusCode());
             }
 
+        } catch (HttpStatusCodeException e) {
+            log.error("Supabase upload failed status={} body={}", e.getStatusCode(), e.getResponseBodyAsString());
+            throw new RuntimeException("Upload failed: " + e.getStatusCode() + " - " + e.getResponseBodyAsString(), e);
         } catch (Exception e) {
+            log.error("Upload failed", e);
             throw new RuntimeException("Upload failed: " + e.getMessage(), e);
         }
     }
@@ -55,6 +70,15 @@ public class FileService {
 
     public String getFileUrl(String objectPath) {
         return supabaseConfig.getPublicUrl(objectPath);
+    }
+
+    private String sanitizeFileName(String originalName) {
+        String fallback = "file.bin";
+        if (originalName == null || originalName.isBlank()) {
+            return fallback;
+        }
+        String sanitized = originalName.replaceAll("[\\\\/:*?\"<>|]+", "_").trim();
+        return sanitized.isEmpty() ? fallback : sanitized;
     }
 
     public void delete(String objectPath) {

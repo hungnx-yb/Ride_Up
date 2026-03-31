@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Image,
   Modal,
   RefreshControl,
   ScrollView,
@@ -12,14 +13,18 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../../config/config';
 import DriverBottomNav from '../../components/DriverBottomNav';
 import {
+  createChatRealtimeClient,
   getChatMessages,
   getDriverTripDetail,
   markChatThreadRead,
   openChatThread,
   sendChatMessage,
+  uploadFile,
 } from '../../services/api';
 
 const statusText = {
@@ -136,6 +141,8 @@ const TripDetailScreen = ({ navigation, route }) => {
   const [chatVisible, setChatVisible] = useState(false);
   const [chatLoading, setChatLoading] = useState(false);
   const [chatSending, setChatSending] = useState(false);
+  const [chatUploadingImage, setChatUploadingImage] = useState(false);
+  const [chatPendingImage, setChatPendingImage] = useState(null);
   const [chatThread, setChatThread] = useState(null);
   const [chatMessages, setChatMessages] = useState([]);
   const [chatDraft, setChatDraft] = useState('');
@@ -220,6 +227,8 @@ const TripDetailScreen = ({ navigation, route }) => {
   const closeChatModal = useCallback(() => {
     stopRealtime();
     setChatVisible(false);
+    setChatUploadingImage(false);
+    setChatPendingImage(null);
     setChatDraft('');
     setChatMessages([]);
     setChatThread(null);
@@ -251,18 +260,96 @@ const TripDetailScreen = ({ navigation, route }) => {
   }, [canChatThisTrip, refreshChatMessages, startRealtime]);
 
   const submitChatMessage = useCallback(async () => {
-    if (!chatThread?.id || !chatDraft.trim()) return;
+    const textContent = chatDraft.trim();
+    const hasPendingImage = !!(chatPendingImage?.uri || chatPendingImage?.file);
+    if (!chatThread?.id || chatSending || chatUploadingImage || (!textContent && !hasPendingImage)) return;
+
     try {
       setChatSending(true);
-      const sent = await sendChatMessage(chatThread.id, chatDraft.trim());
+      let uploadedImageUrl = null;
+
+      if (hasPendingImage) {
+        setChatUploadingImage(true);
+        uploadedImageUrl = await uploadFile({
+          uri: chatPendingImage.uri,
+          name: chatPendingImage.name,
+          type: chatPendingImage.type,
+          file: chatPendingImage.file,
+        });
+      }
+
+      const sent = await sendChatMessage(chatThread.id, {
+        content: textContent || null,
+        imageUrl: uploadedImageUrl,
+      });
       appendUniqueMessage(sent);
       setChatDraft('');
+      setChatPendingImage(null);
     } catch (e) {
       Alert.alert('Lỗi', e?.message || 'Gửi tin nhắn thất bại');
     } finally {
+      setChatUploadingImage(false);
       setChatSending(false);
     }
-  }, [chatThread?.id, chatDraft, appendUniqueMessage]);
+  }, [chatThread?.id, chatDraft, appendUniqueMessage, chatUploadingImage, chatPendingImage, chatSending]);
+
+  const submitChatImage = useCallback(async () => {
+    if (!chatThread?.id || chatSending || chatUploadingImage) return;
+
+    try {
+      const isWebRuntime = typeof window !== 'undefined' && typeof document !== 'undefined';
+
+      if (isWebRuntime) {
+        const selected = await new Promise((resolve) => {
+          const input = document.createElement('input');
+          input.type = 'file';
+          input.accept = 'image/*';
+          input.onchange = () => {
+            const file = input.files && input.files[0] ? input.files[0] : null;
+            if (!file) {
+              resolve(null);
+              return;
+            }
+            const objectUrl = URL.createObjectURL(file);
+            resolve({
+              uri: objectUrl,
+              name: file.name || `chat-${Date.now()}.jpg`,
+              type: file.type || 'image/jpeg',
+              file,
+            });
+          };
+          input.click();
+        });
+
+        if (!selected) return;
+        setChatPendingImage(selected);
+      } else {
+        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!permission?.granted) {
+          Alert.alert('Quyen bi tu choi', 'Vui long cap quyen thu vien anh de gui hinh.');
+          return;
+        }
+
+        const picked = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsEditing: true,
+          quality: 0.9,
+        });
+
+        if (picked.canceled || !picked.assets?.length) return;
+
+        const selected = picked.assets[0];
+        setChatPendingImage({
+          uri: selected.uri,
+          name: selected.fileName || `chat-${Date.now()}.jpg`,
+          type: selected.mimeType || 'image/jpeg',
+          file: selected.file,
+        });
+      }
+    } catch (e) {
+      Alert.alert('Loi', e?.message || 'Chon anh that bai');
+    }
+  }, [appendUniqueMessage, chatDraft, chatSending, chatThread?.id, chatUploadingImage]);
 
   useEffect(() => {
     return () => {
@@ -380,7 +467,8 @@ const TripDetailScreen = ({ navigation, route }) => {
                     key={msg.id || `msg-${idx}`}
                     style={[styles.chatBubble, msg.mine ? styles.chatBubbleMine : styles.chatBubbleOther]}
                   >
-                    <Text style={[styles.chatBubbleText, msg.mine && styles.chatBubbleTextMine]}>{msg.content}</Text>
+                    {!!msg.imageUrl && <Image source={{ uri: msg.imageUrl }} style={styles.chatImage} resizeMode="cover" />}
+                    {!!msg.content && <Text style={[styles.chatBubbleText, msg.mine && styles.chatBubbleTextMine]}>{msg.content}</Text>}
                     <Text style={[styles.chatBubbleTime, msg.mine && styles.chatBubbleTimeMine]}>{formatTime(msg.sentAt)}</Text>
                   </View>
                 ))}
@@ -388,6 +476,17 @@ const TripDetailScreen = ({ navigation, route }) => {
             )}
 
             <View style={styles.chatComposerRow}>
+              <TouchableOpacity
+                style={[styles.chatImageBtn, (chatSending || chatUploadingImage) && styles.chatImageBtnDisabled]}
+                onPress={submitChatImage}
+                disabled={chatSending || chatUploadingImage}
+              >
+                {chatUploadingImage ? (
+                  <ActivityIndicator size="small" color="#7C2D12" />
+                ) : (
+                  <Ionicons name="image-outline" size={18} color="#7C2D12" />
+                )}
+              </TouchableOpacity>
               <TextInput
                 style={styles.chatInput}
                 value={chatDraft}
@@ -396,13 +495,26 @@ const TripDetailScreen = ({ navigation, route }) => {
                 maxLength={2000}
               />
               <TouchableOpacity
-                style={[styles.chatSendBtn, (chatSending || !chatDraft.trim()) && styles.chatSendBtnDisabled]}
-                onPress={submitChatMessage}
-                disabled={chatSending || !chatDraft.trim()}
+                style={[styles.chatSendBtn, (chatSending || chatUploadingImage) && styles.chatSendBtnDisabled]}
+                onPress={() => {
+                  if (chatSending || chatUploadingImage) return;
+                  submitChatMessage();
+                }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
                 <Text style={styles.chatSendBtnText}>Gửi</Text>
               </TouchableOpacity>
             </View>
+
+            {!!(chatPendingImage?.uri || chatPendingImage?.file) && (
+              <View style={styles.chatPendingWrap}>
+                {!!chatPendingImage?.uri && <Image source={{ uri: chatPendingImage.uri }} style={styles.chatPendingImage} resizeMode="cover" />}
+                <TouchableOpacity style={styles.chatPendingRemoveBtn} onPress={() => setChatPendingImage(null)}>
+                  <Text style={styles.chatPendingRemoveText}>x</Text>
+                </TouchableOpacity>
+                <Text style={styles.chatPendingHint}>Da chon anh. Bam Gui de gui anh.</Text>
+              </View>
+            )}
 
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.closeBtn} onPress={closeChatModal}>
@@ -587,6 +699,13 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     paddingHorizontal: 10,
   },
+  chatImage: {
+    width: 180,
+    height: 180,
+    borderRadius: 8,
+    marginBottom: 6,
+    backgroundColor: '#F3F4F6',
+  },
   chatBubbleMine: {
     alignSelf: 'flex-end',
     backgroundColor: '#E65100',
@@ -627,6 +746,59 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#111827',
     backgroundColor: '#FFFFFF',
+  },
+  chatImageBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 8,
+    backgroundColor: '#FDBA74',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chatImageBtnDisabled: {
+    backgroundColor: '#E5E7EB',
+  },
+  chatImageBtnText: {
+    color: '#7C2D12',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  chatPendingWrap: {
+    marginTop: 8,
+    padding: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#F9FAFB',
+    alignSelf: 'flex-start',
+  },
+  chatPendingImage: {
+    width: 110,
+    height: 110,
+    borderRadius: 8,
+    backgroundColor: '#E5E7EB',
+  },
+  chatPendingRemoveBtn: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: 'rgba(31,41,55,0.75)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chatPendingRemoveText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 14,
+  },
+  chatPendingHint: {
+    marginTop: 6,
+    fontSize: 11,
+    color: '#6B7280',
   },
   chatSendBtn: {
     backgroundColor: '#E65100',

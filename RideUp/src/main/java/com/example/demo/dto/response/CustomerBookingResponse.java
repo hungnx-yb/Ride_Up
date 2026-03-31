@@ -27,6 +27,8 @@ public class CustomerBookingResponse {
     Double driverRating;
     String paymentMethod;
     String paymentStatus;
+    String paymentUrl;
+    String paymentTransactionRef;
     Boolean hasRated;
     Integer myRating;
 }

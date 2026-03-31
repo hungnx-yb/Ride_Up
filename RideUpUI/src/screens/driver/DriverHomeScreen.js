@@ -34,6 +34,7 @@ const STATUS_CONFIG = {
 const QUICK_ACTIONS = [
   { icon: '✨', label: 'Tạo\nchuyến xe',  bg: '#FFF3E0', iconColor: '#E65100', screen: 'CreateTrip' },
   { icon: '📋', label: 'Tất cả\nchuyến',  bg: '#E3F2FD', iconColor: '#1565C0', screen: 'AllTrips' },
+  { icon: '💬', label: 'Tin nhắn\nchat',  bg: '#EDE9FE', iconColor: '#6D28D9', screen: 'DriverMessages' },
   { icon: '🪪', label: 'Hồ sơ\ntài xế',   bg: '#E8F5E9', iconColor: '#2E7D32', screen: 'DriverProfile' },
 ];
 
@@ -391,10 +392,10 @@ const styles = StyleSheet.create({
   seeAllText:       { fontSize: 13, color: THEME.gradientStart, fontWeight: '600', marginBottom: 12 },
 
   // Quick Actions
-  actionsRow: { flexDirection: 'row', gap: 10 },
+  actionsRow: { flexDirection: 'row', gap: 10, flexWrap: 'wrap' },
   inlineError: { color: '#B71C1C', fontSize: 12, marginBottom: 8 },
   actionBtn: {
-    flex: 1, borderRadius: 14, paddingVertical: 14,
+    width: '48%', borderRadius: 14, paddingVertical: 14,
     alignItems: 'center', justifyContent: 'center',
     shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2,
   },

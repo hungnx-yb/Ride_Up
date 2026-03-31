@@ -770,17 +770,17 @@ export const confirmBookingPayment = async (bookingId, transactionId) => {
   return res.data?.result ?? res.data;
 };
 
-/** Chat hỗ trợ CSKH (FAQ + tra cứu booking/thanh toán) */
-export const supportChat = async (message) => {
+/** Tạo link thanh toán VNPAY cho booking */
+export const createVnpayPaymentUrl = async (bookingId) => {
   if (USE_MOCK_DATA) {
     await mockApiDelay(500);
     return {
-      intent: 'FAQ',
-      reply: 'Đây là phản hồi mock. Bạn có thể hỏi về hủy chuyến, thanh toán, kiểm tra booking gần nhất.',
-      suggestions: ['Kiểm tra booking gần nhất', 'Tôi muốn hủy chuyến'],
+      bookingId,
+      paymentUrl: 'https://sandbox.vnpayment.vn/paymentv2/vpcpay.html',
+      transactionRef: 'mock_vnp_txn_ref',
     };
   }
-  const res = await apiClient.post('/support/chat', { message });
+  const res = await apiClient.post(`/customer/bookings/${bookingId}/payment/vnpay-url`);
   return res.data?.result ?? res.data;
 };
 
@@ -795,6 +795,20 @@ export const rateRide = async (bookingId, rating, comment) => {
     comment,
   });
   return res.data;
+};
+
+/** Chat hỗ trợ CSKH (FAQ + tra cứu booking/thanh toán) */
+export const supportChat = async (message) => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(500);
+    return {
+      intent: 'FAQ',
+      reply: 'Đây là phản hồi mock. Bạn có thể hỏi về hủy chuyến, thanh toán, kiểm tra booking gần nhất.',
+      suggestions: ['Kiểm tra booking gần nhất', 'Tôi muốn hủy chuyến'],
+    };
+  }
+  const res = await apiClient.post('/support/chat', { message });
+  return res.data?.result ?? res.data;
 };
 
 // ==============================

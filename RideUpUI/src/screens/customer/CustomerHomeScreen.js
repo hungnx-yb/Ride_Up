@@ -23,7 +23,7 @@ import {
   getCustomerBookings,
   searchRidesAdvanced,
   bookRide,
-  confirmBookingPayment,
+  createVnpayPaymentUrl,
   rateRide,
   supportChat,
   getWardById,
@@ -142,7 +142,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
   const [selectedPickupPointId, setSelectedPickupPointId] = useState(null);
   const [selectedDropoffPointId, setSelectedDropoffPointId] = useState(null);
   const [seatCount, setSeatCount] = useState(1);
-  const [paymentMethod, setPaymentMethod] = useState('CASH');
+  const [paymentMethod, setPaymentMethod] = useState('VNPAY');
   const [bookingSubmitting, setBookingSubmitting] = useState(false);
   const [driverImageFailed, setDriverImageFailed] = useState(false);
   const [vehicleImageFailed, setVehicleImageFailed] = useState(false);
@@ -160,6 +160,8 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
   const [chatDraft, setChatDraft] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const [chatSending, setChatSending] = useState(false);
+  const [chatUploadingImage, setChatUploadingImage] = useState(false);
+  const [chatPendingImage, setChatPendingImage] = useState(null);
   const [chatVisible, setChatVisible] = useState(false);
   const chatRealtimeRef = useRef(null);
   const chatMessagesScrollRef = useRef(null);
@@ -688,7 +690,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
 
     try {
       setBookingSubmitting(true);
-      await bookRide({
+      const booking = await bookRide({
         tripId: tripDetail.id,
         pickupPointId: selectedPickupPointId,
         dropoffPointId: selectedDropoffPointId,
@@ -702,6 +704,20 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
         dropoffLng: dropoffDetailLocation?.lng,
       });
 
+      if (paymentMethod === 'VNPAY') {
+        let paymentUrl = booking?.paymentUrl;
+        if (!paymentUrl && booking?.id) {
+          const retry = await createVnpayPaymentUrl(booking.id);
+          paymentUrl = retry?.paymentUrl;
+        }
+
+        if (!paymentUrl) {
+          throw new Error('Không tạo được link thanh toán VNPAY. Vui lòng thử lại ở Chi tiết đặt chỗ.');
+        }
+
+        await openVnpayUrl(paymentUrl);
+      }
+
       setTripDetail(null);
       setSelectedPickupPointId(null);
       setSelectedDropoffPointId(null);
@@ -710,22 +726,23 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
       setSeatCount(1);
       await loadData();
       await runSearch();
+      if (paymentMethod === 'VNPAY') {
+        setErrorText('Đã chuyển sang VNPAY. Sau khi thanh toán xong, vào lại Chi tiết đặt chỗ để kiểm tra trạng thái.');
+      } else {
+        const successTitle = 'Đặt chỗ thành công';
+        const successMessage = paymentMethod === 'BANK_TRANSFER'
+          ? 'Bạn đã giữ chỗ thành công. Vui lòng vào Chi tiết đặt chỗ và bấm "Tôi đã chuyển khoản" để hoàn tất.'
+          : 'Chuyến đi của bạn đã được ghi nhận. Tài xế sẽ đón bạn theo điểm đã chọn.';
 
-      const successTitle = paymentMethod === 'BANK_TRANSFER'
-        ? 'Đặt chỗ thành công'
-        : 'Đặt chỗ thành công';
-      const successMessage = paymentMethod === 'BANK_TRANSFER'
-        ? 'Bạn đã giữ chỗ thành công. Vui lòng vào Chi tiết đặt chỗ và bấm "Tôi đã chuyển khoản" để hoàn tất.'
-        : 'Chuyến đi của bạn đã được ghi nhận. Tài xế sẽ đón bạn theo điểm đã chọn.';
+        setBookingSuccessModal({
+          visible: true,
+          title: successTitle,
+          message: successMessage,
+        });
 
-      setBookingSuccessModal({
-        visible: true,
-        title: successTitle,
-        message: successMessage,
-      });
-
-      if (paymentMethod === 'BANK_TRANSFER') {
-        setErrorText('');
+        if (paymentMethod === 'BANK_TRANSFER') {
+          setErrorText('');
+        }
       }
     } catch (e) {
       setErrorText(e.message || 'Đặt chỗ thất bại.');
@@ -734,24 +751,47 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
     }
   };
 
-  const isAwaitingBankTransfer = (booking) => {
+  const isAwaitingVnpay = (booking) => {
     if (!booking) return false;
     return booking.status === 'pending'
-      && String(booking.paymentMethod || '').toUpperCase() === 'BANK_TRANSFER'
-      && String(booking.paymentStatus || '').toUpperCase() === 'UNPAID';
+      && String(booking.paymentMethod || '').toUpperCase() === 'VNPAY'
+      && ['UNPAID', 'FAILED'].includes(String(booking.paymentStatus || '').toUpperCase());
   };
 
-  const submitConfirmTransfer = async () => {
+
+  const openVnpayUrl = async (paymentUrl) => {
+    if (!paymentUrl) {
+      throw new Error('Thiếu link thanh toán VNPAY.');
+    }
+
+    const isWebRuntime = typeof window !== 'undefined' && typeof document !== 'undefined';
+    if (isWebRuntime) {
+      window.location.assign(paymentUrl);
+      return;
+    }
+
+    const canOpen = await Linking.canOpenURL(paymentUrl);
+    if (!canOpen) {
+      throw new Error('Không thể mở cổng thanh toán VNPAY trên thiết bị này.');
+    }
+    await Linking.openURL(paymentUrl);
+  };
+
+  const submitVnpayPayment = async () => {
     if (!bookingDetail?.id) return;
 
     try {
       setPaymentConfirmSubmitting(true);
-      await confirmBookingPayment(bookingDetail.id);
-      setBookingDetail(null);
+      const response = await createVnpayPaymentUrl(bookingDetail.id);
+      const paymentUrl = response?.paymentUrl;
+      if (!paymentUrl) {
+        throw new Error('Không tạo được link thanh toán VNPAY.');
+      }
+      await openVnpayUrl(paymentUrl);
       await loadData();
-      setErrorText('Xác nhận chuyển khoản thành công. Đặt chỗ đã được ghi nhận.');
+      setErrorText('Đã mở VNPAY. Khi thanh toán xong, trạng thái sẽ tự cập nhật.');
     } catch (e) {
-      setErrorText(e.message || 'Xác nhận chuyển khoản thất bại.');
+      setErrorText(e.message || 'Mở thanh toán VNPAY thất bại.');
     } finally {
       setPaymentConfirmSubmitting(false);
     }
@@ -1061,26 +1101,115 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
   const closeChatModal = () => {
     stopChatRealtime();
     setChatVisible(false);
+    setChatUploadingImage(false);
+    setChatPendingImage(null);
     setChatDraft('');
     setChatThread(null);
     setChatMessages([]);
   };
 
   const submitChatMessage = async () => {
-    if (!chatThread?.id || !chatDraft.trim() || chatSending) {
+    const textContent = chatDraft.trim();
+    const hasPendingImage = !!(chatPendingImage?.uri || chatPendingImage?.file);
+    if (!chatThread?.id || chatSending || chatUploadingImage || (!textContent && !hasPendingImage)) {
       return;
     }
+
     try {
       setChatSending(true);
-      const sent = await sendChatMessage(chatThread.id, chatDraft.trim());
+      let uploadedImageUrl = null;
+
+      if (hasPendingImage) {
+        setChatUploadingImage(true);
+        uploadedImageUrl = await uploadFile({
+          uri: chatPendingImage.uri,
+          name: chatPendingImage.name,
+          type: chatPendingImage.type,
+          file: chatPendingImage.file,
+        });
+      }
+
+      const sent = await sendChatMessage(chatThread.id, {
+        content: textContent || null,
+        imageUrl: uploadedImageUrl,
+      });
       appendChatMessageIfNotExists(sent);
       setChatDraft('');
+      setChatPendingImage(null);
       const threads = await getMyChatThreads().catch(() => []);
       setChatThreads(Array.isArray(threads) ? threads : []);
     } catch (e) {
       setErrorText(e.message || 'Không thể gửi tin nhắn.');
+      Alert.alert('Gui that bai', e?.message || 'Khong the gui tin nhan/anh.');
     } finally {
+      setChatUploadingImage(false);
       setChatSending(false);
+    }
+  };
+
+  const submitChatImage = async () => {
+    if (!chatThread?.id || chatSending || chatUploadingImage) {
+      return;
+    }
+
+    try {
+      const isWebRuntime = typeof window !== 'undefined' && typeof document !== 'undefined';
+
+      if (isWebRuntime) {
+        const selected = await new Promise((resolve) => {
+          const input = document.createElement('input');
+          input.type = 'file';
+          input.accept = 'image/*';
+          input.onchange = () => {
+            const file = input.files && input.files[0] ? input.files[0] : null;
+            if (!file) {
+              resolve(null);
+              return;
+            }
+            const objectUrl = URL.createObjectURL(file);
+            resolve({
+              uri: objectUrl,
+              name: file.name || `chat-${Date.now()}.jpg`,
+              type: file.type || 'image/jpeg',
+              file,
+            });
+          };
+          input.click();
+        });
+
+        if (!selected) {
+          return;
+        }
+
+        setChatPendingImage(selected);
+      } else {
+        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!permission?.granted) {
+          Alert.alert('Quyen bi tu choi', 'Vui long cap quyen thu vien anh de gui hinh.');
+          return;
+        }
+
+        const picked = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsEditing: true,
+          quality: 0.9,
+        });
+
+        if (picked.canceled || !picked.assets?.length) {
+          return;
+        }
+
+        const selected = picked.assets[0];
+        setChatPendingImage({
+          uri: selected.uri,
+          name: selected.fileName || `chat-${Date.now()}.jpg`,
+          type: selected.mimeType || 'image/jpeg',
+          file: selected.file,
+        });
+      }
+    } catch (e) {
+      setErrorText(e.message || 'Khong the chon hinh anh.');
+      Alert.alert('Chon hinh that bai', e?.message || 'Vui long thu lai sau.');
     }
   };
 
@@ -1657,7 +1786,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
                 </View>
                 <View style={{ flex: 1 }}>
                   <View style={styles.messageTopRow}>
-                    <Text style={styles.messageDriver}>{item.driverUserId || 'Tài xế RideUp'}</Text>
+                    <Text style={styles.messageDriver} numberOfLines={2}>{item.chatTitle || item.driverUserId || 'Tài xế RideUp'}</Text>
                     <Text style={styles.messageTime}>{formatTime(item.lastMessageAt)}</Text>
                   </View>
                   <Text style={styles.messageRoute}>Booking: {item.bookingId}</Text>
@@ -1739,7 +1868,6 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
                 <Text style={styles.accountName}>{customerFullName}</Text>
                 <Text style={styles.accountEmail}>{customerEmail}</Text>
               </View>
-
               <View style={styles.accountRoleChip}>
                 <Text style={styles.accountRoleText}>{customerRoleLabel}</Text>
               </View>
@@ -1949,87 +2077,30 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
                   <Text style={styles.infoValue}>{formatTime(tripDetail?.departureTime)}</Text>
                 </View>
                 <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>Giá/vé</Text>
-                  <Text style={styles.infoValueStrong}>{formatCurrency(tripDetail?.price)}</Text>
-                </View>
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>Ghế trống</Text>
-                  <Text style={styles.infoValue}>{tripDetail?.availableSeats}/{tripDetail?.totalSeats} ghế</Text>
-                </View>
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>Quãng đường</Text>
-                  <Text style={styles.infoValue}>{tripDetail?.estimatedDistanceKm ? `${tripDetail.estimatedDistanceKm} km` : '--'}</Text>
-                </View>
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>Thời lượng</Text>
-                  <Text style={styles.infoValue}>{formatDuration(tripDetail?.estimatedDurationMinutes)}</Text>
+                  <Text style={styles.infoLabel}>Tài xế</Text>
+                  <Text style={styles.infoValue}>{tripDetail?.driverName || '--'} • ⭐ {tripDetail?.driverRating || 0}</Text>
                 </View>
               </View>
 
-              <View style={styles.infoSection}>
-                <View style={styles.infoSectionTitleRow}>
-                  <Ionicons name="person" size={15} color="#00B14F" />
-                  <Text style={styles.infoSectionTitle}>Thông tin tài xế</Text>
-                </View>
-                <View style={styles.profileRow}>
-                  {tripDetail?.driverAvatarUrl && !driverImageFailed ? (
-                    <Image
-                      source={{ uri: tripDetail.driverAvatarUrl }}
-                      style={styles.profileImage}
-                      onError={() => setDriverImageFailed(true)}
-                    />
-                  ) : (
-                    <Image source={DEFAULT_DRIVER_IMAGE} style={styles.profileImage} />
-                  )}
-                  <View style={styles.profileTextWrap}>
-                    <Text style={styles.profileName}>{tripDetail?.driverName || '--'}</Text>
-                    <Text style={styles.profileMeta}>⭐ {tripDetail?.driverRating || 0}</Text>
-                  </View>
-                </View>
-              </View>
+              <Text style={styles.inputLabel}>Chọn điểm đón</Text>
+              {(tripDetail?.pickupPoints || []).map((p) => (
+                <TouchableOpacity
+                  key={`pd-${p.id}`}
+                  style={[styles.optionBtn, selectedPickupPointId === p.id && styles.optionBtnActive]}
+                  onPress={() => {
+                    setSelectedPickupPointId(p.id);
+                    setPickupDetailLocation({ address: '', lat: null, lng: null });
+                  }}
+                >
+                  <Text style={styles.optionText}>{p.wardName || p.address}</Text>
+                </TouchableOpacity>
+              ))}
 
-              <View style={styles.infoSection}>
-                <View style={styles.infoSectionTitleRow}>
-                  <Ionicons name="car" size={15} color="#00B14F" />
-                  <Text style={styles.infoSectionTitle}>Thông tin xe</Text>
-                </View>
-                <View style={styles.profileRow}>
-                  {tripDetail?.vehicleImageUrl && !vehicleImageFailed ? (
-                    <Image
-                      source={{ uri: tripDetail.vehicleImageUrl }}
-                      style={styles.vehicleImage}
-                      onError={() => setVehicleImageFailed(true)}
-                    />
-                  ) : (
-                    <Image source={DEFAULT_VEHICLE_IMAGE} style={styles.vehicleImage} />
-                  )}
-                  <View style={styles.profileTextWrap}>
-                    <Text style={styles.profileName}>{getVehicleTypeLabel(tripDetail?.vehicleType)}</Text>
-                    <Text style={styles.profileMeta}>Biển số: {tripDetail?.vehiclePlateNumber || '--'}</Text>
-                  </View>
-                </View>
-              </View>
+              <Text style={styles.selectionHint}>
+                Điểm đón đã chọn: {(tripDetail?.pickupPoints || []).find((p) => p.id === selectedPickupPointId)?.wardName || '--'}
+              </Text>
 
-            <Text style={styles.inputLabel}>Chọn điểm đón</Text>
-            {(tripDetail?.pickupPoints || []).map((p) => (
-              <TouchableOpacity
-                key={`pd-${p.id}`}
-                style={[styles.optionBtn, selectedPickupPointId === p.id && styles.optionBtnActive]}
-                onPress={() => {
-                  setSelectedPickupPointId(p.id);
-                  setPickupDetailLocation({ address: '', lat: null, lng: null });
-                }}
-              >
-                <Text style={styles.optionText}>{p.wardName || p.address}</Text>
-              </TouchableOpacity>
-            ))}
-
-            <Text style={styles.selectionHint}>
-              Điểm đón đã chọn: {(tripDetail?.pickupPoints || []).find((p) => p.id === selectedPickupPointId)?.wardName || '--'}
-            </Text>
-
-            {pickupMapCenter ? (
-              <>
+              {pickupMapCenter ? (
                 <View style={styles.mapCardBox}>
                   <View style={styles.mapHeaderRow}>
                     <Text style={styles.mapInlineLabel}>Bản đồ điểm đón</Text>
@@ -2058,47 +2129,45 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
                     </Text>
                   </View>
                 </View>
-              </>
-            ) : (
-              <Text style={styles.mapUnavailableText}>Phường đón chưa có tọa độ để hiển thị bản đồ.</Text>
-            )}
+              ) : (
+                <Text style={styles.mapUnavailableText}>Phường đón chưa có tọa độ để hiển thị bản đồ.</Text>
+              )}
 
-            <TextInput
-              style={styles.mapAddressInput}
-              value={pickupDetailLocation?.address || ''}
-              onChangeText={(text) => setPickupDetailLocation((prev) => ({ ...prev, address: text }))}
-              placeholder="Địa chỉ đón chi tiết (số nhà, tên đường...)"
-              multiline
-              numberOfLines={2}
-              textAlignVertical="top"
-            />
+              <TextInput
+                style={styles.mapAddressInput}
+                value={pickupDetailLocation?.address || ''}
+                onChangeText={(text) => setPickupDetailLocation((prev) => ({ ...prev, address: text }))}
+                placeholder="Địa chỉ đón chi tiết (số nhà, tên đường...)"
+                multiline
+                numberOfLines={2}
+                textAlignVertical="top"
+              />
 
-            {pickupDetailLocation?.lat != null && pickupDetailLocation?.lng != null && (
-              <Text style={styles.mapPickedHint}>
-                Đã pin điểm đón: {pickupDetailLocation.address || 'Địa chỉ chi tiết'} ({pickupDetailLocation.lat.toFixed(6)}, {pickupDetailLocation.lng.toFixed(6)})
+              {pickupDetailLocation?.lat != null && pickupDetailLocation?.lng != null && (
+                <Text style={styles.mapPickedHint}>
+                  Đã pin điểm đón: {pickupDetailLocation.address || 'Địa chỉ chi tiết'} ({pickupDetailLocation.lat.toFixed(6)}, {pickupDetailLocation.lng.toFixed(6)})
+                </Text>
+              )}
+
+              <Text style={styles.inputLabel}>Chọn điểm trả</Text>
+              {(tripDetail?.dropoffPoints || []).map((p) => (
+                <TouchableOpacity
+                  key={`dd-${p.id}`}
+                  style={[styles.optionBtn, selectedDropoffPointId === p.id && styles.optionBtnActive]}
+                  onPress={() => {
+                    setSelectedDropoffPointId(p.id);
+                    setDropoffDetailLocation({ address: '', lat: null, lng: null });
+                  }}
+                >
+                  <Text style={styles.optionText}>{p.wardName || p.address}</Text>
+                </TouchableOpacity>
+              ))}
+
+              <Text style={styles.selectionHint}>
+                Điểm trả đã chọn: {(tripDetail?.dropoffPoints || []).find((p) => p.id === selectedDropoffPointId)?.wardName || '--'}
               </Text>
-            )}
 
-            <Text style={styles.inputLabel}>Chọn điểm trả</Text>
-            {(tripDetail?.dropoffPoints || []).map((p) => (
-              <TouchableOpacity
-                key={`dd-${p.id}`}
-                style={[styles.optionBtn, selectedDropoffPointId === p.id && styles.optionBtnActive]}
-                onPress={() => {
-                  setSelectedDropoffPointId(p.id);
-                  setDropoffDetailLocation({ address: '', lat: null, lng: null });
-                }}
-              >
-                <Text style={styles.optionText}>{p.wardName || p.address}</Text>
-              </TouchableOpacity>
-            ))}
-
-            <Text style={styles.selectionHint}>
-              Điểm trả đã chọn: {(tripDetail?.dropoffPoints || []).find((p) => p.id === selectedDropoffPointId)?.wardName || '--'}
-            </Text>
-
-            {dropoffMapCenter ? (
-              <>
+              {dropoffMapCenter ? (
                 <View style={styles.mapCardBox}>
                   <View style={styles.mapHeaderRow}>
                     <Text style={styles.mapInlineLabel}>Bản đồ điểm trả</Text>
@@ -2127,80 +2196,79 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
                     </Text>
                   </View>
                 </View>
-              </>
-            ) : (
-              <Text style={styles.mapUnavailableText}>Phường trả chưa có tọa độ để hiển thị bản đồ.</Text>
-            )}
+              ) : (
+                <Text style={styles.mapUnavailableText}>Phường trả chưa có tọa độ để hiển thị bản đồ.</Text>
+              )}
 
-            <TextInput
-              style={styles.mapAddressInput}
-              value={dropoffDetailLocation?.address || ''}
-              onChangeText={(text) => setDropoffDetailLocation((prev) => ({ ...prev, address: text }))}
-              placeholder="Địa chỉ trả chi tiết (số nhà, tên đường...)"
-              multiline
-              numberOfLines={2}
-              textAlignVertical="top"
-            />
+              <TextInput
+                style={styles.mapAddressInput}
+                value={dropoffDetailLocation?.address || ''}
+                onChangeText={(text) => setDropoffDetailLocation((prev) => ({ ...prev, address: text }))}
+                placeholder="Địa chỉ trả chi tiết (số nhà, tên đường...)"
+                multiline
+                numberOfLines={2}
+                textAlignVertical="top"
+              />
 
-            {dropoffDetailLocation?.lat != null && dropoffDetailLocation?.lng != null && (
-              <Text style={styles.mapPickedHint}>
-                Đã pin điểm trả: {dropoffDetailLocation.address || 'Địa chỉ chi tiết'} ({dropoffDetailLocation.lat.toFixed(6)}, {dropoffDetailLocation.lng.toFixed(6)})
-              </Text>
-            )}
+              {dropoffDetailLocation?.lat != null && dropoffDetailLocation?.lng != null && (
+                <Text style={styles.mapPickedHint}>
+                  Đã pin điểm trả: {dropoffDetailLocation.address || 'Địa chỉ chi tiết'} ({dropoffDetailLocation.lat.toFixed(6)}, {dropoffDetailLocation.lng.toFixed(6)})
+                </Text>
+              )}
 
-            <Text style={styles.inputLabel}>Số chỗ</Text>
-            <View style={styles.seatRow}>
-              <TouchableOpacity
-                style={styles.seatBtn}
-                onPress={() => setSeatCount((prev) => Math.max(1, prev - 1))}
-                disabled={bookingSubmitting}
-              >
-                <Text style={styles.seatBtnText}>-</Text>
-              </TouchableOpacity>
-              <Text style={styles.seatValue}>{seatCount}</Text>
-              <TouchableOpacity
-                style={styles.seatBtn}
-                onPress={() => {
-                  const maxSeats = tripDetail?.availableSeats || 1;
-                  setSeatCount((prev) => Math.min(maxSeats, prev + 1));
-                }}
-                disabled={bookingSubmitting}
-              >
-                <Text style={styles.seatBtnText}>+</Text>
-              </TouchableOpacity>
-              <Text style={styles.seatHint}>Còn {tripDetail?.availableSeats || 0} ghế</Text>
-            </View>
+              <Text style={styles.inputLabel}>Số chỗ</Text>
+              <View style={styles.seatRow}>
+                <TouchableOpacity
+                  style={styles.seatBtn}
+                  onPress={() => setSeatCount((prev) => Math.max(1, prev - 1))}
+                  disabled={bookingSubmitting}
+                >
+                  <Text style={styles.seatBtnText}>-</Text>
+                </TouchableOpacity>
+                <Text style={styles.seatValue}>{seatCount}</Text>
+                <TouchableOpacity
+                  style={styles.seatBtn}
+                  onPress={() => {
+                    const maxSeats = tripDetail?.availableSeats || 1;
+                    setSeatCount((prev) => Math.min(maxSeats, prev + 1));
+                  }}
+                  disabled={bookingSubmitting}
+                >
+                  <Text style={styles.seatBtnText}>+</Text>
+                </TouchableOpacity>
+                <Text style={styles.seatHint}>Còn {tripDetail?.availableSeats || 0} ghế</Text>
+              </View>
 
-            <Text style={styles.inputLabel}>Phương thức thanh toán</Text>
-            <View style={styles.paymentRow}>
-              <TouchableOpacity
-                style={[styles.paymentBtn, paymentMethod === 'CASH' && styles.paymentBtnActive]}
-                onPress={() => setPaymentMethod('CASH')}
-              >
-                <Text style={[styles.paymentText, paymentMethod === 'CASH' && styles.paymentTextActive]}>Tiền mặt</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.paymentBtn, paymentMethod === 'BANK_TRANSFER' && styles.paymentBtnActive]}
-                onPress={() => setPaymentMethod('BANK_TRANSFER')}
-              >
-                <Text style={[styles.paymentText, paymentMethod === 'BANK_TRANSFER' && styles.paymentTextActive]}>Chuyển khoản</Text>
-              </TouchableOpacity>
-            </View>
+              <Text style={styles.inputLabel}>Phương thức thanh toán</Text>
+              <View style={styles.paymentRow}>
+                <TouchableOpacity
+                  style={[styles.paymentBtn, paymentMethod === 'CASH' && styles.paymentBtnActive]}
+                  onPress={() => setPaymentMethod('CASH')}
+                >
+                  <Text style={[styles.paymentText, paymentMethod === 'CASH' && styles.paymentTextActive]}>Tiền mặt</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.paymentBtn, paymentMethod === 'VNPAY' && styles.paymentBtnActive]}
+                  onPress={() => setPaymentMethod('VNPAY')}
+                >
+                  <Text style={[styles.paymentText, paymentMethod === 'VNPAY' && styles.paymentTextActive]}>VNPAY</Text>
+                </TouchableOpacity>
+              </View>
 
-            <Text style={styles.totalHint}>Tổng tiền: {formatCurrency((tripDetail?.price || 0) * seatCount)}</Text>
+              <Text style={styles.totalHint}>Tổng tiền: {formatCurrency((tripDetail?.price || 0) * seatCount)}</Text>
 
-            <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.cancelBtn} onPress={() => setTripDetail(null)} disabled={bookingSubmitting}>
-                <Text style={styles.cancelBtnText}>Đóng</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.confirmBtn}
-                onPress={submitTripDetailBooking}
-                disabled={bookingSubmitting}
-              >
-                <Text style={styles.confirmBtnText}>{bookingSubmitting ? 'Đang đặt...' : 'Xác nhận đặt chỗ'}</Text>
-              </TouchableOpacity>
-            </View>
+              <View style={styles.modalActions}>
+                <TouchableOpacity style={styles.cancelBtn} onPress={() => setTripDetail(null)} disabled={bookingSubmitting}>
+                  <Text style={styles.cancelBtnText}>Đóng</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.confirmBtn}
+                  onPress={submitTripDetailBooking}
+                  disabled={bookingSubmitting}
+                >
+                  <Text style={styles.confirmBtnText}>{bookingSubmitting ? 'Đang đặt...' : 'Xác nhận đặt chỗ'}</Text>
+                </TouchableOpacity>
+              </View>
             </ScrollView>
           </View>
         </View>
@@ -2247,13 +2315,13 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
             <Text style={styles.modalSub}>Số vé: {bookingDetail?.seatCount || 1}</Text>
             <Text style={styles.modalSub}>Tổng tiền: {formatCurrency(bookingDetail?.price)}</Text>
             <Text style={styles.modalSub}>Tài xế: {bookingDetail?.driverName} | ⭐ {bookingDetail?.driverRating || 0}</Text>
-            <Text style={styles.modalSub}>Thanh toán: {bookingDetail?.paymentMethod === 'BANK_TRANSFER' ? 'Chuyển khoản' : 'Tiền mặt'}</Text>
+            <Text style={styles.modalSub}>Thanh toán: {bookingDetail?.paymentMethod === 'VNPAY' ? 'VNPAY' : 'Tiền mặt'}</Text>
             <Text style={styles.modalSub}>Trạng thái thanh toán: {bookingDetail?.paymentStatus === 'PAID' ? 'Đã thanh toán' : 'Chưa thanh toán'}</Text>
 
-            {isAwaitingBankTransfer(bookingDetail) && (
-              <TouchableOpacity style={styles.payNowBtn} onPress={submitConfirmTransfer} disabled={paymentConfirmSubmitting}>
-                <Ionicons name="card-outline" size={15} color="#FFFFFF" />
-                <Text style={styles.payNowBtnText}>{paymentConfirmSubmitting ? 'Đang xác nhận...' : 'Tôi đã chuyển khoản'}</Text>
+            {isAwaitingVnpay(bookingDetail) && (
+              <TouchableOpacity style={styles.payNowBtn} onPress={submitVnpayPayment} disabled={paymentConfirmSubmitting}>
+                <Ionicons name="wallet-outline" size={15} color="#FFFFFF" />
+                <Text style={styles.payNowBtnText}>{paymentConfirmSubmitting ? 'Đang mở...' : 'Thanh toán qua VNPAY'}</Text>
               </TouchableOpacity>
             )}
 
@@ -2408,7 +2476,8 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
                 )}
                 {chatMessages.map((msg) => (
                   <View key={msg.id} style={[styles.chatBubble, msg.mine ? styles.chatBubbleMine : styles.chatBubbleOther]}>
-                    <Text style={[styles.chatBubbleText, msg.mine && styles.chatBubbleTextMine]}>{msg.content}</Text>
+                    {!!msg.imageUrl && <Image source={{ uri: msg.imageUrl }} style={styles.chatImage} resizeMode="cover" />}
+                    {!!msg.content && <Text style={[styles.chatBubbleText, msg.mine && styles.chatBubbleTextMine]}>{msg.content}</Text>}
                     <Text style={[styles.chatBubbleTime, msg.mine && styles.chatBubbleTimeMine]}>{formatTime(msg.sentAt)}</Text>
                   </View>
                 ))}
@@ -2416,6 +2485,13 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
             )}
 
             <View style={styles.chatComposerRow}>
+              <TouchableOpacity
+                style={[styles.chatImageBtn, (chatSending || chatUploadingImage) && styles.chatImageBtnDisabled]}
+                onPress={submitChatImage}
+                disabled={chatSending || chatUploadingImage}
+              >
+                <Ionicons name="image-outline" size={16} color="#FFFFFF" />
+              </TouchableOpacity>
               <TextInput
                 style={styles.chatInput}
                 value={chatDraft}
@@ -2423,10 +2499,27 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
                 placeholder="Nhập tin nhắn..."
                 maxLength={2000}
               />
-              <TouchableOpacity style={styles.chatSendBtn} onPress={submitChatMessage} disabled={chatSending || !chatDraft.trim()}>
+              <TouchableOpacity
+                style={styles.chatSendBtn}
+                onPress={() => {
+                  if (chatSending || chatUploadingImage) return;
+                  submitChatMessage();
+                }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
                 <Ionicons name="send" size={16} color="#FFFFFF" />
               </TouchableOpacity>
             </View>
+
+            {!!(chatPendingImage?.uri || chatPendingImage?.file) && (
+              <View style={styles.chatPendingWrap}>
+                {!!chatPendingImage?.uri && <Image source={{ uri: chatPendingImage.uri }} style={styles.chatPendingImage} resizeMode="cover" />}
+                <TouchableOpacity style={styles.chatPendingRemoveBtn} onPress={() => setChatPendingImage(null)}>
+                  <Ionicons name="close" size={14} color="#FFFFFF" />
+                </TouchableOpacity>
+                <Text style={styles.chatPendingHint}>Da chon anh. Bam Gui de gui anh.</Text>
+              </View>
+            )}
 
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.cancelBtn} onPress={closeChatModal}>
@@ -3331,6 +3424,13 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 10,
   },
+  chatImage: {
+    width: 180,
+    height: 180,
+    borderRadius: 8,
+    marginBottom: 6,
+    backgroundColor: '#E2E8F0',
+  },
   chatBubbleMine: { alignSelf: 'flex-end', backgroundColor: '#00B14F' },
   chatBubbleOther: { alignSelf: 'flex-start', backgroundColor: '#E2E8F0' },
   chatBubbleText: { color: '#0F172A', fontSize: 13 },
@@ -3338,6 +3438,48 @@ const styles = StyleSheet.create({
   chatBubbleTime: { marginTop: 4, fontSize: 10, color: '#64748B', textAlign: 'right' },
   chatBubbleTimeMine: { color: '#D1FAE5' },
   chatComposerRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10, gap: 8 },
+  chatImageBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#334155',
+  },
+  chatImageBtnDisabled: {
+    backgroundColor: '#94A3B8',
+  },
+  chatPendingWrap: {
+    marginTop: 8,
+    padding: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#DCE3EA',
+    backgroundColor: '#F8FAFC',
+    alignSelf: 'flex-start',
+  },
+  chatPendingImage: {
+    width: 110,
+    height: 110,
+    borderRadius: 8,
+    backgroundColor: '#E2E8F0',
+  },
+  chatPendingRemoveBtn: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: 'rgba(15,23,42,0.75)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chatPendingHint: {
+    marginTop: 6,
+    fontSize: 11,
+    color: '#475569',
+  },
   chatInput: {
     flex: 1,
     borderWidth: 1,

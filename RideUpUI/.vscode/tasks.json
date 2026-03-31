@@ -9,6 +9,9 @@
 				"run",
 				"web"
 			],
+			"options": {
+				"cwd": "${workspaceFolder}/RideUpUI"
+			},
 			"isBackground": true
 		}
 	]

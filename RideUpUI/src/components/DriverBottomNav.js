@@ -5,6 +5,7 @@ const ITEMS = [
   { key: 'home', label: 'Trang chủ', icon: '🏠', screen: 'DriverHome' },
   { key: 'create', label: 'Tạo chuyến', icon: '➕', screen: 'CreateTrip' },
   { key: 'trips', label: 'Chuyến xe', icon: '🧾', screen: 'AllTrips' },
+  { key: 'messages', label: 'Tin nhắn', icon: '💬', screen: 'DriverMessages' },
   { key: 'profile', label: 'Hồ sơ', icon: '👤', screen: 'DriverProfile' },
 ];
 
