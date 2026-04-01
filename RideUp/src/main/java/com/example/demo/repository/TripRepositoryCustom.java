@@ -6,5 +6,9 @@ import java.time.LocalDate;
 import java.util.List;
 
 public interface TripRepositoryCustom {
-    List<Trip> searchTrips(String fromWardId, String toWardId, LocalDate departureDate);
+    List<Trip> searchTrips(String fromProvinceId,
+            String toProvinceId,
+            String fromWardId,
+            String toWardId,
+            LocalDate departureDate);
 }

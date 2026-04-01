@@ -22,6 +22,7 @@ import {
   createChatRealtimeClient,
   getCustomerBookings,
   searchRidesAdvanced,
+  searchRidesFromText,
   bookRide,
   confirmBookingPayment,
   rateRide,
@@ -126,6 +127,11 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
   const [searchDate, setSearchDate] = useState('');
   const [searching, setSearching] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
+  const [aiSearchText, setAiSearchText] = useState('');
+  const [aiSearching, setAiSearching] = useState(false);
+  const [aiSearchHint, setAiSearchHint] = useState('');
+  const [aiIntentChips, setAiIntentChips] = useState([]);
+  const [aiParsedCriteria, setAiParsedCriteria] = useState(null);
 
   const [fromProvince, setFromProvince] = useState(null);
   const [toProvince, setToProvince] = useState(null);
@@ -615,6 +621,9 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
 
   const runSearch = async () => {
     setErrorText('');
+    setAiSearchHint('');
+    setAiIntentChips([]);
+    setAiParsedCriteria(null);
 
     try {
       setSearching(true);
@@ -630,6 +639,146 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
       setErrorText(e.message || 'Không tìm thấy chuyến phù hợp.');
     } finally {
       setSearching(false);
+    }
+  };
+
+  const runSearchWithAiCriteria = async (criteria, chips) => {
+    if (!criteria) return;
+
+    const active = new Set((chips || []).filter((c) => c?.active !== false).map((c) => c.id));
+    const isEnabled = (chipId) => active.has(chipId);
+
+    const request = {
+      fromProvinceId: isEnabled('from') ? (criteria?.fromProvinceId || null) : null,
+      toProvinceId: isEnabled('to') ? (criteria?.toProvinceId || null) : null,
+      fromWardId: isEnabled('from') ? (criteria?.fromWardId || null) : null,
+      toWardId: isEnabled('to') ? (criteria?.toWardId || null) : null,
+      departureDate: isEnabled('date') ? (criteria?.departureDate || null) : null,
+    };
+
+    try {
+      setSearching(true);
+      setErrorText('');
+      const result = await searchRidesAdvanced(request);
+      let rides = Array.isArray(result) ? result : [];
+
+      if (isEnabled('seat') && criteria?.seatCount) {
+        const wantedSeats = Number(criteria.seatCount);
+        rides = rides.filter((r) => Number(r?.availableSeats || 0) >= wantedSeats);
+      }
+
+      if (isEnabled('price') && criteria?.maxPrice) {
+        const ceiling = Number(criteria.maxPrice);
+        rides = rides.filter((r) => Number(r?.price || 0) <= ceiling);
+      }
+
+      setSearchResults(rides);
+    } catch (e) {
+      setErrorText(e.message || 'Không thể cập nhật kết quả theo bộ lọc AI.');
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const toggleAiChip = async (chipId) => {
+    if (!aiParsedCriteria || searching || aiSearching) return;
+
+    const nextChips = aiIntentChips.map((chip) => (
+      chip.id === chipId
+        ? { ...chip, active: chip.active === false }
+        : chip
+    ));
+
+    setAiIntentChips(nextChips);
+    await runSearchWithAiCriteria(aiParsedCriteria, nextChips);
+  };
+
+  const runAiSearchFromText = async () => {
+    const query = String(aiSearchText || '').trim();
+    if (!query || aiSearching) {
+      return;
+    }
+
+    try {
+      setAiSearching(true);
+      setErrorText('');
+      const result = await searchRidesFromText(query);
+
+      const criteria = result?.criteria || {};
+      setAiParsedCriteria(criteria);
+      if (criteria?.fromProvinceId || criteria?.fromProvinceName) {
+        setFromProvince({ id: criteria.fromProvinceId || null, name: criteria.fromProvinceName || 'Điểm đón' });
+      }
+      if (criteria?.toProvinceId || criteria?.toProvinceName) {
+        setToProvince({ id: criteria.toProvinceId || null, name: criteria.toProvinceName || 'Điểm đến' });
+      }
+      if (criteria?.fromWardId || criteria?.fromWardName) {
+        setFromWard({ id: criteria.fromWardId || null, name: criteria.fromWardName || 'Phường/xã đón' });
+      }
+      if (criteria?.toWardId || criteria?.toWardName) {
+        setToWard({ id: criteria.toWardId || null, name: criteria.toWardName || 'Phường/xã đến' });
+      }
+      if (criteria?.departureDate) {
+        setSearchDate(criteria.departureDate);
+      }
+
+      const chips = [];
+      const formatCompactCurrency = (amount) => {
+        const value = Number(amount || 0);
+        if (!Number.isFinite(value) || value <= 0) return null;
+        return `${new Intl.NumberFormat('vi-VN').format(value)}đ`;
+      };
+      const toDateKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const todayIso = toDateKey(new Date());
+      const tomorrowIso = toDateKey(new Date(Date.now() + 24 * 60 * 60 * 1000));
+
+      if (criteria?.fromWardName || criteria?.fromProvinceName) {
+        chips.push({
+          id: 'from',
+          label: `Từ ${criteria.fromWardName || criteria.fromProvinceName}`,
+          active: true,
+        });
+      }
+      if (criteria?.toWardName || criteria?.toProvinceName) {
+        chips.push({
+          id: 'to',
+          label: `Đến ${criteria.toWardName || criteria.toProvinceName}`,
+          active: true,
+        });
+      }
+      if (criteria?.departureDate) {
+        const dateLabel = criteria.departureDate === todayIso
+          ? 'Hôm nay'
+          : (criteria.departureDate === tomorrowIso ? 'Ngày mai' : criteria.departureDate);
+        chips.push({ id: 'date', label: dateLabel, active: true });
+      }
+      if (criteria?.seatCount) {
+        chips.push({ id: 'seat', label: `${criteria.seatCount} ghế`, active: true });
+      }
+      if (criteria?.maxPrice) {
+        const priceText = formatCompactCurrency(criteria.maxPrice);
+        if (priceText) {
+          chips.push({ id: 'price', label: `Dưới ${priceText}`, active: true });
+        }
+      }
+      setAiIntentChips(chips);
+
+      setSearchResults(Array.isArray(result?.rides) ? result.rides : []);
+
+      const questions = Array.isArray(result?.clarificationQuestions)
+        ? result.clarificationQuestions.filter(Boolean)
+        : [];
+      if (result?.needsClarification && questions.length) {
+        setAiSearchHint(`AI cần làm rõ: ${questions.join(' ')} (Bạn có thể bấm chips để bật/tắt lọc)`);
+      } else {
+        const confidenceValue = Number(result?.confidence || 0);
+        const confidencePercent = Number.isFinite(confidenceValue) ? Math.round(confidenceValue * 100) : 0;
+        setAiSearchHint(`AI đã phân tích yêu cầu với độ tin cậy ${confidencePercent}%. (Bấm chips để lọc nhanh)`);
+      }
+    } catch (e) {
+      setErrorText(e.message || 'AI chưa phân tích được yêu cầu. Bạn thử viết rõ tuyến và ngày đi hơn nhé.');
+    } finally {
+      setAiSearching(false);
     }
   };
 
@@ -1023,7 +1172,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
       setChatMessages(Array.isArray(messages) ? messages.map(normalizeCustomerMessage) : []);
       setChatDraft('');
       startChatRealtime(thread.id);
-      await markChatThreadRead(thread.id).catch(() => {});
+      await markChatThreadRead(thread.id).catch(() => { });
       const threads = await getMyChatThreads().catch(() => []);
       setChatThreads(Array.isArray(threads) ? threads : []);
     } catch (e) {
@@ -1046,7 +1195,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
       setChatMessages(Array.isArray(messages) ? messages.map(normalizeCustomerMessage) : []);
       setChatDraft('');
       startChatRealtime(thread.id);
-      await markChatThreadRead(thread.id).catch(() => {});
+      await markChatThreadRead(thread.id).catch(() => { });
       const threads = await getMyChatThreads().catch(() => []);
       setChatThreads(Array.isArray(threads) ? threads : []);
     } catch (e) {
@@ -1126,553 +1275,585 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
   return (
     <>
       {activeFooterTab === 'home' && (
-      <ScrollView
-        ref={scrollRef}
-        style={styles.container}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadData(); }} />}
-      >
-        <ImageBackground
-          source={HERO_BACKGROUND_IMAGE}
-          style={styles.heroBackground}
-          imageStyle={styles.heroBackgroundImage}
+        <ScrollView
+          ref={scrollRef}
+          style={styles.container}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadData(); }} />}
         >
-          <View
-            style={[
-              styles.heroOverlay,
-              {
-                paddingTop: heroTopPadding,
-                paddingHorizontal: heroHorizontal,
-                paddingBottom: heroBottomPadding,
-              },
-            ]}
+          <ImageBackground
+            source={HERO_BACKGROUND_IMAGE}
+            style={styles.heroBackground}
+            imageStyle={styles.heroBackgroundImage}
           >
-            <View style={styles.heroTopRow}>
-              <View>
-                <Text style={styles.brand}>RideUp</Text>
-                <Text style={[styles.userName, { fontSize: isSmallPhone ? 20 : 24 }]} numberOfLines={1}>
-                  Xin chào, {customerFullName}
-                </Text>
-              </View>
-              <TouchableOpacity style={styles.logoutBtn} onPress={onLogout} activeOpacity={0.85}>
-                <Ionicons name="log-out-outline" size={17} color="#fff" />
-              </TouchableOpacity>
-            </View>
-
-            <Text style={[styles.whereTo, { fontSize: heroTitleSize }]}>Bạn muốn đi đâu?</Text>
-            <Text style={[styles.subtitle, { maxWidth: subtitleMaxWidth }]}>Đặt nhanh, giá rõ ràng, tài xế đã xác minh.</Text>
-
-            <View style={[styles.statsRow, { gap: isSmallPhone ? 8 : 10 }] }>
-              <View style={[styles.statCard, { paddingVertical: isSmallPhone ? 9 : 11 }] }>
-                <Ionicons name="car-sport-outline" size={18} color="#00B14F" />
-                <Text style={[styles.statValue, { fontSize: isSmallPhone ? 16 : 18 }]}>{searchResults.length}</Text>
-                <Text style={styles.statLabel}>Chuyến đang mở</Text>
-              </View>
-              <View style={[styles.statCard, { paddingVertical: isSmallPhone ? 9 : 11 }] }>
-                <Ionicons name="receipt-outline" size={18} color="#00B14F" />
-                <Text style={[styles.statValue, { fontSize: isSmallPhone ? 16 : 18 }]}>{bookings.length}</Text>
-                <Text style={styles.statLabel}>Lượt đã đặt</Text>
-              </View>
-              <View style={[styles.statCard, { paddingVertical: isSmallPhone ? 9 : 11 }] }>
-                <Ionicons name="star-outline" size={18} color="#00B14F" />
-                <Text style={[styles.statValue, { fontSize: isSmallPhone ? 16 : 18 }]}>{avgRating}</Text>
-                <Text style={styles.statLabel}>Đánh giá TB</Text>
-              </View>
-            </View>
-          </View>
-        </ImageBackground>
-
-        <View style={[styles.searchWrap, { marginHorizontal: horizontalGutter, marginTop: isSmallPhone ? -10 : -14 }]}>
-          <View style={[styles.searchCard, { padding: isSmallPhone ? 11 : 12 }]}>
-            <View style={styles.searchHeadRow}>
-              <Text style={[styles.searchTitle, { fontSize: isSmallPhone ? 16 : 18 }]}>Tìm chuyến ghép</Text>
-              <Text style={styles.searchHintInline}>Chọn điểm đón/trả chi tiết</Text>
-            </View>
-
-            <TouchableOpacity style={styles.routeField} onPress={() => setShowFromProvincePicker(true)}>
-              <View style={styles.routeDotFrom} />
-              <View style={styles.routeTextWrap}>
-                <Text style={styles.routeFieldLabel}>Điểm đón</Text>
-                <Text style={styles.routeFieldText}>{fromWard?.name || fromProvince?.name || 'Chọn khu vực đón'}</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.routeField} onPress={() => setShowToProvincePicker(true)}>
-              <View style={styles.routeDotTo} />
-              <View style={styles.routeTextWrap}>
-                <Text style={styles.routeFieldLabel}>Điểm đến</Text>
-                <Text style={styles.routeFieldText}>{toWard?.name || toProvince?.name || 'Chọn khu vực đến'}</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.routeField}
-              onPress={() => {
-                if (fromProvince?.id) {
-                  setShowFromWardPicker(true);
-                } else {
-                  setShowFromProvincePicker(true);
-                }
-              }}
+            <View
+              style={[
+                styles.heroOverlay,
+                {
+                  paddingTop: heroTopPadding,
+                  paddingHorizontal: heroHorizontal,
+                  paddingBottom: heroBottomPadding,
+                },
+              ]}
             >
-              <MaterialCommunityIcons name="map-marker-radius-outline" size={16} color="#334155" />
-              <View style={styles.routeTextWrap}>
-                <Text style={styles.routeFieldLabel}>Phường/xã đón</Text>
-                <Text style={styles.routeFieldText}>{fromWard?.name || 'Chọn phường/xã đón'}</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.routeField}
-              onPress={() => {
-                if (toProvince?.id) {
-                  setShowToWardPicker(true);
-                } else {
-                  setShowToProvincePicker(true);
-                }
-              }}
-            >
-              <MaterialCommunityIcons name="map-marker-check-outline" size={16} color="#334155" />
-              <View style={styles.routeTextWrap}>
-                <Text style={styles.routeFieldLabel}>Phường/xã đến</Text>
-                <Text style={styles.routeFieldText}>{toWard?.name || 'Chọn phường/xã đến'}</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
-            </TouchableOpacity>
-
-            <View style={styles.dateInputWrap}>
-              <Ionicons name="calendar-outline" size={16} color="#64748B" />
-              <TextInput
-                style={styles.dateInput}
-                value={searchDate}
-                onChangeText={setSearchDate}
-                placeholder="Ngày khởi hành (YYYY-MM-DD), để trống nếu không lọc"
-              />
-            </View>
-
-            <View style={styles.quickDateRow}>
-              <TouchableOpacity style={styles.quickDateBtn} onPress={() => setSearchDate('')}>
-                <Text style={styles.quickDateText}>Tất cả ngày</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.quickDateBtn} onPress={() => setSearchDate(toIsoDate(today))}>
-                <Text style={styles.quickDateText}>Hôm nay</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.quickDateBtn} onPress={() => setSearchDate(toIsoDate(tomorrow))}>
-                <Text style={styles.quickDateText}>Ngày mai</Text>
-              </TouchableOpacity>
-            </View>
-
-            <TouchableOpacity style={styles.searchBtn} onPress={runSearch} disabled={searching}>
-              <Ionicons name="search" size={16} color="#fff" />
-              <Text style={styles.searchBtnText}>{searching ? 'Đang tìm...' : 'Tìm chuyến ngay'}</Text>
-            </TouchableOpacity>
-
-            {!!errorText && <Text style={styles.errorText}>{errorText}</Text>}
-          </View>
-        </View>
-
-        <View style={[styles.section, { paddingHorizontal: horizontalGutter, marginTop: sectionTopGap }]}>
-          <View style={styles.sectionHeader}>
-            <View style={styles.titleWithIcon}>
-              <Ionicons name="car-sport" size={18} color="#00B14F" />
-              <Text style={styles.sectionTitle}>Chuyến xe đang mở</Text>
-            </View>
-            <TouchableOpacity onPress={runSearch}>
-              <Text style={styles.linkText}>Làm mới</Text>
-            </TouchableOpacity>
-          </View>
-
-          {searchResults.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Ionicons name="car-outline" size={22} color="#94A3B8" />
-              <Text style={styles.emptyTitle}>Chưa có chuyến phù hợp</Text>
-              <Text style={styles.emptyText}>Thử đổi điểm đón, điểm đến hoặc ngày khởi hành.</Text>
-            </View>
-          ) : (
-            searchResults.map((trip) => (
-              <TouchableOpacity
-                key={trip.id}
-                style={[styles.rideCard, { padding: isSmallPhone ? 10 : 12, marginBottom: isSmallPhone ? 9 : 10 }]}
-                onPress={() => openTripDetail(trip)}
-                activeOpacity={0.92}
-              >
-                <View style={styles.rideCardTop}>
-                  <View
-                    style={[
-                      styles.driverAvatar,
-                      {
-                        width: isSmallPhone ? 34 : 36,
-                        height: isSmallPhone ? 34 : 36,
-                        marginRight: isSmallPhone ? 7 : 8,
-                      },
-                    ]}
-                  >
-                    <Ionicons name="person-outline" size={isSmallPhone ? 16 : 17} color="#111827" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.driverTitle, { fontSize: isSmallPhone ? 13 : 14 }]}>{trip.driverName || 'Tài xế RideUp'}</Text>
-                    <Text style={[styles.driverMeta, { fontSize: isSmallPhone ? 10 : 11 }]}>⭐ {trip.driverRating || 0} • Xe ghép liên tỉnh</Text>
-                  </View>
-                  <Text style={[styles.tripPrice, { fontSize: isSmallPhone ? 15 : 17 }]}>{formatCurrency(trip.price)}</Text>
+              <View style={styles.heroTopRow}>
+                <View>
+                  <Text style={styles.brand}>RideUp</Text>
+                  <Text style={[styles.userName, { fontSize: isSmallPhone ? 20 : 24 }]} numberOfLines={1}>
+                    Xin chào, {customerFullName}
+                  </Text>
                 </View>
-
-                <View style={styles.routeTimeline}>
-                  <View style={styles.routeLineCol}>
-                    <View style={styles.routeDotFrom} />
-                    <View style={styles.routeLine} />
-                    <View style={styles.routeDotTo} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.routeMain}>{trip.from}</Text>
-                    <Text style={styles.routeSub}>Đón linh hoạt theo tuyến</Text>
-                    <View style={{ height: 10 }} />
-                    <Text style={styles.routeMain}>{trip.to}</Text>
-                    <Text style={styles.routeSub}>Trả tại điểm đã đăng ký</Text>
-                  </View>
-                </View>
-
-                <View style={styles.rideMetaRow}>
-                  <View style={styles.metaChip}>
-                    <Ionicons name="time-outline" size={13} color="#0F172A" />
-                    <Text style={styles.metaChipText}>{formatTime(trip.departureTime)}</Text>
-                  </View>
-                  <View style={styles.metaChip}>
-                    <Ionicons name="people-outline" size={13} color="#0F172A" />
-                    <Text style={styles.metaChipText}>{trip.availableSeats}/{trip.totalSeats} chỗ</Text>
-                  </View>
-                </View>
-
-                <TouchableOpacity style={styles.bookBtn} onPress={() => openTripDetail(trip)}>
-                  <Text style={styles.bookBtnText}>Xem chi tiết và đặt chỗ</Text>
+                <TouchableOpacity style={styles.logoutBtn} onPress={onLogout} activeOpacity={0.85}>
+                  <Ionicons name="log-out-outline" size={17} color="#fff" />
                 </TouchableOpacity>
-              </TouchableOpacity>
-            ))
-          )}
-        </View>
+              </View>
 
-        <View style={[styles.bottomPad, { height: footerSpacer }]} />
-      </ScrollView>
+              <Text style={[styles.whereTo, { fontSize: heroTitleSize }]}>Bạn muốn đi đâu?</Text>
+              <Text style={[styles.subtitle, { maxWidth: subtitleMaxWidth }]}>Đặt nhanh, giá rõ ràng, tài xế đã xác minh.</Text>
+
+              <View style={[styles.statsRow, { gap: isSmallPhone ? 8 : 10 }]}>
+                <View style={[styles.statCard, { paddingVertical: isSmallPhone ? 9 : 11 }]}>
+                  <Ionicons name="car-sport-outline" size={18} color="#00B14F" />
+                  <Text style={[styles.statValue, { fontSize: isSmallPhone ? 16 : 18 }]}>{searchResults.length}</Text>
+                  <Text style={styles.statLabel}>Chuyến đang mở</Text>
+                </View>
+                <View style={[styles.statCard, { paddingVertical: isSmallPhone ? 9 : 11 }]}>
+                  <Ionicons name="receipt-outline" size={18} color="#00B14F" />
+                  <Text style={[styles.statValue, { fontSize: isSmallPhone ? 16 : 18 }]}>{bookings.length}</Text>
+                  <Text style={styles.statLabel}>Lượt đã đặt</Text>
+                </View>
+                <View style={[styles.statCard, { paddingVertical: isSmallPhone ? 9 : 11 }]}>
+                  <Ionicons name="star-outline" size={18} color="#00B14F" />
+                  <Text style={[styles.statValue, { fontSize: isSmallPhone ? 16 : 18 }]}>{avgRating}</Text>
+                  <Text style={styles.statLabel}>Đánh giá TB</Text>
+                </View>
+              </View>
+            </View>
+          </ImageBackground>
+
+          <View style={[styles.searchWrap, { marginHorizontal: horizontalGutter, marginTop: isSmallPhone ? -10 : -14 }]}>
+            <View style={[styles.searchCard, { padding: isSmallPhone ? 11 : 12 }]}>
+              <View style={styles.searchHeadRow}>
+                <Text style={[styles.searchTitle, { fontSize: isSmallPhone ? 16 : 18 }]}>Tìm chuyến ghép</Text>
+                <Text style={styles.searchHintInline}>Chọn điểm đón/trả chi tiết</Text>
+              </View>
+
+              <TouchableOpacity style={styles.routeField} onPress={() => setShowFromProvincePicker(true)}>
+                <View style={styles.routeDotFrom} />
+                <View style={styles.routeTextWrap}>
+                  <Text style={styles.routeFieldLabel}>Điểm đón</Text>
+                  <Text style={styles.routeFieldText}>{fromWard?.name || fromProvince?.name || 'Chọn khu vực đón'}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.routeField} onPress={() => setShowToProvincePicker(true)}>
+                <View style={styles.routeDotTo} />
+                <View style={styles.routeTextWrap}>
+                  <Text style={styles.routeFieldLabel}>Điểm đến</Text>
+                  <Text style={styles.routeFieldText}>{toWard?.name || toProvince?.name || 'Chọn khu vực đến'}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.routeField}
+                onPress={() => {
+                  if (fromProvince?.id) {
+                    setShowFromWardPicker(true);
+                  } else {
+                    setShowFromProvincePicker(true);
+                  }
+                }}
+              >
+                <MaterialCommunityIcons name="map-marker-radius-outline" size={16} color="#334155" />
+                <View style={styles.routeTextWrap}>
+                  <Text style={styles.routeFieldLabel}>Phường/xã đón</Text>
+                  <Text style={styles.routeFieldText}>{fromWard?.name || 'Chọn phường/xã đón'}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.routeField}
+                onPress={() => {
+                  if (toProvince?.id) {
+                    setShowToWardPicker(true);
+                  } else {
+                    setShowToProvincePicker(true);
+                  }
+                }}
+              >
+                <MaterialCommunityIcons name="map-marker-check-outline" size={16} color="#334155" />
+                <View style={styles.routeTextWrap}>
+                  <Text style={styles.routeFieldLabel}>Phường/xã đến</Text>
+                  <Text style={styles.routeFieldText}>{toWard?.name || 'Chọn phường/xã đến'}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+              </TouchableOpacity>
+
+              <View style={styles.dateInputWrap}>
+                <Ionicons name="calendar-outline" size={16} color="#64748B" />
+                <TextInput
+                  style={styles.dateInput}
+                  value={searchDate}
+                  onChangeText={setSearchDate}
+                  placeholder="Ngày khởi hành (YYYY-MM-DD), để trống nếu không lọc"
+                />
+              </View>
+
+              <View style={styles.quickDateRow}>
+                <TouchableOpacity style={styles.quickDateBtn} onPress={() => setSearchDate('')}>
+                  <Text style={styles.quickDateText}>Tất cả ngày</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.quickDateBtn} onPress={() => setSearchDate(toIsoDate(today))}>
+                  <Text style={styles.quickDateText}>Hôm nay</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.quickDateBtn} onPress={() => setSearchDate(toIsoDate(tomorrow))}>
+                  <Text style={styles.quickDateText}>Ngày mai</Text>
+                </TouchableOpacity>
+              </View>
+
+              <Text style={styles.aiInputLabel}>Dán mô tả chuyến đi bằng AI</Text>
+              <TextInput
+                style={styles.aiSearchInput}
+                value={aiSearchText}
+                onChangeText={setAiSearchText}
+                placeholder="Ví dụ: Mai 7h từ Mỹ Đình đi Hải Phòng, 2 ghế, dưới 200k"
+                multiline
+                numberOfLines={3}
+                textAlignVertical="top"
+              />
+              <TouchableOpacity style={styles.aiSearchBtn} onPress={runAiSearchFromText} disabled={aiSearching}>
+                <Ionicons name="sparkles-outline" size={16} color="#008A3E" />
+                <Text style={styles.aiSearchBtnText}>{aiSearching ? 'AI đang phân tích...' : 'Phân tích và tìm chuyến bằng AI'}</Text>
+              </TouchableOpacity>
+
+              {!!aiSearchHint && <Text style={styles.aiSearchHint}>{aiSearchHint}</Text>}
+
+              {aiIntentChips.length > 0 && (
+                <View style={styles.aiChipWrap}>
+                  {aiIntentChips.map((chip) => (
+                    <TouchableOpacity
+                      key={chip.id}
+                      style={[styles.aiChip, chip.active === false && styles.aiChipInactive]}
+                      activeOpacity={0.9}
+                      onPress={() => toggleAiChip(chip.id)}
+                    >
+                      <Text style={[styles.aiChipText, chip.active === false && styles.aiChipTextInactive]}>{chip.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+
+              <TouchableOpacity style={styles.searchBtn} onPress={runSearch} disabled={searching}>
+                <Ionicons name="search" size={16} color="#fff" />
+                <Text style={styles.searchBtnText}>{searching ? 'Đang tìm...' : 'Tìm chuyến ngay'}</Text>
+              </TouchableOpacity>
+
+              {!!errorText && <Text style={styles.errorText}>{errorText}</Text>}
+            </View>
+          </View>
+
+          <View style={[styles.section, { paddingHorizontal: horizontalGutter, marginTop: sectionTopGap }]}>
+            <View style={styles.sectionHeader}>
+              <View style={styles.titleWithIcon}>
+                <Ionicons name="car-sport" size={18} color="#00B14F" />
+                <Text style={styles.sectionTitle}>Chuyến xe đang mở</Text>
+              </View>
+              <TouchableOpacity onPress={runSearch}>
+                <Text style={styles.linkText}>Làm mới</Text>
+              </TouchableOpacity>
+            </View>
+
+            {searchResults.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Ionicons name="car-outline" size={22} color="#94A3B8" />
+                <Text style={styles.emptyTitle}>Chưa có chuyến phù hợp</Text>
+                <Text style={styles.emptyText}>Thử đổi điểm đón, điểm đến hoặc ngày khởi hành.</Text>
+              </View>
+            ) : (
+              searchResults.map((trip) => (
+                <TouchableOpacity
+                  key={trip.id}
+                  style={[styles.rideCard, { padding: isSmallPhone ? 10 : 12, marginBottom: isSmallPhone ? 9 : 10 }]}
+                  onPress={() => openTripDetail(trip)}
+                  activeOpacity={0.92}
+                >
+                  <View style={styles.rideCardTop}>
+                    <View
+                      style={[
+                        styles.driverAvatar,
+                        {
+                          width: isSmallPhone ? 34 : 36,
+                          height: isSmallPhone ? 34 : 36,
+                          marginRight: isSmallPhone ? 7 : 8,
+                        },
+                      ]}
+                    >
+                      <Ionicons name="person-outline" size={isSmallPhone ? 16 : 17} color="#111827" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.driverTitle, { fontSize: isSmallPhone ? 13 : 14 }]}>{trip.driverName || 'Tài xế RideUp'}</Text>
+                      <Text style={[styles.driverMeta, { fontSize: isSmallPhone ? 10 : 11 }]}>⭐ {trip.driverRating || 0} • Xe ghép liên tỉnh</Text>
+                    </View>
+                    <Text style={[styles.tripPrice, { fontSize: isSmallPhone ? 15 : 17 }]}>{formatCurrency(trip.price)}</Text>
+                  </View>
+
+                  <View style={styles.routeTimeline}>
+                    <View style={styles.routeLineCol}>
+                      <View style={styles.routeDotFrom} />
+                      <View style={styles.routeLine} />
+                      <View style={styles.routeDotTo} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.routeMain}>{trip.from}</Text>
+                      <Text style={styles.routeSub}>Đón linh hoạt theo tuyến</Text>
+                      <View style={{ height: 10 }} />
+                      <Text style={styles.routeMain}>{trip.to}</Text>
+                      <Text style={styles.routeSub}>Trả tại điểm đã đăng ký</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.rideMetaRow}>
+                    <View style={styles.metaChip}>
+                      <Ionicons name="time-outline" size={13} color="#0F172A" />
+                      <Text style={styles.metaChipText}>{formatTime(trip.departureTime)}</Text>
+                    </View>
+                    <View style={styles.metaChip}>
+                      <Ionicons name="people-outline" size={13} color="#0F172A" />
+                      <Text style={styles.metaChipText}>{trip.availableSeats}/{trip.totalSeats} chỗ</Text>
+                    </View>
+                  </View>
+
+                  <TouchableOpacity style={styles.bookBtn} onPress={() => openTripDetail(trip)}>
+                    <Text style={styles.bookBtnText}>Xem chi tiết và đặt chỗ</Text>
+                  </TouchableOpacity>
+                </TouchableOpacity>
+              ))
+            )}
+          </View>
+
+          <View style={[styles.bottomPad, { height: footerSpacer }]} />
+        </ScrollView>
       )}
 
       {activeFooterTab === 'myTrips' && (
-      <ScrollView
-        style={styles.container}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadData(); }} />}
-      >
-        <View style={[styles.pageHeader, { paddingHorizontal: horizontalGutter, paddingTop: isSmallPhone ? 18 : 24 }]}>
-          <Text style={styles.pageTitle}>Chuyến của tôi</Text>
-          <Text style={styles.pageSubTitle}>Theo dõi các chuyến đang đi và lịch sử của bạn</Text>
-        </View>
-
-        <View style={[styles.section, { paddingHorizontal: horizontalGutter, marginTop: sectionTopGap }]}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={[styles.filterTabsRow, { paddingRight: isSmallPhone ? 6 : 10 }]}
-          >
-            {MY_TRIPS_FILTERS.map((f) => {
-              const count = bookings.filter((b) => bookingMatchesFilter(b, f.key)).length;
-              const isActive = myTripsFilter === f.key;
-              return (
-                <TouchableOpacity
-                  key={f.key}
-                  style={[styles.filterTabBtn, isActive && styles.filterTabBtnActive]}
-                  onPress={() => setMyTripsFilter(f.key)}
-                  activeOpacity={0.9}
-                >
-                  <Text style={[styles.filterTabText, isActive && styles.filterTabTextActive]}>{f.label}</Text>
-                  <View style={[styles.filterTabCount, isActive && styles.filterTabCountActive]}>
-                    <Text style={[styles.filterTabCountText, isActive && styles.filterTabCountTextActive]}>{count}</Text>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        </View>
-
-        {filteredMyTrips.length > 0 && (
-          <View style={[styles.section, { paddingHorizontal: horizontalGutter, marginTop: sectionTopGap }]}>
-            {filteredMyTrips.map((booking) => (
-              <BookingCard
-                key={booking.id}
-                booking={booking}
-                formatTime={formatTime}
-                formatCurrency={formatCurrency}
-                onPress={() => openBookingDetail(booking)}
-                onRate={() => openRatingModal(booking)}
-                canChat={canChatBooking(booking)}
-                showChat={['pending', 'confirmed', 'in_progress'].includes(String(booking?.status || '').toLowerCase())}
-                onChat={() => openChatForBooking(booking)}
-              />
-            ))}
+        <ScrollView
+          style={styles.container}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadData(); }} />}
+        >
+          <View style={[styles.pageHeader, { paddingHorizontal: horizontalGutter, paddingTop: isSmallPhone ? 18 : 24 }]}>
+            <Text style={styles.pageTitle}>Chuyến của tôi</Text>
+            <Text style={styles.pageSubTitle}>Theo dõi các chuyến đang đi và lịch sử của bạn</Text>
           </View>
-        )}
 
-        {filteredMyTrips.length === 0 && (
           <View style={[styles.section, { paddingHorizontal: horizontalGutter, marginTop: sectionTopGap }]}>
-            <View style={styles.emptyState}>
-              <Ionicons name="car-outline" size={22} color="#94A3B8" />
-              <Text style={styles.emptyTitle}>Không có chuyến ở bộ lọc này</Text>
-              <Text style={styles.emptyText}>Thử đổi tab lọc hoặc quay lại Trang chủ để đặt chuyến.</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={[styles.filterTabsRow, { paddingRight: isSmallPhone ? 6 : 10 }]}
+            >
+              {MY_TRIPS_FILTERS.map((f) => {
+                const count = bookings.filter((b) => bookingMatchesFilter(b, f.key)).length;
+                const isActive = myTripsFilter === f.key;
+                return (
+                  <TouchableOpacity
+                    key={f.key}
+                    style={[styles.filterTabBtn, isActive && styles.filterTabBtnActive]}
+                    onPress={() => setMyTripsFilter(f.key)}
+                    activeOpacity={0.9}
+                  >
+                    <Text style={[styles.filterTabText, isActive && styles.filterTabTextActive]}>{f.label}</Text>
+                    <View style={[styles.filterTabCount, isActive && styles.filterTabCountActive]}>
+                      <Text style={[styles.filterTabCountText, isActive && styles.filterTabCountTextActive]}>{count}</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+
+          {filteredMyTrips.length > 0 && (
+            <View style={[styles.section, { paddingHorizontal: horizontalGutter, marginTop: sectionTopGap }]}>
+              {filteredMyTrips.map((booking) => (
+                <BookingCard
+                  key={booking.id}
+                  booking={booking}
+                  formatTime={formatTime}
+                  formatCurrency={formatCurrency}
+                  onPress={() => openBookingDetail(booking)}
+                  onRate={() => openRatingModal(booking)}
+                  canChat={canChatBooking(booking)}
+                  showChat={['pending', 'confirmed', 'in_progress'].includes(String(booking?.status || '').toLowerCase())}
+                  onChat={() => openChatForBooking(booking)}
+                />
+              ))}
             </View>
-          </View>
-        )}
+          )}
 
-        <View style={[styles.bottomPad, { height: footerSpacer }]} />
-      </ScrollView>
+          {filteredMyTrips.length === 0 && (
+            <View style={[styles.section, { paddingHorizontal: horizontalGutter, marginTop: sectionTopGap }]}>
+              <View style={styles.emptyState}>
+                <Ionicons name="car-outline" size={22} color="#94A3B8" />
+                <Text style={styles.emptyTitle}>Không có chuyến ở bộ lọc này</Text>
+                <Text style={styles.emptyText}>Thử đổi tab lọc hoặc quay lại Trang chủ để đặt chuyến.</Text>
+              </View>
+            </View>
+          )}
+
+          <View style={[styles.bottomPad, { height: footerSpacer }]} />
+        </ScrollView>
       )}
 
       {activeFooterTab === 'account' && (
-      <ScrollView
-        style={styles.container}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadData(); }} />}
-      >
-        <View style={[styles.accountPageHeader, { marginHorizontal: horizontalGutter, marginTop: isSmallPhone ? 14 : 18 }]}>
-          <TouchableOpacity style={styles.accountAvatarWrapLarge} onPress={openPersonalInfo} activeOpacity={0.9}>
-            {customerAvatarUrl && !accountAvatarFailed ? (
-              <Image
-                source={{ uri: customerAvatarUrl }}
-                style={styles.accountAvatarImageLarge}
-                onError={() => setAccountAvatarFailed(true)}
-              />
-            ) : (
-              <Ionicons name="person" size={34} color="#0F172A" />
-            )}
-          </TouchableOpacity>
-          <Text style={styles.accountPageName}>{customerFullName}</Text>
-          <Text style={styles.accountPageEmail}>{customerEmail}</Text>
-        </View>
+        <ScrollView
+          style={styles.container}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadData(); }} />}
+        >
+          <View style={[styles.accountPageHeader, { marginHorizontal: horizontalGutter, marginTop: isSmallPhone ? 14 : 18 }]}>
+            <TouchableOpacity style={styles.accountAvatarWrapLarge} onPress={openPersonalInfo} activeOpacity={0.9}>
+              {customerAvatarUrl && !accountAvatarFailed ? (
+                <Image
+                  source={{ uri: customerAvatarUrl }}
+                  style={styles.accountAvatarImageLarge}
+                  onError={() => setAccountAvatarFailed(true)}
+                />
+              ) : (
+                <Ionicons name="person" size={34} color="#0F172A" />
+              )}
+            </TouchableOpacity>
+            <Text style={styles.accountPageName}>{customerFullName}</Text>
+            <Text style={styles.accountPageEmail}>{customerEmail}</Text>
+          </View>
 
-        <View style={[styles.section, { paddingHorizontal: horizontalGutter, marginTop: sectionTopGap }]}>
-          <View style={styles.membershipCard}>
-            <View style={styles.membershipTopRow}>
-              <View>
-                <Text style={styles.membershipLabel}>Hạng thành viên</Text>
-                <Text style={styles.membershipValue}>{membershipLevel}</Text>
+          <View style={[styles.section, { paddingHorizontal: horizontalGutter, marginTop: sectionTopGap }]}>
+            <View style={styles.membershipCard}>
+              <View style={styles.membershipTopRow}>
+                <View>
+                  <Text style={styles.membershipLabel}>Hạng thành viên</Text>
+                  <Text style={styles.membershipValue}>{membershipLevel}</Text>
+                </View>
+                <View style={styles.membershipBadge}>
+                  <Text style={styles.membershipBadgeText}>{profileCompletion}%</Text>
+                </View>
               </View>
-              <View style={styles.membershipBadge}>
-                <Text style={styles.membershipBadgeText}>{profileCompletion}%</Text>
+              <Text style={styles.membershipHint}>Hoàn thiện tài khoản để nhận ưu đãi chuyến đi tốt hơn.</Text>
+              <View style={styles.progressTrack}>
+                <View style={[styles.progressFill, { width: `${profileCompletion}%` }]} />
               </View>
             </View>
-            <Text style={styles.membershipHint}>Hoàn thiện tài khoản để nhận ưu đãi chuyến đi tốt hơn.</Text>
-            <View style={styles.progressTrack}>
-              <View style={[styles.progressFill, { width: `${profileCompletion}%` }]} />
+
+            <Text style={styles.accountSectionTitle}>Truy cập nhanh</Text>
+            <View style={styles.quickGrid}>
+              <TouchableOpacity style={styles.quickCard} activeOpacity={0.9} onPress={openPersonalInfo}>
+                <Ionicons name="person-circle-outline" size={20} color="#00B14F" />
+                <Text style={styles.quickCardText}>Thông tin cá nhân</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.quickCard} activeOpacity={0.9}>
+                <Ionicons name="card-outline" size={20} color="#00B14F" />
+                <Text style={styles.quickCardText}>Thanh toán</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.quickCard} activeOpacity={0.9}>
+                <Ionicons name="shield-checkmark-outline" size={20} color="#00B14F" />
+                <Text style={styles.quickCardText}>An toàn tài khoản</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.quickCard} activeOpacity={0.9}>
+                <Ionicons name="gift-outline" size={20} color="#00B14F" />
+                <Text style={styles.quickCardText}>Ưu đãi của tôi</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.accountStatsRow}>
+              <View style={styles.accountStatCard}>
+                <Text style={styles.accountStatValue}>{bookings.length}</Text>
+                <Text style={styles.accountStatLabel}>Tổng chuyến</Text>
+              </View>
+              <View style={styles.accountStatCard}>
+                <Text style={styles.accountStatValue}>{completedBookings.length}</Text>
+                <Text style={styles.accountStatLabel}>Hoàn thành</Text>
+              </View>
+              <View style={styles.accountStatCard}>
+                <Text style={styles.accountStatValue}>{formatCurrency(totalSpent)}</Text>
+                <Text style={styles.accountStatLabel}>Đã chi</Text>
+              </View>
+            </View>
+
+            <View style={styles.walletCard}>
+              <View style={styles.walletHead}>
+                <Ionicons name="wallet-outline" size={18} color="#00B14F" />
+                <Text style={styles.walletTitle}>Ví & thanh toán</Text>
+              </View>
+              <Text style={styles.walletSub}>Phương thức mặc định: Tiền mặt</Text>
+              <Text style={styles.walletSub}>Bạn có thể thêm thẻ hoặc tài khoản ngân hàng.</Text>
+            </View>
+
+            <Text style={styles.accountSectionTitle}>Tiện ích & hỗ trợ</Text>
+
+            <TouchableOpacity style={styles.accountMenuItem} activeOpacity={0.9} onPress={openPersonalInfo}>
+              <Ionicons name="person-circle-outline" size={18} color="#00B14F" />
+              <Text style={styles.accountMenuText}>Thông tin cá nhân</Text>
+              <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.accountMenuItem} activeOpacity={0.9}>
+              <Ionicons name="card-outline" size={18} color="#00B14F" />
+              <Text style={styles.accountMenuText}>Phương thức thanh toán</Text>
+              <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.accountMenuItem} activeOpacity={0.9}>
+              <Ionicons name="notifications-outline" size={18} color="#00B14F" />
+              <Text style={styles.accountMenuText}>Thông báo</Text>
+              <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.accountMenuItem} activeOpacity={0.9}>
+              <Ionicons name="help-circle-outline" size={18} color="#00B14F" />
+              <Text style={styles.accountMenuText}>Hỗ trợ</Text>
+              <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.accountMenuItem} activeOpacity={0.9} onPress={openSupportCenter}>
+              <Ionicons name="headset-outline" size={18} color="#00B14F" />
+              <Text style={styles.accountMenuText}>Chăm sóc khách hàng</Text>
+              <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
+            </TouchableOpacity>
+
+            <View style={styles.accountLogoutWrap}>
+              <TouchableOpacity style={styles.accountLogoutBtn} onPress={onLogout}>
+                <Ionicons name="log-out-outline" size={18} color="#fff" />
+                <Text style={styles.accountLogoutText}>Đăng xuất</Text>
+              </TouchableOpacity>
             </View>
           </View>
 
-          <Text style={styles.accountSectionTitle}>Truy cập nhanh</Text>
-          <View style={styles.quickGrid}>
-            <TouchableOpacity style={styles.quickCard} activeOpacity={0.9} onPress={openPersonalInfo}>
-              <Ionicons name="person-circle-outline" size={20} color="#00B14F" />
-              <Text style={styles.quickCardText}>Thông tin cá nhân</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.quickCard} activeOpacity={0.9}>
-              <Ionicons name="card-outline" size={20} color="#00B14F" />
-              <Text style={styles.quickCardText}>Thanh toán</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.quickCard} activeOpacity={0.9}>
-              <Ionicons name="shield-checkmark-outline" size={20} color="#00B14F" />
-              <Text style={styles.quickCardText}>An toàn tài khoản</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.quickCard} activeOpacity={0.9}>
-              <Ionicons name="gift-outline" size={20} color="#00B14F" />
-              <Text style={styles.quickCardText}>Ưu đãi của tôi</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.accountStatsRow}>
-            <View style={styles.accountStatCard}>
-              <Text style={styles.accountStatValue}>{bookings.length}</Text>
-              <Text style={styles.accountStatLabel}>Tổng chuyến</Text>
-            </View>
-            <View style={styles.accountStatCard}>
-              <Text style={styles.accountStatValue}>{completedBookings.length}</Text>
-              <Text style={styles.accountStatLabel}>Hoàn thành</Text>
-            </View>
-            <View style={styles.accountStatCard}>
-              <Text style={styles.accountStatValue}>{formatCurrency(totalSpent)}</Text>
-              <Text style={styles.accountStatLabel}>Đã chi</Text>
-            </View>
-          </View>
-
-          <View style={styles.walletCard}>
-            <View style={styles.walletHead}>
-              <Ionicons name="wallet-outline" size={18} color="#00B14F" />
-              <Text style={styles.walletTitle}>Ví & thanh toán</Text>
-            </View>
-            <Text style={styles.walletSub}>Phương thức mặc định: Tiền mặt</Text>
-            <Text style={styles.walletSub}>Bạn có thể thêm thẻ hoặc tài khoản ngân hàng.</Text>
-          </View>
-
-          <Text style={styles.accountSectionTitle}>Tiện ích & hỗ trợ</Text>
-
-          <TouchableOpacity style={styles.accountMenuItem} activeOpacity={0.9} onPress={openPersonalInfo}>
-            <Ionicons name="person-circle-outline" size={18} color="#00B14F" />
-            <Text style={styles.accountMenuText}>Thông tin cá nhân</Text>
-            <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.accountMenuItem} activeOpacity={0.9}>
-            <Ionicons name="card-outline" size={18} color="#00B14F" />
-            <Text style={styles.accountMenuText}>Phương thức thanh toán</Text>
-            <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.accountMenuItem} activeOpacity={0.9}>
-            <Ionicons name="notifications-outline" size={18} color="#00B14F" />
-            <Text style={styles.accountMenuText}>Thông báo</Text>
-            <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.accountMenuItem} activeOpacity={0.9}>
-            <Ionicons name="help-circle-outline" size={18} color="#00B14F" />
-            <Text style={styles.accountMenuText}>Hỗ trợ</Text>
-            <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.accountMenuItem} activeOpacity={0.9} onPress={openSupportCenter}>
-            <Ionicons name="headset-outline" size={18} color="#00B14F" />
-            <Text style={styles.accountMenuText}>Chăm sóc khách hàng</Text>
-            <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-          </TouchableOpacity>
-
-          <View style={styles.accountLogoutWrap}>
-            <TouchableOpacity style={styles.accountLogoutBtn} onPress={onLogout}>
-              <Ionicons name="log-out-outline" size={18} color="#fff" />
-              <Text style={styles.accountLogoutText}>Đăng xuất</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        <View style={[styles.bottomPad, { height: footerSpacer }]} />
-      </ScrollView>
+          <View style={[styles.bottomPad, { height: footerSpacer }]} />
+        </ScrollView>
       )}
 
       {activeFooterTab === 'messages' && (
-      <ScrollView
-        style={styles.container}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadData(); }} />}
-      >
-        <View style={[styles.pageHeader, { paddingHorizontal: horizontalGutter, paddingTop: isSmallPhone ? 18 : 24 }]}>
-          <Text style={styles.pageTitle}>Tin nhắn</Text>
-          <Text style={styles.pageSubTitle}>Trao đổi với tài xế cho các chuyến đang hoạt động</Text>
-        </View>
-
-        <View style={[styles.section, { paddingHorizontal: horizontalGutter, marginTop: sectionTopGap }]}>
-          <View style={styles.messageModeRow}>
-            <TouchableOpacity
-              style={[styles.messageModeBtn, messageView === 'assistant' && styles.messageModeBtnActive]}
-              onPress={() => setMessageView('assistant')}
-              activeOpacity={0.9}
-            >
-              <Ionicons name="sparkles-outline" size={14} color={messageView === 'assistant' ? '#008A3E' : '#64748B'} />
-              <Text style={[styles.messageModeText, messageView === 'assistant' && styles.messageModeTextActive]}>Trợ lý CSKH</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.messageModeBtn, messageView === 'drivers' && styles.messageModeBtnActive]}
-              onPress={() => setMessageView('drivers')}
-              activeOpacity={0.9}
-            >
-              <Ionicons name="chatbubble-ellipses-outline" size={14} color={messageView === 'drivers' ? '#008A3E' : '#64748B'} />
-              <Text style={[styles.messageModeText, messageView === 'drivers' && styles.messageModeTextActive]}>Tin nhắn tài xế</Text>
-            </TouchableOpacity>
+        <ScrollView
+          style={styles.container}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadData(); }} />}
+        >
+          <View style={[styles.pageHeader, { paddingHorizontal: horizontalGutter, paddingTop: isSmallPhone ? 18 : 24 }]}>
+            <Text style={styles.pageTitle}>Tin nhắn</Text>
+            <Text style={styles.pageSubTitle}>Trao đổi với tài xế cho các chuyến đang hoạt động</Text>
           </View>
 
-          {messageView === 'assistant' && (
-          <View style={styles.supportCard}>
-            <View style={styles.supportHeadRow}>
-              <Ionicons name="headset" size={16} color="#00B14F" />
-              <Text style={styles.supportTitle}>Trợ lý RideUp</Text>
-            </View>
+          <View style={[styles.section, { paddingHorizontal: horizontalGutter, marginTop: sectionTopGap }]}>
+            <View style={styles.messageModeRow}>
+              <TouchableOpacity
+                style={[styles.messageModeBtn, messageView === 'assistant' && styles.messageModeBtnActive]}
+                onPress={() => setMessageView('assistant')}
+                activeOpacity={0.9}
+              >
+                <Ionicons name="sparkles-outline" size={14} color={messageView === 'assistant' ? '#008A3E' : '#64748B'} />
+                <Text style={[styles.messageModeText, messageView === 'assistant' && styles.messageModeTextActive]}>Trợ lý CSKH</Text>
+              </TouchableOpacity>
 
-            <View style={styles.supportQuickRow}>
-              {SUPPORT_QUICK_ACTIONS.map((question) => (
-                <TouchableOpacity key={question} style={styles.supportQuickBtn} onPress={() => submitSupportMessage(question)}>
-                  <Text style={styles.supportQuickText}>{question}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <View style={styles.supportMessagesWrap}>
-              {supportMessages.slice(-6).map((m) => (
-                <View key={m.id} style={[styles.supportBubble, m.role === 'user' ? styles.supportBubbleUser : styles.supportBubbleBot]}>
-                  {m.role === 'bot' && (
-                    <View style={styles.supportBotTagRow}>
-                      <Ionicons name={getSupportIntentMeta(m.intent).icon} size={12} color={getSupportIntentMeta(m.intent).color} />
-                      <Text style={[styles.supportBotTagText, { color: getSupportIntentMeta(m.intent).color }]}>
-                        {getSupportIntentMeta(m.intent).title}
-                      </Text>
-                    </View>
-                  )}
-                  <Text style={[styles.supportBubbleText, m.role === 'user' && styles.supportBubbleTextUser]}>{m.text}</Text>
-
-                  {m.role === 'bot' && Array.isArray(m.suggestions) && m.suggestions.length > 0 && (
-                    <View style={styles.supportSuggestRow}>
-                      {m.suggestions.slice(0, 4).map((s) => (
-                        <TouchableOpacity key={`${m.id}-${s}`} style={styles.supportSuggestBtn} onPress={() => submitSupportMessage(s)}>
-                          <Text style={styles.supportSuggestText}>{s}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  )}
-                </View>
-              ))}
-            </View>
-
-            <View style={styles.supportInputRow}>
-              <TextInput
-                style={styles.supportInput}
-                placeholder="Hỏi về thanh toán, booking, hủy chuyến..."
-                value={supportInput}
-                onChangeText={setSupportInput}
-                editable={!supportSending}
-                onSubmitEditing={() => submitSupportMessage()}
-                returnKeyType="send"
-              />
-              <TouchableOpacity style={styles.supportSendBtn} onPress={() => submitSupportMessage()} disabled={supportSending}>
-                <Ionicons name="send" size={14} color="#FFFFFF" />
+              <TouchableOpacity
+                style={[styles.messageModeBtn, messageView === 'drivers' && styles.messageModeBtnActive]}
+                onPress={() => setMessageView('drivers')}
+                activeOpacity={0.9}
+              >
+                <Ionicons name="chatbubble-ellipses-outline" size={14} color={messageView === 'drivers' ? '#008A3E' : '#64748B'} />
+                <Text style={[styles.messageModeText, messageView === 'drivers' && styles.messageModeTextActive]}>Tin nhắn tài xế</Text>
               </TouchableOpacity>
             </View>
-          </View>
-          )}
 
-          {messageView === 'drivers' && (
-          <>
-          <View style={styles.inboxBanner}>
-            <Ionicons name="chatbubble-ellipses" size={18} color="#00B14F" />
-            <Text style={styles.inboxBannerText}>Bạn có {inboxItems.filter((i) => i.unread).length} tin nhắn chưa đọc</Text>
-          </View>
-
-          {chatThreads.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Ionicons name="chatbubble-ellipses-outline" size={22} color="#94A3B8" />
-              <Text style={styles.emptyTitle}>Chưa có hội thoại</Text>
-              <Text style={styles.emptyText}>Khi bạn đặt chuyến, cuộc trò chuyện với tài xế sẽ hiển thị ở đây.</Text>
-            </View>
-          ) : (
-            chatThreads.map((item) => (
-              <TouchableOpacity key={item.id} style={styles.messageCard} activeOpacity={0.9} onPress={() => openChatByThread(item)}>
-                <View style={styles.messageAvatar}>
-                  <Ionicons name="person" size={17} color="#0F172A" />
+            {messageView === 'assistant' && (
+              <View style={styles.supportCard}>
+                <View style={styles.supportHeadRow}>
+                  <Ionicons name="headset" size={16} color="#00B14F" />
+                  <Text style={styles.supportTitle}>Trợ lý RideUp</Text>
                 </View>
-                <View style={{ flex: 1 }}>
-                  <View style={styles.messageTopRow}>
-                    <Text style={styles.messageDriver}>{item.driverUserId || 'Tài xế RideUp'}</Text>
-                    <Text style={styles.messageTime}>{formatTime(item.lastMessageAt)}</Text>
+
+                <View style={styles.supportQuickRow}>
+                  {SUPPORT_QUICK_ACTIONS.map((question) => (
+                    <TouchableOpacity key={question} style={styles.supportQuickBtn} onPress={() => submitSupportMessage(question)}>
+                      <Text style={styles.supportQuickText}>{question}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <View style={styles.supportMessagesWrap}>
+                  {supportMessages.slice(-6).map((m) => (
+                    <View key={m.id} style={[styles.supportBubble, m.role === 'user' ? styles.supportBubbleUser : styles.supportBubbleBot]}>
+                      {m.role === 'bot' && (
+                        <View style={styles.supportBotTagRow}>
+                          <Ionicons name={getSupportIntentMeta(m.intent).icon} size={12} color={getSupportIntentMeta(m.intent).color} />
+                          <Text style={[styles.supportBotTagText, { color: getSupportIntentMeta(m.intent).color }]}>
+                            {getSupportIntentMeta(m.intent).title}
+                          </Text>
+                        </View>
+                      )}
+                      <Text style={[styles.supportBubbleText, m.role === 'user' && styles.supportBubbleTextUser]}>{m.text}</Text>
+
+                      {m.role === 'bot' && Array.isArray(m.suggestions) && m.suggestions.length > 0 && (
+                        <View style={styles.supportSuggestRow}>
+                          {m.suggestions.slice(0, 4).map((s) => (
+                            <TouchableOpacity key={`${m.id}-${s}`} style={styles.supportSuggestBtn} onPress={() => submitSupportMessage(s)}>
+                              <Text style={styles.supportSuggestText}>{s}</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      )}
+                    </View>
+                  ))}
+                </View>
+
+                <View style={styles.supportInputRow}>
+                  <TextInput
+                    style={styles.supportInput}
+                    placeholder="Hỏi về thanh toán, booking, hủy chuyến..."
+                    value={supportInput}
+                    onChangeText={setSupportInput}
+                    editable={!supportSending}
+                    onSubmitEditing={() => submitSupportMessage()}
+                    returnKeyType="send"
+                  />
+                  <TouchableOpacity style={styles.supportSendBtn} onPress={() => submitSupportMessage()} disabled={supportSending}>
+                    <Ionicons name="send" size={14} color="#FFFFFF" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {messageView === 'drivers' && (
+              <>
+                <View style={styles.inboxBanner}>
+                  <Ionicons name="chatbubble-ellipses" size={18} color="#00B14F" />
+                  <Text style={styles.inboxBannerText}>Bạn có {inboxItems.filter((i) => i.unread).length} tin nhắn chưa đọc</Text>
+                </View>
+
+                {chatThreads.length === 0 ? (
+                  <View style={styles.emptyState}>
+                    <Ionicons name="chatbubble-ellipses-outline" size={22} color="#94A3B8" />
+                    <Text style={styles.emptyTitle}>Chưa có hội thoại</Text>
+                    <Text style={styles.emptyText}>Khi bạn đặt chuyến, cuộc trò chuyện với tài xế sẽ hiển thị ở đây.</Text>
                   </View>
-                  <Text style={styles.messageRoute}>Booking: {item.bookingId}</Text>
-                  <Text style={styles.messagePreview} numberOfLines={2}>{item.lastMessagePreview || 'Bắt đầu cuộc trò chuyện'}</Text>
-                </View>
-                {!!item.myUnreadCount && <View style={styles.unreadDot} />}
-              </TouchableOpacity>
-            ))
-          )}
-          </>
-          )}
-        </View>
+                ) : (
+                  chatThreads.map((item) => (
+                    <TouchableOpacity key={item.id} style={styles.messageCard} activeOpacity={0.9} onPress={() => openChatByThread(item)}>
+                      <View style={styles.messageAvatar}>
+                        <Ionicons name="person" size={17} color="#0F172A" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <View style={styles.messageTopRow}>
+                          <Text style={styles.messageDriver}>{item.driverUserId || 'Tài xế RideUp'}</Text>
+                          <Text style={styles.messageTime}>{formatTime(item.lastMessageAt)}</Text>
+                        </View>
+                        <Text style={styles.messageRoute}>Booking: {item.bookingId}</Text>
+                        <Text style={styles.messagePreview} numberOfLines={2}>{item.lastMessagePreview || 'Bắt đầu cuộc trò chuyện'}</Text>
+                      </View>
+                      {!!item.myUnreadCount && <View style={styles.unreadDot} />}
+                    </TouchableOpacity>
+                  ))
+                )}
+              </>
+            )}
+          </View>
 
-        <View style={[styles.bottomPad, { height: footerSpacer }]} />
-      </ScrollView>
+          <View style={[styles.bottomPad, { height: footerSpacer }]} />
+        </ScrollView>
       )}
 
       <View style={[styles.footerWrap, { paddingBottom: footerPadBottom }]}>
@@ -1907,7 +2088,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
         provinceId={fromProvince?.id}
         singleSelect
         selectedNames={fromWard?.name ? [fromWard.name] : []}
-        onConfirm={() => {}}
+        onConfirm={() => { }}
         onConfirmRaw={(items) => setFromWard(items?.[0] || null)}
         title="Chọn quận/huyện điểm đón"
       />
@@ -1917,7 +2098,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
         provinceId={toProvince?.id}
         singleSelect
         selectedNames={toWard?.name ? [toWard.name] : []}
-        onConfirm={() => {}}
+        onConfirm={() => { }}
         onConfirmRaw={(items) => setToWard(items?.[0] || null)}
         title="Chọn quận/huyện điểm đến"
       />
@@ -2010,197 +2191,197 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
                 </View>
               </View>
 
-            <Text style={styles.inputLabel}>Chọn điểm đón</Text>
-            {(tripDetail?.pickupPoints || []).map((p) => (
-              <TouchableOpacity
-                key={`pd-${p.id}`}
-                style={[styles.optionBtn, selectedPickupPointId === p.id && styles.optionBtnActive]}
-                onPress={() => {
-                  setSelectedPickupPointId(p.id);
-                  setPickupDetailLocation({ address: '', lat: null, lng: null });
-                }}
-              >
-                <Text style={styles.optionText}>{p.wardName || p.address}</Text>
-              </TouchableOpacity>
-            ))}
+              <Text style={styles.inputLabel}>Chọn điểm đón</Text>
+              {(tripDetail?.pickupPoints || []).map((p) => (
+                <TouchableOpacity
+                  key={`pd-${p.id}`}
+                  style={[styles.optionBtn, selectedPickupPointId === p.id && styles.optionBtnActive]}
+                  onPress={() => {
+                    setSelectedPickupPointId(p.id);
+                    setPickupDetailLocation({ address: '', lat: null, lng: null });
+                  }}
+                >
+                  <Text style={styles.optionText}>{p.wardName || p.address}</Text>
+                </TouchableOpacity>
+              ))}
 
-            <Text style={styles.selectionHint}>
-              Điểm đón đã chọn: {(tripDetail?.pickupPoints || []).find((p) => p.id === selectedPickupPointId)?.wardName || '--'}
-            </Text>
-
-            {pickupMapCenter ? (
-              <>
-                <View style={styles.mapCardBox}>
-                  <View style={styles.mapHeaderRow}>
-                    <Text style={styles.mapInlineLabel}>Bản đồ điểm đón</Text>
-                    <View style={styles.mapBadge}><Text style={styles.mapBadgeText}>20km</Text></View>
-                  </View>
-                  <Text style={styles.mapActionHint}>Kéo hoặc zoom bản đồ, vị trí tại ghim giữa sẽ tự cập nhật như Shopee/Grab.</Text>
-                  <RadiusMap
-                    key={`pickup-map-${tripDetail?.id || 'trip'}-${selectedPickupPointId || 'none'}`}
-                    center={pickupMapCenter}
-                    selectedLocation={pickupDetailLocation?.lat != null && pickupDetailLocation?.lng != null
-                      ? { lat: pickupDetailLocation.lat, lng: pickupDetailLocation.lng }
-                      : null}
-                    onPress={handlePickupMapPress}
-                    onViewportCenterChange={handlePickupViewportCenterChange}
-                    onInteractStart={() => setIsMapInteracting(true)}
-                    onInteractEnd={() => setIsMapInteracting(false)}
-                    radiusMeters={MAP_PICK_RADIUS_METERS}
-                    mode="pickup"
-                  />
-                  <View style={styles.liveAddressRow}>
-                    <Ionicons name="navigate-circle-outline" size={14} color="#1D4ED8" />
-                    <Text style={styles.liveAddressText}>
-                      {pickupResolving
-                        ? 'Đang cập nhật địa chỉ...'
-                        : (pickupLiveAddress || 'Kéo map để xem địa chỉ realtime tại tâm ghim')}
-                    </Text>
-                  </View>
-                </View>
-              </>
-            ) : (
-              <Text style={styles.mapUnavailableText}>Phường đón chưa có tọa độ để hiển thị bản đồ.</Text>
-            )}
-
-            <TextInput
-              style={styles.mapAddressInput}
-              value={pickupDetailLocation?.address || ''}
-              onChangeText={(text) => setPickupDetailLocation((prev) => ({ ...prev, address: text }))}
-              placeholder="Địa chỉ đón chi tiết (số nhà, tên đường...)"
-              multiline
-              numberOfLines={2}
-              textAlignVertical="top"
-            />
-
-            {pickupDetailLocation?.lat != null && pickupDetailLocation?.lng != null && (
-              <Text style={styles.mapPickedHint}>
-                Đã pin điểm đón: {pickupDetailLocation.address || 'Địa chỉ chi tiết'} ({pickupDetailLocation.lat.toFixed(6)}, {pickupDetailLocation.lng.toFixed(6)})
+              <Text style={styles.selectionHint}>
+                Điểm đón đã chọn: {(tripDetail?.pickupPoints || []).find((p) => p.id === selectedPickupPointId)?.wardName || '--'}
               </Text>
-            )}
 
-            <Text style={styles.inputLabel}>Chọn điểm trả</Text>
-            {(tripDetail?.dropoffPoints || []).map((p) => (
-              <TouchableOpacity
-                key={`dd-${p.id}`}
-                style={[styles.optionBtn, selectedDropoffPointId === p.id && styles.optionBtnActive]}
-                onPress={() => {
-                  setSelectedDropoffPointId(p.id);
-                  setDropoffDetailLocation({ address: '', lat: null, lng: null });
-                }}
-              >
-                <Text style={styles.optionText}>{p.wardName || p.address}</Text>
-              </TouchableOpacity>
-            ))}
-
-            <Text style={styles.selectionHint}>
-              Điểm trả đã chọn: {(tripDetail?.dropoffPoints || []).find((p) => p.id === selectedDropoffPointId)?.wardName || '--'}
-            </Text>
-
-            {dropoffMapCenter ? (
-              <>
-                <View style={styles.mapCardBox}>
-                  <View style={styles.mapHeaderRow}>
-                    <Text style={styles.mapInlineLabel}>Bản đồ điểm trả</Text>
-                    <View style={styles.mapBadge}><Text style={styles.mapBadgeText}>20km</Text></View>
+              {pickupMapCenter ? (
+                <>
+                  <View style={styles.mapCardBox}>
+                    <View style={styles.mapHeaderRow}>
+                      <Text style={styles.mapInlineLabel}>Bản đồ điểm đón</Text>
+                      <View style={styles.mapBadge}><Text style={styles.mapBadgeText}>20km</Text></View>
+                    </View>
+                    <Text style={styles.mapActionHint}>Kéo hoặc zoom bản đồ, vị trí tại ghim giữa sẽ tự cập nhật như Shopee/Grab.</Text>
+                    <RadiusMap
+                      key={`pickup-map-${tripDetail?.id || 'trip'}-${selectedPickupPointId || 'none'}`}
+                      center={pickupMapCenter}
+                      selectedLocation={pickupDetailLocation?.lat != null && pickupDetailLocation?.lng != null
+                        ? { lat: pickupDetailLocation.lat, lng: pickupDetailLocation.lng }
+                        : null}
+                      onPress={handlePickupMapPress}
+                      onViewportCenterChange={handlePickupViewportCenterChange}
+                      onInteractStart={() => setIsMapInteracting(true)}
+                      onInteractEnd={() => setIsMapInteracting(false)}
+                      radiusMeters={MAP_PICK_RADIUS_METERS}
+                      mode="pickup"
+                    />
+                    <View style={styles.liveAddressRow}>
+                      <Ionicons name="navigate-circle-outline" size={14} color="#1D4ED8" />
+                      <Text style={styles.liveAddressText}>
+                        {pickupResolving
+                          ? 'Đang cập nhật địa chỉ...'
+                          : (pickupLiveAddress || 'Kéo map để xem địa chỉ realtime tại tâm ghim')}
+                      </Text>
+                    </View>
                   </View>
-                  <Text style={styles.mapActionHint}>Kéo hoặc zoom bản đồ, vị trí tại ghim giữa sẽ tự cập nhật như Shopee/Grab.</Text>
-                  <RadiusMap
-                    key={`dropoff-map-${tripDetail?.id || 'trip'}-${selectedDropoffPointId || 'none'}`}
-                    center={dropoffMapCenter}
-                    selectedLocation={dropoffDetailLocation?.lat != null && dropoffDetailLocation?.lng != null
-                      ? { lat: dropoffDetailLocation.lat, lng: dropoffDetailLocation.lng }
-                      : null}
-                    onPress={handleDropoffMapPress}
-                    onViewportCenterChange={handleDropoffViewportCenterChange}
-                    onInteractStart={() => setIsMapInteracting(true)}
-                    onInteractEnd={() => setIsMapInteracting(false)}
-                    radiusMeters={MAP_PICK_RADIUS_METERS}
-                    mode="dropoff"
-                  />
-                  <View style={styles.liveAddressRow}>
-                    <Ionicons name="navigate-circle-outline" size={14} color="#1D4ED8" />
-                    <Text style={styles.liveAddressText}>
-                      {dropoffResolving
-                        ? 'Đang cập nhật địa chỉ...'
-                        : (dropoffLiveAddress || 'Kéo map để xem địa chỉ realtime tại tâm ghim')}
-                    </Text>
-                  </View>
-                </View>
-              </>
-            ) : (
-              <Text style={styles.mapUnavailableText}>Phường trả chưa có tọa độ để hiển thị bản đồ.</Text>
-            )}
+                </>
+              ) : (
+                <Text style={styles.mapUnavailableText}>Phường đón chưa có tọa độ để hiển thị bản đồ.</Text>
+              )}
 
-            <TextInput
-              style={styles.mapAddressInput}
-              value={dropoffDetailLocation?.address || ''}
-              onChangeText={(text) => setDropoffDetailLocation((prev) => ({ ...prev, address: text }))}
-              placeholder="Địa chỉ trả chi tiết (số nhà, tên đường...)"
-              multiline
-              numberOfLines={2}
-              textAlignVertical="top"
-            />
+              <TextInput
+                style={styles.mapAddressInput}
+                value={pickupDetailLocation?.address || ''}
+                onChangeText={(text) => setPickupDetailLocation((prev) => ({ ...prev, address: text }))}
+                placeholder="Địa chỉ đón chi tiết (số nhà, tên đường...)"
+                multiline
+                numberOfLines={2}
+                textAlignVertical="top"
+              />
 
-            {dropoffDetailLocation?.lat != null && dropoffDetailLocation?.lng != null && (
-              <Text style={styles.mapPickedHint}>
-                Đã pin điểm trả: {dropoffDetailLocation.address || 'Địa chỉ chi tiết'} ({dropoffDetailLocation.lat.toFixed(6)}, {dropoffDetailLocation.lng.toFixed(6)})
+              {pickupDetailLocation?.lat != null && pickupDetailLocation?.lng != null && (
+                <Text style={styles.mapPickedHint}>
+                  Đã pin điểm đón: {pickupDetailLocation.address || 'Địa chỉ chi tiết'} ({pickupDetailLocation.lat.toFixed(6)}, {pickupDetailLocation.lng.toFixed(6)})
+                </Text>
+              )}
+
+              <Text style={styles.inputLabel}>Chọn điểm trả</Text>
+              {(tripDetail?.dropoffPoints || []).map((p) => (
+                <TouchableOpacity
+                  key={`dd-${p.id}`}
+                  style={[styles.optionBtn, selectedDropoffPointId === p.id && styles.optionBtnActive]}
+                  onPress={() => {
+                    setSelectedDropoffPointId(p.id);
+                    setDropoffDetailLocation({ address: '', lat: null, lng: null });
+                  }}
+                >
+                  <Text style={styles.optionText}>{p.wardName || p.address}</Text>
+                </TouchableOpacity>
+              ))}
+
+              <Text style={styles.selectionHint}>
+                Điểm trả đã chọn: {(tripDetail?.dropoffPoints || []).find((p) => p.id === selectedDropoffPointId)?.wardName || '--'}
               </Text>
-            )}
 
-            <Text style={styles.inputLabel}>Số chỗ</Text>
-            <View style={styles.seatRow}>
-              <TouchableOpacity
-                style={styles.seatBtn}
-                onPress={() => setSeatCount((prev) => Math.max(1, prev - 1))}
-                disabled={bookingSubmitting}
-              >
-                <Text style={styles.seatBtnText}>-</Text>
-              </TouchableOpacity>
-              <Text style={styles.seatValue}>{seatCount}</Text>
-              <TouchableOpacity
-                style={styles.seatBtn}
-                onPress={() => {
-                  const maxSeats = tripDetail?.availableSeats || 1;
-                  setSeatCount((prev) => Math.min(maxSeats, prev + 1));
-                }}
-                disabled={bookingSubmitting}
-              >
-                <Text style={styles.seatBtnText}>+</Text>
-              </TouchableOpacity>
-              <Text style={styles.seatHint}>Còn {tripDetail?.availableSeats || 0} ghế</Text>
-            </View>
+              {dropoffMapCenter ? (
+                <>
+                  <View style={styles.mapCardBox}>
+                    <View style={styles.mapHeaderRow}>
+                      <Text style={styles.mapInlineLabel}>Bản đồ điểm trả</Text>
+                      <View style={styles.mapBadge}><Text style={styles.mapBadgeText}>20km</Text></View>
+                    </View>
+                    <Text style={styles.mapActionHint}>Kéo hoặc zoom bản đồ, vị trí tại ghim giữa sẽ tự cập nhật như Shopee/Grab.</Text>
+                    <RadiusMap
+                      key={`dropoff-map-${tripDetail?.id || 'trip'}-${selectedDropoffPointId || 'none'}`}
+                      center={dropoffMapCenter}
+                      selectedLocation={dropoffDetailLocation?.lat != null && dropoffDetailLocation?.lng != null
+                        ? { lat: dropoffDetailLocation.lat, lng: dropoffDetailLocation.lng }
+                        : null}
+                      onPress={handleDropoffMapPress}
+                      onViewportCenterChange={handleDropoffViewportCenterChange}
+                      onInteractStart={() => setIsMapInteracting(true)}
+                      onInteractEnd={() => setIsMapInteracting(false)}
+                      radiusMeters={MAP_PICK_RADIUS_METERS}
+                      mode="dropoff"
+                    />
+                    <View style={styles.liveAddressRow}>
+                      <Ionicons name="navigate-circle-outline" size={14} color="#1D4ED8" />
+                      <Text style={styles.liveAddressText}>
+                        {dropoffResolving
+                          ? 'Đang cập nhật địa chỉ...'
+                          : (dropoffLiveAddress || 'Kéo map để xem địa chỉ realtime tại tâm ghim')}
+                      </Text>
+                    </View>
+                  </View>
+                </>
+              ) : (
+                <Text style={styles.mapUnavailableText}>Phường trả chưa có tọa độ để hiển thị bản đồ.</Text>
+              )}
 
-            <Text style={styles.inputLabel}>Phương thức thanh toán</Text>
-            <View style={styles.paymentRow}>
-              <TouchableOpacity
-                style={[styles.paymentBtn, paymentMethod === 'CASH' && styles.paymentBtnActive]}
-                onPress={() => setPaymentMethod('CASH')}
-              >
-                <Text style={[styles.paymentText, paymentMethod === 'CASH' && styles.paymentTextActive]}>Tiền mặt</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.paymentBtn, paymentMethod === 'BANK_TRANSFER' && styles.paymentBtnActive]}
-                onPress={() => setPaymentMethod('BANK_TRANSFER')}
-              >
-                <Text style={[styles.paymentText, paymentMethod === 'BANK_TRANSFER' && styles.paymentTextActive]}>Chuyển khoản</Text>
-              </TouchableOpacity>
-            </View>
+              <TextInput
+                style={styles.mapAddressInput}
+                value={dropoffDetailLocation?.address || ''}
+                onChangeText={(text) => setDropoffDetailLocation((prev) => ({ ...prev, address: text }))}
+                placeholder="Địa chỉ trả chi tiết (số nhà, tên đường...)"
+                multiline
+                numberOfLines={2}
+                textAlignVertical="top"
+              />
 
-            <Text style={styles.totalHint}>Tổng tiền: {formatCurrency((tripDetail?.price || 0) * seatCount)}</Text>
+              {dropoffDetailLocation?.lat != null && dropoffDetailLocation?.lng != null && (
+                <Text style={styles.mapPickedHint}>
+                  Đã pin điểm trả: {dropoffDetailLocation.address || 'Địa chỉ chi tiết'} ({dropoffDetailLocation.lat.toFixed(6)}, {dropoffDetailLocation.lng.toFixed(6)})
+                </Text>
+              )}
 
-            <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.cancelBtn} onPress={() => setTripDetail(null)} disabled={bookingSubmitting}>
-                <Text style={styles.cancelBtnText}>Đóng</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.confirmBtn}
-                onPress={submitTripDetailBooking}
-                disabled={bookingSubmitting}
-              >
-                <Text style={styles.confirmBtnText}>{bookingSubmitting ? 'Đang đặt...' : 'Xác nhận đặt chỗ'}</Text>
-              </TouchableOpacity>
-            </View>
+              <Text style={styles.inputLabel}>Số chỗ</Text>
+              <View style={styles.seatRow}>
+                <TouchableOpacity
+                  style={styles.seatBtn}
+                  onPress={() => setSeatCount((prev) => Math.max(1, prev - 1))}
+                  disabled={bookingSubmitting}
+                >
+                  <Text style={styles.seatBtnText}>-</Text>
+                </TouchableOpacity>
+                <Text style={styles.seatValue}>{seatCount}</Text>
+                <TouchableOpacity
+                  style={styles.seatBtn}
+                  onPress={() => {
+                    const maxSeats = tripDetail?.availableSeats || 1;
+                    setSeatCount((prev) => Math.min(maxSeats, prev + 1));
+                  }}
+                  disabled={bookingSubmitting}
+                >
+                  <Text style={styles.seatBtnText}>+</Text>
+                </TouchableOpacity>
+                <Text style={styles.seatHint}>Còn {tripDetail?.availableSeats || 0} ghế</Text>
+              </View>
+
+              <Text style={styles.inputLabel}>Phương thức thanh toán</Text>
+              <View style={styles.paymentRow}>
+                <TouchableOpacity
+                  style={[styles.paymentBtn, paymentMethod === 'CASH' && styles.paymentBtnActive]}
+                  onPress={() => setPaymentMethod('CASH')}
+                >
+                  <Text style={[styles.paymentText, paymentMethod === 'CASH' && styles.paymentTextActive]}>Tiền mặt</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.paymentBtn, paymentMethod === 'BANK_TRANSFER' && styles.paymentBtnActive]}
+                  onPress={() => setPaymentMethod('BANK_TRANSFER')}
+                >
+                  <Text style={[styles.paymentText, paymentMethod === 'BANK_TRANSFER' && styles.paymentTextActive]}>Chuyển khoản</Text>
+                </TouchableOpacity>
+              </View>
+
+              <Text style={styles.totalHint}>Tổng tiền: {formatCurrency((tripDetail?.price || 0) * seatCount)}</Text>
+
+              <View style={styles.modalActions}>
+                <TouchableOpacity style={styles.cancelBtn} onPress={() => setTripDetail(null)} disabled={bookingSubmitting}>
+                  <Text style={styles.cancelBtnText}>Đóng</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.confirmBtn}
+                  onPress={submitTripDetailBooking}
+                  disabled={bookingSubmitting}
+                >
+                  <Text style={styles.confirmBtnText}>{bookingSubmitting ? 'Đang đặt...' : 'Xác nhận đặt chỗ'}</Text>
+                </TouchableOpacity>
+              </View>
             </ScrollView>
           </View>
         </View>
@@ -2455,7 +2636,7 @@ const BookingCard = ({ booking, formatTime, formatCurrency, onPress, onRate, can
           <Text style={styles.bookingTimeStrong}>{formatTime(booking.departureTime)}</Text>
           <Text style={styles.bookingDriverMini}>Tài xế: {booking.driverName}</Text>
         </View>
-        <View style={[styles.statusBadge, { backgroundColor: status.bg }]}> 
+        <View style={[styles.statusBadge, { backgroundColor: status.bg }]}>
           <Text style={[styles.statusText, { color: status.color }]}>{status.label}</Text>
         </View>
       </View>
@@ -2626,6 +2807,79 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   quickDateText: { fontSize: 12, fontWeight: '700', color: '#334155' },
+
+  aiInputLabel: {
+    fontSize: 11,
+    color: '#0F172A',
+    marginTop: 10,
+    marginBottom: 6,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  aiSearchInput: {
+    borderWidth: 1,
+    borderColor: '#D8E2EC',
+    borderRadius: 12,
+    paddingHorizontal: 11,
+    paddingVertical: 10,
+    backgroundColor: '#F8FAFC',
+    color: '#0F172A',
+    minHeight: 74,
+    fontSize: 13,
+  },
+  aiSearchBtn: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#B7E8CA',
+    borderRadius: 11,
+    backgroundColor: '#F0FDF4',
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 6,
+  },
+  aiSearchBtnText: {
+    color: '#008A3E',
+    fontWeight: '800',
+    fontSize: 13,
+  },
+  aiSearchHint: {
+    marginTop: 8,
+    backgroundColor: '#EEF8FF',
+    color: '#0F5EA8',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  aiChipWrap: {
+    marginTop: 8,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 7,
+  },
+  aiChip: {
+    backgroundColor: '#ECFDF3',
+    borderColor: '#B7E8CA',
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  aiChipInactive: {
+    backgroundColor: '#F1F5F9',
+    borderColor: '#CBD5E1',
+  },
+  aiChipText: {
+    color: '#047857',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  aiChipTextInactive: {
+    color: '#64748B',
+  },
 
   searchBtn: {
     backgroundColor: '#00B14F',

@@ -19,16 +19,26 @@ public class TripRepositoryImpl implements TripRepositoryCustom {
     private EntityManager entityManager;
 
     @Override
-    public List<Trip> searchTrips(String fromWardId, String toWardId, LocalDate departureDate) {
+    public List<Trip> searchTrips(String fromProvinceId,
+            String toProvinceId,
+            String fromWardId,
+            String toWardId,
+            LocalDate departureDate) {
         StringBuilder jpql = new StringBuilder(
                 "SELECT DISTINCT t FROM Trip t " +
-                "JOIN t.pickupPoints pp " +
-                "JOIN t.dropoffPoints dp " +
-                "JOIN FETCH t.driver d " +
-                "JOIN FETCH d.user du " +
-            "LEFT JOIN FETCH d.vehicle dv " +
-                "WHERE t.departureTime IS NOT NULL "
-        );
+                        "JOIN t.pickupPoints pp " +
+                        "JOIN t.dropoffPoints dp " +
+                        "JOIN FETCH t.driver d " +
+                        "JOIN FETCH d.user du " +
+                        "LEFT JOIN FETCH d.vehicle dv " +
+                        "WHERE t.departureTime IS NOT NULL ");
+
+        if (StringUtils.hasText(fromProvinceId)) {
+            jpql.append("AND pp.ward.province.id = :fromProvinceId ");
+        }
+        if (StringUtils.hasText(toProvinceId)) {
+            jpql.append("AND dp.ward.province.id = :toProvinceId ");
+        }
 
         if (StringUtils.hasText(fromWardId)) {
             jpql.append("AND pp.ward.id = :fromWardId ");
@@ -43,6 +53,13 @@ public class TripRepositoryImpl implements TripRepositoryCustom {
         jpql.append("ORDER BY t.departureTime ASC");
 
         TypedQuery<Trip> query = entityManager.createQuery(jpql.toString(), Trip.class);
+
+        if (StringUtils.hasText(fromProvinceId)) {
+            query.setParameter("fromProvinceId", fromProvinceId.trim());
+        }
+        if (StringUtils.hasText(toProvinceId)) {
+            query.setParameter("toProvinceId", toProvinceId.trim());
+        }
 
         if (StringUtils.hasText(fromWardId)) {
             query.setParameter("fromWardId", fromWardId.trim());

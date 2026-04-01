@@ -3,10 +3,26 @@
 // ========================================
 // CẤU HÌNH API
 // ========================================
+const DEFAULT_WEB_BASE_URL = 'http://localhost:8080/rideUp';
+const DEFAULT_NATIVE_BASE_URL = 'http://192.168.1.26:8080/rideUp';
+
+const resolveBaseUrl = () => {
+  if (process?.env?.EXPO_PUBLIC_API_BASE_URL) {
+    return String(process.env.EXPO_PUBLIC_API_BASE_URL).trim();
+  }
+
+  // Web chạy trên chính máy dev, dùng localhost để tránh lệ thuộc IP LAN.
+  if (typeof window !== 'undefined') {
+    return DEFAULT_WEB_BASE_URL;
+  }
+
+  // Native/device thật vẫn có thể dùng IP LAN mặc định hoặc override bằng env.
+  return DEFAULT_NATIVE_BASE_URL;
+};
+
 export const API_CONFIG = {
-  // Backend context-path: /rideUp, port: 8080
-  // Thay IP bên dưới theo máy đang chạy backend (dùng IP LAN, không dùng localhost trên thiết bị thật)
-  BASE_URL: 'http://192.168.1.26:8080/rideUp',
+  // Có thể override qua EXPO_PUBLIC_API_BASE_URL.
+  BASE_URL: resolveBaseUrl(),
   TIMEOUT: 30000,
 };
 
