@@ -61,7 +61,8 @@ public class CustomerBookingService {
                                                 String departureDate) {
         LocalDate searchDate = parseDateOrNull(departureDate);
 
-        List<Trip> candidates = tripRepository.searchTrips(fromWardId, toWardId, searchDate);
+        List<Trip> candidates = tripRepository.searchTrips(fromProvinceId, toProvinceId, fromWardId, toWardId,
+                searchDate);
 
         return candidates.stream()
                 .filter(t -> t.getAvailableSeats() != null && t.getAvailableSeats() > 0)

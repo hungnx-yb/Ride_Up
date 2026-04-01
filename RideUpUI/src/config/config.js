@@ -32,12 +32,31 @@ const EXPO_HOSTNAME = getHostnameFromHostUri(EXPO_HOST_URI);
 const EXPO_AUTO_BASE_URL = EXPO_HOSTNAME && EXPO_HOSTNAME !== 'localhost' && EXPO_HOSTNAME !== '127.0.0.1'
   ? `http://${EXPO_HOSTNAME}:8080/rideUp`
   : '';
+const WEB_LOCAL_BASE_URL = 'http://localhost:8080/rideUp';
+const FALLBACK_NATIVE_BASE_URL = 'http://192.168.103.10:8080/rideUp';
+
+const resolveBaseUrl = () => {
+  if (ENV_BASE_URL) {
+    return ENV_BASE_URL;
+  }
+
+  if (typeof window !== 'undefined') {
+    if (WEB_HOSTNAME === 'localhost' || WEB_HOSTNAME === '127.0.0.1') {
+      return WEB_LOCAL_BASE_URL;
+    }
+    if (WEB_AUTO_BASE_URL) {
+      return WEB_AUTO_BASE_URL;
+    }
+  }
+
+  return EXPO_AUTO_BASE_URL || FALLBACK_NATIVE_BASE_URL;
+};
 
 export const API_CONFIG = {
   // Backend context-path: /rideUp, port: 8080
   // Ưu tiên EXPO_PUBLIC_API_BASE_URL để tránh sửa code mỗi lần đổi mạng.
-  // Ví dụ: EXPO_PUBLIC_API_BASE_URL=http://192.168.103.10:8080/rideUp
-  BASE_URL: ENV_BASE_URL || WEB_AUTO_BASE_URL || EXPO_AUTO_BASE_URL || 'http://192.168.103.10:8080/rideUp',
+  // Web localhost dùng localhost, web non-localhost tự theo hostname hiện tại.
+  BASE_URL: resolveBaseUrl(),
   TIMEOUT: 30000,
 };
 
