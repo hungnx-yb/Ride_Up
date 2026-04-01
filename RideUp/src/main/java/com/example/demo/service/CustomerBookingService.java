@@ -27,6 +27,7 @@ import com.example.demo.repository.TripRepository;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -58,28 +59,62 @@ public class CustomerBookingService {
                                                 String toProvinceId,
                                                 String fromWardId,
                                                 String toWardId,
-                                                String departureDate) {
+                                                String departureDate,
+                                                String status,
+                                                Integer page,
+                                                Integer size) {
         LocalDate searchDate = parseDateOrNull(departureDate);
+        TripStatus targetStatus = parseSearchRideStatus(status);
+        int safePage = page == null ? 0 : Math.max(page, 0);
+        int safeSize = size == null ? 20 : Math.min(Math.max(size, 1), 50);
 
-        List<Trip> candidates = tripRepository.searchTrips(fromWardId, toWardId, searchDate);
+        List<Trip> candidates = tripRepository.searchTrips(fromWardId, toWardId, searchDate, targetStatus, safePage, safeSize);
 
         return candidates.stream()
-                .filter(t -> t.getAvailableSeats() != null && t.getAvailableSeats() > 0)
-            .filter(t -> t.getStatus() == TripStatus.OPEN || t.getStatus() == TripStatus.FULL)
                 .map(this::toRideSearchResponse)
                 .toList();
     }
 
+        private TripStatus parseSearchRideStatus(String status) {
+                if (!StringUtils.hasText(status)) {
+                        return TripStatus.OPEN;
+                }
+                try {
+                        return TripStatus.valueOf(status.trim().toUpperCase());
+                } catch (IllegalArgumentException ex) {
+                        return TripStatus.OPEN;
+                }
+        }
+
     @Transactional(readOnly = true)
     public List<CustomerBookingResponse> getMyBookings() {
+                return getMyBookings(0, 100);
+        }
+
+        @Transactional(readOnly = true)
+        public List<CustomerBookingResponse> getMyBookings(Integer page, Integer size) {
         User currentUser = userService.getCurrentUser();
-        return bookingRepository.findByCustomerIdWithDetails(currentUser.getId())
+
+                int safePage = page == null ? 0 : Math.max(page, 0);
+                int safeSize = size == null ? 100 : Math.min(Math.max(size, 1), 100);
+
+                List<String> bookingIds = bookingRepository.findIdsByCustomerId(
+                                                currentUser.getId(),
+                                                PageRequest.of(safePage, safeSize)
+                                )
+                                .getContent();
+
+                if (bookingIds.isEmpty()) {
+                        return List.of();
+                }
+
+                return bookingRepository.findByIdInWithDetailsOrderByCreatedAtDesc(bookingIds)
                 .stream()
                 .map(this::toCustomerBookingResponse)
                 .toList();
     }
 
-    @Transactional
+        @Transactional
         public CustomerBookingResponse createBooking(CreateBookingRequest request, String ipAddress) {
         validateCreateRequest(request);
 
@@ -443,17 +478,17 @@ public class CustomerBookingService {
         private CustomerBookingResponse toCustomerBookingResponse(Booking booking, String paymentUrl) {
         Trip trip = booking.getTrip();
 
-        String fromProvince = trip.getPickupPoints().stream()
-                .map(p -> p.getWard() != null && p.getWard().getProvince() != null ? p.getWard().getProvince().getName() : null)
-                .filter(StringUtils::hasText)
-                .findFirst()
-                .orElse("");
+        String fromProvince = booking.getPickupPoint() != null
+                && booking.getPickupPoint().getWard() != null
+                && booking.getPickupPoint().getWard().getProvince() != null
+                ? booking.getPickupPoint().getWard().getProvince().getName()
+                : "";
 
-        String toProvince = trip.getDropoffPoints().stream()
-                .map(p -> p.getWard() != null && p.getWard().getProvince() != null ? p.getWard().getProvince().getName() : null)
-                .filter(StringUtils::hasText)
-                .findFirst()
-                .orElse("");
+        String toProvince = booking.getDropoffPoint() != null
+                && booking.getDropoffPoint().getWard() != null
+                && booking.getDropoffPoint().getWard().getProvince() != null
+                ? booking.getDropoffPoint().getWard().getProvince().getName()
+                : "";
 
         return CustomerBookingResponse.builder()
                 .id(booking.getId())

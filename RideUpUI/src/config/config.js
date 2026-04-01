@@ -36,9 +36,17 @@ const EXPO_AUTO_BASE_URL = EXPO_HOSTNAME && EXPO_HOSTNAME !== 'localhost' && EXP
 export const API_CONFIG = {
   // Backend context-path: /rideUp, port: 8080
   // Ưu tiên EXPO_PUBLIC_API_BASE_URL để tránh sửa code mỗi lần đổi mạng.
-  // Ví dụ: EXPO_PUBLIC_API_BASE_URL=http://192.168.103.10:8080/rideUp
-  BASE_URL: ENV_BASE_URL || WEB_AUTO_BASE_URL || EXPO_AUTO_BASE_URL || 'http://192.168.103.10:8080/rideUp',
+  // Ví dụ: EXPO_PUBLIC_API_BASE_URL=http://localhost:8080/rideUp
+  BASE_URL: ENV_BASE_URL || WEB_AUTO_BASE_URL || EXPO_AUTO_BASE_URL || 'http://localhost:8080/rideUp',
   TIMEOUT: 30000,
+};
+
+const ENV_SUPABASE_URL = (process.env.EXPO_PUBLIC_SUPABASE_URL || '').trim();
+const ENV_SUPABASE_BUCKET = (process.env.EXPO_PUBLIC_SUPABASE_BUCKET || '').trim();
+
+export const STORAGE_CONFIG = {
+  SUPABASE_URL: ENV_SUPABASE_URL || 'https://tgbtragwxkulpittcjzw.supabase.co',
+  SUPABASE_BUCKET: ENV_SUPABASE_BUCKET || 'rideup',
 };
 
 // ========================================
@@ -87,6 +95,7 @@ export const ROLES = {
 
 export default {
   API_CONFIG,
+  STORAGE_CONFIG,
   COLORS,
   APP_CONFIG,
   ROLES,
