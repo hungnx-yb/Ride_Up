@@ -32,7 +32,10 @@ public class AdminDriverProfileResponse {
     Boolean submitted;
 
     String cccd;
+    String cccdImageFront;
+    String cccdImageBack;
     String gplx;
+    String gplxImage;
     Double driverRating;
     Integer totalDriverRides;
 
@@ -40,5 +43,8 @@ public class AdminDriverProfileResponse {
     String vehicleBrand;
     String vehicleModel;
     VehicleType vehicleType;
+    String vehicleImage;
+    String registrationImage;
+    String insuranceImage;
     Boolean vehicleVerified;
 }

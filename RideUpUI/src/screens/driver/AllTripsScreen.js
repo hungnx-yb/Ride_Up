@@ -1,12 +1,19 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  FlatList, ActivityIndicator, ScrollView,
+  ActivityIndicator, ScrollView, RefreshControl,
   Alert, Modal, TextInput,
 } from 'react-native';
 import { COLORS } from '../../config/config';
-import { getDriverTrips, cancelDriverTrip, startDriverTrip, completeDriverTrip } from '../../services/api';
-import DriverBottomNav from '../../components/DriverBottomNav';
+import {
+  getDriverTrips,
+  cancelDriverTrip,
+  startDriverTrip,
+  completeDriverTrip,
+  peekDriverTripsSnapshot,
+} from '../../services/api';
+import DriverBottomNav, { DRIVER_BOTTOM_NAV_INSET } from '../../components/DriverBottomNav';
+import SkeletonShimmer from '../../components/SkeletonShimmer';
 import {
   ensureApprovedProfileBeforeCreateTrip,
   ensureApprovedProfileForTripFeature,
@@ -157,10 +164,20 @@ const TripCard = ({ trip, routeName, onCancel, onStart, onComplete, onViewDetail
   );
 };
 
+const TripCardSkeleton = () => (
+  <View style={styles.tripCardSkeleton}>
+    <SkeletonShimmer style={styles.skeletonLineLg} />
+    <SkeletonShimmer style={styles.skeletonLineMd} />
+    <SkeletonShimmer style={styles.skeletonLineSm} />
+  </View>
+);
+
 // ─── Main Screen ──────────────────────────────────────────
 const AllTripsScreen = ({ navigation }) => {
-  const [trips, setTrips]     = useState([]);
-  const [loading, setLoading] = useState(true);
+  const listScrollRef = useRef(null);
+  const initialTripsRef = useRef(peekDriverTripsSnapshot());
+  const [trips, setTrips]     = useState(initialTripsRef.current);
+  const [loading, setLoading] = useState(initialTripsRef.current.length === 0);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [activeTab, setActiveTab]   = useState('all');
@@ -173,7 +190,7 @@ const AllTripsScreen = ({ navigation }) => {
   const [approvalModalMessage, setApprovalModalMessage] = useState('');
 
   const showApprovalModal = useCallback((message) => {
-    setApprovalModalMessage(message || 'Vui long cap nhat ho so tai xe.');
+    setApprovalModalMessage(message || 'Vui lòng cập nhật hồ sơ tài xế.');
     setApprovalModalVisible(true);
   }, []);
 
@@ -193,7 +210,8 @@ const AllTripsScreen = ({ navigation }) => {
       }
 
       const result = await ensureApprovedProfileForTripFeature(
-        'Vui long cap nhat ho so tai xe va doi admin duyet truoc khi xem danh sach chuyen xe.'
+        'Vui lòng cập nhật hồ sơ tài xế và đợi admin duyệt trước khi xem danh sách chuyến xe.',
+        { preferCache: true, allowNetwork: false }
       );
 
       if (!result.allowed && !cancelled) {
@@ -221,15 +239,14 @@ const AllTripsScreen = ({ navigation }) => {
     showApprovalModal(result.message);
   }, [navigation, showApprovalModal]);
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async ({ force = false } = {}) => {
     try {
-      const tripsData = await getDriverTrips();
+      const tripsData = await getDriverTrips({ force });
       setTrips(tripsData);
       setLoadError('');
     } catch (e) {
       const message = e?.message || 'Không tải được danh sách chuyến xe.';
       setLoadError(message);
-      Alert.alert('Lỗi tải dữ liệu', message);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -276,7 +293,7 @@ const AllTripsScreen = ({ navigation }) => {
     if (departureAt && now.getTime() < departureAt.getTime()) {
       Alert.alert(
         'Chưa thể bắt đầu chuyến',
-        `Chuyen nay chi duoc bat dau sau ${departureAt.toLocaleString('vi-VN')}.`
+        `Chuyến này chỉ được bắt đầu sau ${departureAt.toLocaleString('vi-VN')}.`
       );
       return;
     }
@@ -321,6 +338,7 @@ const AllTripsScreen = ({ navigation }) => {
   const filtered = activeTab === 'all'
     ? trips
     : trips.filter(t => t.status === activeTab);
+  const isInitialLoading = loading && !refreshing && trips.length === 0;
 
   const getTabCount = useCallback((tabKey) => {
     if (tabKey === 'all') {
@@ -329,13 +347,12 @@ const AllTripsScreen = ({ navigation }) => {
     return trips.filter((t) => t.status === tabKey).length;
   }, [trips]);
 
-  if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={THEME.accent} />
-      </View>
-    );
-  }
+  useEffect(() => {
+    // Always return to top when tab/data state changes to avoid stale offset gaps.
+    requestAnimationFrame(() => {
+      listScrollRef.current?.scrollTo?.({ x: 0, y: 0, animated: false });
+    });
+  }, [activeTab, filtered.length]);
 
   return (
     <View style={styles.container}>
@@ -354,7 +371,7 @@ const AllTripsScreen = ({ navigation }) => {
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.refreshBtn}
-          onPress={() => { setRefreshing(true); loadData(); }}
+          onPress={() => { setRefreshing(true); loadData({ force: true }); }}
         >
           <Text style={styles.refreshBtnText}>Làm mới</Text>
         </TouchableOpacity>
@@ -366,6 +383,7 @@ const AllTripsScreen = ({ navigation }) => {
         showsHorizontalScrollIndicator={false}
         style={styles.tabBar}
         contentContainerStyle={styles.tabBarContent}
+        bounces={false}
       >
         {TABS.map(tab => (
           <TouchableOpacity
@@ -382,14 +400,36 @@ const AllTripsScreen = ({ navigation }) => {
         ))}
       </ScrollView>
 
+      {(loading || refreshing) && (
+        <View style={styles.syncHintWrap}>
+          <ActivityIndicator size="small" color={THEME.gradientStart} />
+          <Text style={styles.syncHintText}>Đang cập nhật dữ liệu...</Text>
+        </View>
+      )}
+
       {/* List */}
-      <FlatList
-        data={filtered}
-        keyExtractor={item => item.id}
-        contentContainerStyle={styles.list}
-        refreshing={refreshing}
-        onRefresh={() => { setRefreshing(true); loadData(); }}
-        ListEmptyComponent={
+      <ScrollView
+        ref={listScrollRef}
+        style={styles.listScroll}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => { setRefreshing(true); loadData({ force: true }); }}
+          />
+        }
+        contentContainerStyle={[
+          styles.list,
+          filtered.length === 0 && styles.listEmptyState,
+        ]}
+      >
+        {isInitialLoading ? (
+          <>
+            <TripCardSkeleton />
+            <TripCardSkeleton />
+            <TripCardSkeleton />
+          </>
+        ) : filtered.length === 0 ? (
           <View style={styles.emptyBox}>
             <Text style={styles.emptyIcon}>🗓️</Text>
             <Text style={styles.emptyText}>
@@ -407,19 +447,22 @@ const AllTripsScreen = ({ navigation }) => {
               </TouchableOpacity>
             )}
           </View>
-        }
-        renderItem={({ item }) => (
-          <TripCard
-            trip={item}
-            onCancel={handleCancelTrip}
-            onStart={handleStartTrip}
-            onComplete={handleCompleteTrip}
-            onViewDetail={handleViewDetail}
-            actioning={cancelingTripId === item.id || processingTripId === item.id}
-          />
+        ) : (
+          filtered.map((item) => (
+            <TripCard
+              key={String(item.id)}
+              trip={item}
+              onCancel={handleCancelTrip}
+              onStart={handleStartTrip}
+              onComplete={handleCompleteTrip}
+              onViewDetail={handleViewDetail}
+              actioning={cancelingTripId === item.id || processingTripId === item.id}
+            />
+          ))
         )}
-        ListFooterComponent={<View style={{ height: 110 }} />}
-      />
+
+        <View style={styles.listBottomSpacer} />
+      </ScrollView>
 
       <Modal
         visible={cancelModalVisible}
@@ -545,11 +588,14 @@ const styles = StyleSheet.create({
   tabBar: {
     backgroundColor: '#fff',
     borderBottomWidth: 1, borderBottomColor: '#E8E8E8',
+    height: 52,
+    maxHeight: 52,
+    minHeight: 52,
+    flexGrow: 0,
   },
   tabBarContent: {
     paddingHorizontal: 10,
-    paddingVertical: 4,
-    alignItems: 'center',
+    paddingVertical: 6,
   },
   tab: {
     flexDirection: 'row',
@@ -590,9 +636,38 @@ const styles = StyleSheet.create({
   },
   tabCount: { fontSize: 11, color: '#6B7280', fontWeight: '700' },
   tabCountActive: { color: '#C2410C' },
+  syncHintWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#FFF7ED',
+    borderBottomWidth: 1,
+    borderBottomColor: '#FED7AA',
+  },
+  syncHintText: {
+    fontSize: 12,
+    color: '#9A3412',
+    fontWeight: '600',
+  },
 
   // List
-  list: { paddingHorizontal: 10, paddingTop: 2, paddingBottom: 10 },
+  listScroll: { flex: 1 },
+  list: { paddingHorizontal: 10, paddingTop: 2, paddingBottom: DRIVER_BOTTOM_NAV_INSET + 16 },
+  listEmptyState: { flexGrow: 1 },
+  listBottomSpacer: { height: 16 },
+  tripCardSkeleton: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#F2F2F2',
+  },
+  skeletonLineLg: { height: 14, borderRadius: 8, width: '72%', backgroundColor: '#ECEFF3', marginBottom: 10 },
+  skeletonLineMd: { height: 12, borderRadius: 8, width: '52%', backgroundColor: '#ECEFF3', marginBottom: 8 },
+  skeletonLineSm: { height: 10, borderRadius: 8, width: '38%', backgroundColor: '#ECEFF3' },
 
   // Trip card
   tripCard: {

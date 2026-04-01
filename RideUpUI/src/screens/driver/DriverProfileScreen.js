@@ -16,7 +16,8 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { COLORS } from '../../config/config';
-import DriverBottomNav from '../../components/DriverBottomNav';
+import DriverBottomNav, { DRIVER_BOTTOM_NAV_INSET } from '../../components/DriverBottomNav';
+import SkeletonShimmer from '../../components/SkeletonShimmer';
 import { getDriverProfile, submitDriverProfile, uploadFile } from '../../services/api';
 import { syncDriverProfileApprovalCache } from '../../services/driverProfileGuard';
 
@@ -59,6 +60,35 @@ const emptyForm = {
   vehicleActive: true,
 };
 
+const ProfileLoadingSkeleton = () => (
+  <>
+    <View style={styles.topBarSkeletonRow}>
+      <SkeletonShimmer style={styles.topBarSkeletonBtn} />
+    </View>
+
+    <View style={styles.heroSkeleton}>
+      <SkeletonShimmer style={styles.heroSkeletonSubtitle} />
+      <SkeletonShimmer style={styles.heroSkeletonTitle} />
+      <View style={styles.heroSkeletonBadgeRow}>
+        <SkeletonShimmer style={styles.heroSkeletonBadge} />
+        <SkeletonShimmer style={styles.heroSkeletonBadgeSoft} />
+      </View>
+    </View>
+
+    {[0, 1, 2].map((idx) => (
+      <View key={`profile-skeleton-${idx}`} style={styles.card}>
+        <SkeletonShimmer style={styles.cardSkeletonTitle} />
+        <SkeletonShimmer style={styles.fieldSkeleton} />
+        <SkeletonShimmer style={styles.fieldSkeleton} />
+        <SkeletonShimmer style={styles.fieldSkeleton} />
+        <SkeletonShimmer style={styles.fieldSkeletonShort} />
+      </View>
+    ))}
+
+    <SkeletonShimmer style={styles.submitSkeleton} />
+  </>
+);
+
 const DriverProfileScreen = ({ navigation }) => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -70,9 +100,9 @@ const DriverProfileScreen = ({ navigation }) => {
 
   const [activeDateField, setActiveDateField] = useState('');
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [pickerDay, setPickerDay] = useState(1);
-  const [pickerMonth, setPickerMonth] = useState(1);
-  const [pickerYear, setPickerYear] = useState(new Date().getFullYear());
+  const [pickerDay, setPickerDay] = useState('');
+  const [pickerMonth, setPickerMonth] = useState('');
+  const [pickerYear, setPickerYear] = useState('');
 
   const [uploadingField, setUploadingField] = useState('');
 
@@ -200,44 +230,47 @@ const DriverProfileScreen = ({ navigation }) => {
 
   const getDaysInMonth = (year, month) => new Date(year, month, 0).getDate();
 
-  const changePickerPart = (part, delta) => {
-    if (part === 'year') {
-      setPickerYear((prev) => {
-        const next = Math.max(1950, Math.min(2100, prev + delta));
-        setPickerDay((d) => Math.min(d, getDaysInMonth(next, pickerMonth)));
-        return next;
-      });
-      return;
-    }
-
-    if (part === 'month') {
-      setPickerMonth((prev) => {
-        const next = Math.max(1, Math.min(12, prev + delta));
-        setPickerDay((d) => Math.min(d, getDaysInMonth(pickerYear, next)));
-        return next;
-      });
-      return;
-    }
-
-    setPickerDay((prev) => {
-      const maxDay = getDaysInMonth(pickerYear, pickerMonth);
-      return Math.max(1, Math.min(maxDay, prev + delta));
-    });
-  };
+  const toNumericInput = (value, maxLength) => String(value || '').replace(/[^0-9]/g, '').slice(0, maxLength);
 
   const openDatePicker = (fieldKey, currentValue) => {
     if (isLocked) return;
     const initialDate = parseDate(currentValue);
     setActiveDateField(fieldKey);
-    setPickerDay(initialDate.getDate());
-    setPickerMonth(initialDate.getMonth() + 1);
-    setPickerYear(initialDate.getFullYear());
+    setPickerDay(String(initialDate.getDate()));
+    setPickerMonth(String(initialDate.getMonth() + 1));
+    setPickerYear(String(initialDate.getFullYear()));
     setShowDatePicker(true);
   };
 
   const confirmPickedDate = () => {
     if (!activeDateField) return;
-    const finalDate = new Date(pickerYear, pickerMonth - 1, pickerDay);
+
+    const year = Number(pickerYear);
+    const month = Number(pickerMonth);
+    const day = Number(pickerDay);
+
+    if (!year || !month || !day) {
+      Alert.alert('Ngày không hợp lệ', 'Vui lòng nhập đủ Ngày, Tháng, Năm.');
+      return;
+    }
+
+    if (year < 1950 || year > 2100) {
+      Alert.alert('Năm không hợp lệ', 'Năm phải trong khoảng 1950 - 2100.');
+      return;
+    }
+
+    if (month < 1 || month > 12) {
+      Alert.alert('Tháng không hợp lệ', 'Tháng phải trong khoảng 1 - 12.');
+      return;
+    }
+
+    const maxDay = getDaysInMonth(year, month);
+    if (day < 1 || day > maxDay) {
+      Alert.alert('Ngày không hợp lệ', `Tháng ${month} chỉ có tối đa ${maxDay} ngày.`);
+      return;
+    }
+
+    const finalDate = new Date(year, month - 1, day);
     onChange(activeDateField, formatDate(finalDate));
     setShowDatePicker(false);
   };
@@ -267,6 +300,7 @@ const DriverProfileScreen = ({ navigation }) => {
         uri: selected.uri,
         name: selected.fileName || `${fieldKey}-${Date.now()}.jpg`,
         type: selected.mimeType || 'image/jpeg',
+        file: selected.file,
       });
 
       onChange(fieldKey, uploadedUrl || '');
@@ -332,9 +366,16 @@ const DriverProfileScreen = ({ navigation }) => {
 
   if (loading) {
     return (
-      <View style={styles.loadingWrap}>
-        <ActivityIndicator size="large" color={THEME.top} />
-        <Text style={styles.loadingText}>Đang tải hồ sơ tài xế...</Text>
+      <View style={styles.screen}>
+        <ScrollView style={styles.container} contentContainerStyle={styles.loadingContainerContent}>
+          <ProfileLoadingSkeleton />
+          <View style={styles.bottomGap} />
+        </ScrollView>
+        <View style={styles.loadingSyncBadge}>
+          <ActivityIndicator size="small" color={THEME.top} />
+          <Text style={styles.loadingSyncText}>Đang tải hồ sơ tài xế...</Text>
+        </View>
+        <DriverBottomNav navigation={navigation} activeKey="profile" />
       </View>
     );
   }
@@ -437,12 +478,45 @@ const DriverProfileScreen = ({ navigation }) => {
           <View style={styles.pickerBackdrop}>
             <View style={styles.pickerCard}>
               <Text style={styles.pickerTitle}>Chọn ngày</Text>
-              <View style={styles.datePartRow}>
-                <DatePartStepper label="Ngày" value={pickerDay} onMinus={() => changePickerPart('day', -1)} onPlus={() => changePickerPart('day', 1)} />
-                <DatePartStepper label="Tháng" value={pickerMonth} onMinus={() => changePickerPart('month', -1)} onPlus={() => changePickerPart('month', 1)} />
-                <DatePartStepper label="Năm" value={pickerYear} onMinus={() => changePickerPart('year', -1)} onPlus={() => changePickerPart('year', 1)} />
+              <View style={styles.dateInputRow}>
+                <View style={styles.dateInputCol}>
+                  <Text style={styles.dateInputLabel}>Ngày</Text>
+                  <TextInput
+                    value={pickerDay}
+                    onChangeText={(v) => setPickerDay(toNumericInput(v, 2))}
+                    keyboardType="number-pad"
+                    maxLength={2}
+                    placeholder="DD"
+                    placeholderTextColor="#94A3B8"
+                    style={styles.dateInput}
+                  />
+                </View>
+                <View style={styles.dateInputCol}>
+                  <Text style={styles.dateInputLabel}>Tháng</Text>
+                  <TextInput
+                    value={pickerMonth}
+                    onChangeText={(v) => setPickerMonth(toNumericInput(v, 2))}
+                    keyboardType="number-pad"
+                    maxLength={2}
+                    placeholder="MM"
+                    placeholderTextColor="#94A3B8"
+                    style={styles.dateInput}
+                  />
+                </View>
+                <View style={[styles.dateInputCol, styles.dateInputYearCol]}>
+                  <Text style={styles.dateInputLabel}>Năm</Text>
+                  <TextInput
+                    value={pickerYear}
+                    onChangeText={(v) => setPickerYear(toNumericInput(v, 4))}
+                    keyboardType="number-pad"
+                    maxLength={4}
+                    placeholder="YYYY"
+                    placeholderTextColor="#94A3B8"
+                    style={styles.dateInput}
+                  />
+                </View>
               </View>
-              <Text style={styles.pickerPreview}>Đã chọn: {String(pickerDay).padStart(2, '0')}/{String(pickerMonth).padStart(2, '0')}/{pickerYear}</Text>
+              <Text style={styles.pickerPreview}>Đã chọn: {pickerYear || 'YYYY'}-{(pickerMonth || 'MM').padStart(2, '0')}-{(pickerDay || 'DD').padStart(2, '0')}</Text>
               <View style={styles.pickerActions}>
                 <TouchableOpacity style={styles.pickerBtnGhost} onPress={() => setShowDatePicker(false)}>
                   <Text style={styles.pickerBtnGhostText}>Hủy</Text>
@@ -462,17 +536,6 @@ const DriverProfileScreen = ({ navigation }) => {
     </View>
   );
 };
-
-const DatePartStepper = ({ label, value, onMinus, onPlus }) => (
-  <View style={styles.datePartCol}>
-    <Text style={styles.datePartLabel}>{label}</Text>
-    <View style={styles.datePartControl}>
-      <TouchableOpacity style={styles.datePartBtn} onPress={onMinus}><Text style={styles.datePartBtnText}>-</Text></TouchableOpacity>
-      <Text style={styles.datePartValue}>{label === 'Năm' ? String(value) : String(value).padStart(2, '0')}</Text>
-      <TouchableOpacity style={styles.datePartBtn} onPress={onPlus}><Text style={styles.datePartBtnText}>+</Text></TouchableOpacity>
-    </View>
-  </View>
-);
 
 const DateField = ({ label, value, placeholder, editable, onPress }) => (
   <View style={styles.fieldWrap}>
@@ -522,8 +585,50 @@ const FormField = ({ label, value, onChangeText, placeholder, keyboardType, edit
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#F4FBF7' },
   container: { flex: 1, backgroundColor: '#F4FBF7' },
+  loadingContainerContent: { paddingBottom: 8 },
   loadingWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F4FBF7' },
   loadingText: { marginTop: 10, color: COLORS.textLight },
+  loadingSyncBadge: {
+    position: 'absolute',
+    right: 16,
+    bottom: DRIVER_BOTTOM_NAV_INSET + 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: 'rgba(255,255,255,0.94)',
+    borderWidth: 1,
+    borderColor: '#CDEFD9',
+  },
+  loadingSyncText: { color: '#0B6E4F', fontSize: 12, fontWeight: '700' },
+  topBarSkeletonRow: { marginTop: 48, marginHorizontal: 16, marginBottom: 6 },
+  topBarSkeletonBtn: { width: 108, height: 34, borderRadius: 999 },
+  heroSkeleton: {
+    marginTop: 8,
+    marginHorizontal: 16,
+    borderRadius: 20,
+    backgroundColor: THEME.top,
+    paddingVertical: 20,
+    paddingHorizontal: 18,
+    borderWidth: 1,
+    borderColor: '#0A5E44',
+  },
+  heroSkeletonSubtitle: { width: '48%', height: 12, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.24)' },
+  heroSkeletonTitle: { marginTop: 10, width: '72%', height: 24, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.30)' },
+  heroSkeletonBadgeRow: { marginTop: 16, flexDirection: 'row', gap: 8 },
+  heroSkeletonBadge: { width: 132, height: 26, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.22)' },
+  heroSkeletonBadgeSoft: { width: 148, height: 26, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.16)' },
+  cardSkeletonTitle: { width: 164, height: 18, borderRadius: 8, marginBottom: 12 },
+  fieldSkeleton: { width: '100%', height: 42, borderRadius: 12, marginBottom: 10 },
+  fieldSkeletonShort: { width: '60%', height: 42, borderRadius: 12 },
+  submitSkeleton: {
+    marginTop: 16,
+    marginHorizontal: 16,
+    height: 48,
+    borderRadius: 14,
+  },
   topBar: { marginTop: 48, marginHorizontal: 16, marginBottom: 6 },
   backBtn: { alignSelf: 'flex-start', backgroundColor: '#E7F8EF', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1, borderColor: '#CDEFD9' },
   backBtnText: { color: '#0B6E4F', fontSize: 13, fontWeight: '700' },
@@ -562,13 +667,22 @@ const styles = StyleSheet.create({
   pickerBackdrop: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.35)', justifyContent: 'center', alignItems: 'center', padding: 16 },
   pickerCard: { width: '100%', maxWidth: 360, borderRadius: 16, padding: 16, backgroundColor: '#fff', borderWidth: 1, borderColor: '#D1EBDD' },
   pickerTitle: { fontSize: 16, fontWeight: '800', color: '#0A5A40', marginBottom: 12, textAlign: 'center' },
-  datePartRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
-  datePartCol: { flex: 1, alignItems: 'center' },
-  datePartLabel: { color: '#475569', fontSize: 12, fontWeight: '700', marginBottom: 6 },
-  datePartControl: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  datePartBtn: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#E2E8F0', alignItems: 'center', justifyContent: 'center' },
-  datePartBtnText: { color: '#0F172A', fontSize: 16, fontWeight: '800' },
-  datePartValue: { minWidth: 44, textAlign: 'center', color: '#0F172A', fontSize: 16, fontWeight: '800' },
+  dateInputRow: { flexDirection: 'row', gap: 8 },
+  dateInputCol: { flex: 1 },
+  dateInputYearCol: { flex: 1.35 },
+  dateInputLabel: { fontSize: 12, color: '#475569', fontWeight: '700', marginBottom: 6 },
+  dateInput: {
+    borderWidth: 1,
+    borderColor: '#D1EBDD',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0F172A',
+    backgroundColor: '#FCFFFD',
+    textAlign: 'center',
+  },
   pickerPreview: { marginTop: 12, textAlign: 'center', color: '#334155', fontSize: 13, fontWeight: '600' },
   pickerActions: { marginTop: 12, flexDirection: 'row', justifyContent: 'flex-end', gap: 8 },
   pickerBtnGhost: { borderRadius: 10, paddingVertical: 10, paddingHorizontal: 14, borderWidth: 1, borderColor: '#CBD5E1' },
@@ -581,7 +695,7 @@ const styles = StyleSheet.create({
   submitBtn: { marginTop: 16, marginHorizontal: 16, borderRadius: 14, paddingVertical: 14, alignItems: 'center', backgroundColor: '#1D4ED8', shadowColor: '#1D4ED8', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4 },
   saveBtnDisabled: { opacity: 0.8 },
   saveBtnText: { color: COLORS.white, fontSize: 15, fontWeight: '800' },
-  bottomGap: { height: 110 },
+  bottomGap: { height: DRIVER_BOTTOM_NAV_INSET },
 });
 
 export default DriverProfileScreen;

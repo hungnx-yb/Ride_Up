@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Image,
   RefreshControl,
   StyleSheet,
   Text,
@@ -37,6 +38,7 @@ const AdminDriverApprovalScreen = ({ navigation }) => {
   const [processingId, setProcessingId] = useState(null);
   const [rejectingId, setRejectingId] = useState(null);
   const [rejectionReason, setRejectionReason] = useState('');
+  const [failedImages, setFailedImages] = useState({});
 
   const loadData = useCallback(async () => {
     try {
@@ -91,6 +93,32 @@ const AdminDriverApprovalScreen = ({ navigation }) => {
     }
   };
 
+  const markImageFailed = (key) => {
+    setFailedImages((prev) => ({ ...prev, [key]: true }));
+  };
+
+  const renderDocImage = (item, label, value, keySuffix) => {
+    const key = `${item.driverProfileId || 'unknown'}:${keySuffix}`;
+    const hasImage = !!value && !failedImages[key];
+    return (
+      <View key={keySuffix} style={styles.docItem}>
+        <Text style={styles.docLabel}>{label}</Text>
+        {hasImage ? (
+          <Image
+            source={{ uri: value }}
+            style={styles.docImage}
+            resizeMode="cover"
+            onError={() => markImageFailed(key)}
+          />
+        ) : (
+          <View style={styles.docFallback}>
+            <Text style={styles.docFallbackText}>Khong co anh</Text>
+          </View>
+        )}
+      </View>
+    );
+  };
+
   const renderItem = ({ item }) => {
     const displayStatus = !item.submitted && item.status === 'PENDING' ? 'DRAFT' : item.status;
     const statusStyle = STATUS_COLOR[item.status] || STATUS_COLOR.PENDING;
@@ -110,6 +138,15 @@ const AdminDriverApprovalScreen = ({ navigation }) => {
         <Text style={styles.meta}>🪪 CCCD: {item.cccd || 'Không có'}</Text>
         <Text style={styles.meta}>📝 GPLX: {item.gplx || 'Không có'}</Text>
         <Text style={styles.meta}>🚗 {item.vehicleBrand || 'Không có'} {item.vehicleModel || ''} · {item.plateNumber || 'Không có'}</Text>
+
+        <View style={styles.docGrid}>
+          {renderDocImage(item, 'CCCD mặt trước', item.cccdImageFront, 'cccd-front')}
+          {renderDocImage(item, 'CCCD mặt sau', item.cccdImageBack, 'cccd-back')}
+          {renderDocImage(item, 'Ảnh GPLX', item.gplxImage, 'gplx')}
+          {renderDocImage(item, 'Ảnh xe', item.vehicleImage, 'vehicle')}
+          {renderDocImage(item, 'Đăng ký xe', item.registrationImage, 'registration')}
+          {renderDocImage(item, 'Bảo hiểm xe', item.insuranceImage, 'insurance')}
+        </View>
 
         {item.rejectionReason ? (
           <Text style={styles.rejectReason}>Lý do từ chối: {item.rejectionReason}</Text>
@@ -245,6 +282,44 @@ const styles = StyleSheet.create({
   badge: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
   badgeText: { fontSize: 12, fontWeight: '700' },
   meta: { fontSize: 13, color: '#4B5563', marginBottom: 4 },
+  docGrid: {
+    marginTop: 10,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  docItem: {
+    width: '48%',
+  },
+  docLabel: {
+    fontSize: 11,
+    color: '#6B7280',
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  docImage: {
+    width: '100%',
+    height: 88,
+    borderRadius: 10,
+    backgroundColor: '#E5E7EB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  docFallback: {
+    width: '100%',
+    height: 88,
+    borderRadius: 10,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  docFallbackText: {
+    fontSize: 11,
+    color: '#9CA3AF',
+    fontWeight: '700',
+  },
   rejectReason: { fontSize: 12, color: '#B91C1C', marginTop: 6 },
   actionRow: { flexDirection: 'row', marginTop: 10, gap: 8 },
   btn: { borderRadius: 10, paddingVertical: 9, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center' },

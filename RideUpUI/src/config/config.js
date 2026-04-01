@@ -37,7 +37,7 @@ export const API_CONFIG = {
   // Backend context-path: /rideUp, port: 8080
   // Ưu tiên EXPO_PUBLIC_API_BASE_URL để tránh sửa code mỗi lần đổi mạng.
   // Ví dụ: EXPO_PUBLIC_API_BASE_URL=http://192.168.103.10:8080/rideUp
-  BASE_URL: ENV_BASE_URL || WEB_AUTO_BASE_URL || EXPO_AUTO_BASE_URL || 'http://192.168.103.10:8080/rideUp',
+  BASE_URL: ENV_BASE_URL || WEB_AUTO_BASE_URL || EXPO_AUTO_BASE_URL || 'http://localhost:8080/rideUp',
   TIMEOUT: 30000,
 };
 

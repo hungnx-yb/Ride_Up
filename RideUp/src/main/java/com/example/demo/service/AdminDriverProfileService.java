@@ -25,6 +25,7 @@ public class AdminDriverProfileService {
 
     DriverProfileRepository driverProfileRepository;
     UserService userService;
+    FileService fileService;
 
     @Transactional(readOnly = true)
     public List<AdminDriverProfileResponse> getAllProfiles() {
@@ -82,14 +83,32 @@ public class AdminDriverProfileService {
                 .rejectionReason(profile.getRejectionReason())
                 .submitted(Boolean.TRUE.equals(profile.getSubmitted()))
                 .cccd(profile.getCccd())
+                .cccdImageFront(resolvePublicFileUrl(profile.getCccdImageFront()))
+                .cccdImageBack(resolvePublicFileUrl(profile.getCccdImageBack()))
                 .gplx(profile.getGplx())
+                .gplxImage(resolvePublicFileUrl(profile.getGplxImage()))
                 .driverRating(profile.getDriverRating())
                 .totalDriverRides(profile.getTotalDriverRides())
                 .plateNumber(vehicle != null ? vehicle.getPlateNumber() : null)
                 .vehicleBrand(vehicle != null ? vehicle.getVehicleBrand() : null)
                 .vehicleModel(vehicle != null ? vehicle.getVehicleModel() : null)
                 .vehicleType(vehicle != null ? vehicle.getVehicleType() : null)
+                .vehicleImage(resolvePublicFileUrl(vehicle != null ? vehicle.getVehicleImage() : null))
+                .registrationImage(resolvePublicFileUrl(vehicle != null ? vehicle.getRegistrationImage() : null))
+                .insuranceImage(resolvePublicFileUrl(vehicle != null ? vehicle.getInsuranceImage() : null))
                 .vehicleVerified(vehicle != null ? vehicle.getIsVerified() : null)
                 .build();
+    }
+
+    private String resolvePublicFileUrl(String rawPath) {
+        String trimmed = rawPath == null ? "" : rawPath.trim();
+        if (!StringUtils.hasText(trimmed)) {
+            return null;
+        }
+        String lower = trimmed.toLowerCase();
+        if (lower.startsWith("http://") || lower.startsWith("https://")) {
+            return trimmed;
+        }
+        return fileService.getFileUrl(trimmed);
     }
 }

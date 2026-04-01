@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { View, ActivityIndicator, Alert } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { COLORS, ROLES } from './src/config/config';
-import { loadStoredAuth, logoutApi, onAuthExpired } from './src/services/api';
+import { loadStoredAuth, logoutApi, onAuthExpired, prefetchDriverBootstrapData } from './src/services/api';
 
 // Auth screens
 import LoginScreen from './src/screens/auth/LoginScreen';
@@ -45,6 +45,7 @@ export default function App() {
   const [transitionUserName, setTransitionUserName] = useState('');
   const [transitionMinDone, setTransitionMinDone] = useState(false);
   const [postLoginSettled, setPostLoginSettled] = useState(false);
+  const prefetchedForUserIdRef = useRef('');
 
   // Khôi phục session khi mở app
   useEffect(() => {
@@ -65,6 +66,22 @@ export default function App() {
     return unsubscribe;
   }, []);
 
+  useEffect(() => {
+    const userId = user?.id;
+    const isDriver = (user?.roles || []).includes(ROLES.DRIVER);
+
+    if (!userId || !isDriver) {
+      return;
+    }
+
+    if (prefetchedForUserIdRef.current === userId) {
+      return;
+    }
+
+    prefetchedForUserIdRef.current = userId;
+    prefetchDriverBootstrapData().catch(() => {});
+  }, [user]);
+
   const handleLoginSuccess = (userData, authToken) => {
     setTransitionUserName(userData?.fullName || 'ban');
     setTransitionMinDone(false);
@@ -72,6 +89,10 @@ export default function App() {
     setLoginTransitionVisible(true);
     setUser(userData);
     setToken(authToken);
+
+    if ((userData?.roles || []).includes(ROLES.DRIVER)) {
+      prefetchDriverBootstrapData().catch(() => {});
+    }
 
     setTimeout(() => {
       setTransitionMinDone(true);
