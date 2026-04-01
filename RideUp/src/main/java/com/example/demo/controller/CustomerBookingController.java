@@ -3,10 +3,13 @@ package com.example.demo.controller;
 import com.example.demo.dto.request.CreateBookingRequest;
 import com.example.demo.dto.request.CreateBookingReviewRequest;
 import com.example.demo.dto.request.ConfirmPaymentRequest;
+import com.example.demo.dto.request.RideSearchFromTextRequest;
 import com.example.demo.dto.response.BookingReviewResponse;
 import com.example.demo.dto.response.CustomerBookingResponse;
+import com.example.demo.dto.response.RideSearchFromTextResponse;
 import com.example.demo.dto.response.RideSearchResponse;
 import com.example.demo.service.CustomerBookingService;
+import com.example.demo.service.RideSearchTextService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +29,7 @@ import java.util.Map;
 public class CustomerBookingController {
 
     CustomerBookingService customerBookingService;
+    RideSearchTextService rideSearchTextService;
 
     @GetMapping("/rides/search")
     @PreAuthorize("isAuthenticated()")
@@ -35,6 +39,13 @@ public class CustomerBookingController {
                                                 @RequestParam(required = false) String toWardId,
                                                 @RequestParam(required = false) String departureDate) {
         return customerBookingService.searchRides(fromProvinceId, toProvinceId, fromWardId, toWardId, departureDate);
+    }
+
+    @PostMapping("/rides/search-from-text")
+    @PreAuthorize("isAuthenticated()")
+    public RideSearchFromTextResponse searchRidesFromText(
+            @RequestBody(required = false) RideSearchFromTextRequest request) {
+        return rideSearchTextService.searchFromText(request == null ? null : request.getQueryText());
     }
 
     @GetMapping("/customer/bookings")

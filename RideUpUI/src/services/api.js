@@ -95,7 +95,7 @@ const _isTokenExpiredError = (error) => {
 
 export const onAuthExpired = (listener) => {
   if (typeof listener !== 'function') {
-    return () => {};
+    return () => { };
   }
   _authExpiredListeners.add(listener);
   return () => {
@@ -154,7 +154,7 @@ apiClient.interceptors.response.use(
     if (_isTokenExpiredError(error) && !_isHandlingAuthExpiry) {
       _isHandlingAuthExpiry = true;
       clearStoredAuth()
-        .catch(() => {})
+        .catch(() => { })
         .finally(() => {
           _notifyAuthExpired('TOKEN_EXPIRED');
           _isHandlingAuthExpiry = false;
@@ -232,7 +232,7 @@ const _buildChatWebSocketUrl = () => {
 export const createChatRealtimeClient = ({ threadId, onMessage, onConnect, onError }) => {
   if (!threadId || USE_MOCK_DATA) {
     return {
-      disconnect: () => {},
+      disconnect: () => { },
     };
   }
 
@@ -242,7 +242,7 @@ export const createChatRealtimeClient = ({ threadId, onMessage, onConnect, onErr
     reconnectDelay: 3000,
     heartbeatIncoming: 10000,
     heartbeatOutgoing: 10000,
-    debug: () => {},
+    debug: () => { },
   });
 
   client.onConnect = () => {
@@ -799,6 +799,35 @@ export const searchRidesAdvanced = async ({
       departureDate,
     },
   });
+  return res.data?.result ?? res.data;
+};
+
+/** Dán văn bản để AI phân tích tiêu chí tìm chuyến */
+export const searchRidesFromText = async (queryText) => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(800);
+    return {
+      queryText,
+      confidence: 0.88,
+      needsClarification: false,
+      clarificationQuestions: [],
+      criteria: {
+        fromProvinceId: null,
+        fromProvinceName: 'Hà Nội',
+        fromWardId: null,
+        fromWardName: null,
+        toProvinceId: null,
+        toProvinceName: 'Hải Phòng',
+        toWardId: null,
+        toWardName: null,
+        departureDate: null,
+        seatCount: 1,
+        maxPrice: null,
+      },
+      rides: MOCK_AVAILABLE_RIDES,
+    };
+  }
+  const res = await apiClient.post('/rides/search-from-text', { queryText });
   return res.data?.result ?? res.data;
 };
 
