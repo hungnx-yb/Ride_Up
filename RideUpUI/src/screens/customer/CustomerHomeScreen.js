@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -30,6 +30,7 @@ import {
   getWardById,
   getMyInfo,
   updateMyInfo,
+  updateMyAvatar,
   uploadFile,
   requestChangePasswordOtp,
   changeMyPassword,
@@ -38,6 +39,7 @@ import {
   getChatMessages,
   sendChatMessage,
   markChatThreadRead,
+  resolveStoragePublicUrl,
 } from '../../services/api';
 import ProvincePicker from '../../components/ProvincePicker';
 import WardPicker from '../../components/WardPicker';
@@ -48,6 +50,7 @@ const DEFAULT_VEHICLE_IMAGE = require('../../../assets/adaptive-icon.png');
 const HERO_BACKGROUND_IMAGE = require('../../../assets/anh-nen-sieu-xe_020255797.jpg');
 const MAP_PICK_RADIUS_KM = 20;
 const MAP_PICK_RADIUS_METERS = MAP_PICK_RADIUS_KM * 1000;
+const SEARCH_PAGE_SIZE = 20;
 const REVERSE_GEOCODE_ENDPOINT = 'https://nominatim.openstreetmap.org/reverse';
 const RATING_LABELS = {
   1: 'Rất tệ',
@@ -125,8 +128,12 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
   const [refreshing, setRefreshing] = useState(false);
 
   const [searchDate, setSearchDate] = useState('');
+  const [showSearchDatePicker, setShowSearchDatePicker] = useState(false);
+  const [searchCalendarMonth, setSearchCalendarMonth] = useState(new Date());
   const [searching, setSearching] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
+  const [searchPage, setSearchPage] = useState(0);
+  const [searchHasMore, setSearchHasMore] = useState(false);
   const [aiSearchText, setAiSearchText] = useState('');
   const [aiSearching, setAiSearching] = useState(false);
   const [aiSearchHint, setAiSearchHint] = useState('');
@@ -209,6 +216,10 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
   const [dropoffLiveAddress, setDropoffLiveAddress] = useState('');
   const [pickupResolving, setPickupResolving] = useState(false);
   const [dropoffResolving, setDropoffResolving] = useState(false);
+  const [pickupMapError, setPickupMapError] = useState('');
+  const [dropoffMapError, setDropoffMapError] = useState('');
+  const [pickupLocating, setPickupLocating] = useState(false);
+  const [dropoffLocating, setDropoffLocating] = useState(false);
   const [pickupWardCenter, setPickupWardCenter] = useState(null);
   const [dropoffWardCenter, setDropoffWardCenter] = useState(null);
   const pickupReverseSeq = useRef(0);
@@ -217,6 +228,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
   const dropoffWardCenterSeq = useRef(0);
 
   const [errorText, setErrorText] = useState('');
+  const [searchErrorText, setSearchErrorText] = useState('');
   const scrollRef = useRef(null);
 
   const canChatBooking = (booking) => ['pending', 'confirmed', 'in_progress'].includes(String(booking?.status || '').toLowerCase());
@@ -265,7 +277,8 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
   const customerFullName = (profileUser?.fullName || '').trim() || 'Khách hàng';
   const customerEmail = (profileUser?.email || '').trim() || '--';
   const customerPhone = (profileUser?.phoneNumber || profileUser?.phone || '').trim() || '--';
-  const customerAvatarUrl = String(profileUser?.avatarUrl || '').trim();
+  const customerAvatarUrl = resolveStoragePublicUrl(profileUser?.avatarUrl);
+  const ratingDriverAvatarUrl = resolveStoragePublicUrl(ratingBooking?.driverAvatarUrl);
   const roleValues = Array.isArray(profileUser?.roles)
     ? profileUser.roles
     : (profileUser?.role ? [profileUser.role] : []);
@@ -373,15 +386,16 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
   };
 
   const applyPickedCoordinate = (mode, coordinate) => {
+    const setModeError = mode === 'pickup' ? setPickupMapError : setDropoffMapError;
     const point = getActiveTripPoint(mode);
     if (!point) {
-      setErrorText(mode === 'pickup' ? 'Vui lòng chọn điểm đón trước.' : 'Vui lòng chọn điểm trả trước.');
+      setModeError(mode === 'pickup' ? 'Vui lòng chọn điểm đón trước.' : 'Vui lòng chọn điểm trả trước.');
       return;
     }
 
     const center = toMapCenter(point);
     if (!center) {
-      setErrorText('Điểm phường hiện chưa có tọa độ để hiển thị bản đồ.');
+      setModeError('Điểm phường hiện chưa có tọa độ để hiển thị bản đồ.');
       return;
     }
 
@@ -399,7 +413,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
     );
 
     if (distance > MAP_PICK_RADIUS_KM) {
-      setErrorText(`Vị trí chọn phải nằm trong bán kính ${MAP_PICK_RADIUS_KM}km từ phường đã chọn.`);
+      setModeError(`Vị trí chọn phải nằm trong bán kính ${MAP_PICK_RADIUS_KM}km từ phường đã chọn.`);
       return;
     }
 
@@ -417,6 +431,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
       }));
     }
 
+    setModeError('');
     setErrorText('');
   };
 
@@ -434,6 +449,38 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
 
   const handleDropoffViewportCenterChange = (center) => {
     applyPickedCoordinate('dropoff', { latitude: center?.lat, longitude: center?.lng });
+  };
+
+  const pickCurrentLocationForMode = (mode) => {
+    if (typeof navigator === 'undefined' || !navigator?.geolocation) {
+      if (mode === 'pickup') {
+        setPickupMapError('Thiết bị/trình duyệt này chưa hỗ trợ lấy vị trí hiện tại.');
+      } else {
+        setDropoffMapError('Thiết bị/trình duyệt này chưa hỗ trợ lấy vị trí hiện tại.');
+      }
+      return;
+    }
+
+    const setLocating = mode === 'pickup' ? setPickupLocating : setDropoffLocating;
+    const setModeError = mode === 'pickup' ? setPickupMapError : setDropoffMapError;
+
+    setLocating(true);
+    setModeError('');
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLocating(false);
+        applyPickedCoordinate(mode, {
+          latitude: position?.coords?.latitude,
+          longitude: position?.coords?.longitude,
+        });
+      },
+      () => {
+        setLocating(false);
+        setModeError('Không thể lấy vị trí hiện tại. Vui lòng kiểm tra quyền truy cập vị trí.');
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
   };
 
   const activeBookings = bookings.filter((b) => ['confirmed', 'in_progress'].includes(b.status));
@@ -472,6 +519,12 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
   const selectedDropoffPoint = getActiveTripPoint('dropoff');
   const pickupMapCenter = pickupWardCenter;
   const dropoffMapCenter = dropoffWardCenter;
+  const pickupDistanceKm = Number.isFinite(pickupDetailLocation?.lat) && Number.isFinite(pickupDetailLocation?.lng) && pickupMapCenter
+    ? calculateDistanceKm(pickupMapCenter.lat, pickupMapCenter.lng, pickupDetailLocation.lat, pickupDetailLocation.lng)
+    : null;
+  const dropoffDistanceKm = Number.isFinite(dropoffDetailLocation?.lat) && Number.isFinite(dropoffDetailLocation?.lng) && dropoffMapCenter
+    ? calculateDistanceKm(dropoffMapCenter.lat, dropoffMapCenter.lng, dropoffDetailLocation.lat, dropoffDetailLocation.lng)
+    : null;
 
   useEffect(() => {
     const point = selectedPickupPoint;
@@ -620,12 +673,59 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
   }, [dropoffDetailLocation?.lat, dropoffDetailLocation?.lng]);
 
   const runSearch = async () => {
-    setErrorText('');
+    setSearchErrorText('');
     setAiSearchHint('');
     setAiIntentChips([]);
     setAiParsedCriteria(null);
 
     try {
+      setSearching(true);
+      const allRides = [];
+      const maxPages = 100;
+      let page = 0;
+
+      while (page < maxPages) {
+        const result = await searchRidesAdvanced({
+          fromProvinceId: fromProvince?.id,
+          toProvinceId: toProvince?.id,
+          fromWardId: fromWard?.id,
+          toWardId: toWard?.id,
+          departureDate: searchDate,
+          status: 'OPEN',
+          page,
+          size: SEARCH_PAGE_SIZE,
+        });
+
+        const rides = Array.isArray(result) ? result : [];
+        if (!rides.length) break;
+
+        allRides.push(...rides);
+
+        if (rides.length < SEARCH_PAGE_SIZE) break;
+        page += 1;
+      }
+
+      const byId = new Map();
+      allRides.forEach((item) => {
+        if (item?.id) byId.set(item.id, item);
+      });
+
+      setSearchResults(byId.size ? Array.from(byId.values()) : allRides);
+      setSearchPage(0);
+      setSearchHasMore(false);
+    } catch (e) {
+      setSearchErrorText(e.message || 'Không tìm thấy chuyến phù hợp.');
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const loadMoreSearch = async () => {
+    if (searching || !searchHasMore) return;
+
+    const nextPage = searchPage + 1;
+    try {
+      setSearchErrorText('');
       setSearching(true);
       const result = await searchRidesAdvanced({
         fromProvinceId: fromProvince?.id,
@@ -633,10 +733,23 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
         fromWardId: fromWard?.id,
         toWardId: toWard?.id,
         departureDate: searchDate,
+        status: 'OPEN',
+        page: nextPage,
+        size: SEARCH_PAGE_SIZE,
       });
-      setSearchResults(Array.isArray(result) ? result : []);
+      const rides = Array.isArray(result) ? result : [];
+      setSearchResults((prev) => {
+        const merged = [...prev, ...rides];
+        const byId = new Map();
+        merged.forEach((item) => {
+          if (item?.id) byId.set(item.id, item);
+        });
+        return byId.size ? Array.from(byId.values()) : merged;
+      });
+      setSearchPage(nextPage);
+      setSearchHasMore(rides.length >= SEARCH_PAGE_SIZE);
     } catch (e) {
-      setErrorText(e.message || 'Không tìm thấy chuyến phù hợp.');
+      setSearchErrorText(e.message || 'Không thể tải thêm chuyến.');
     } finally {
       setSearching(false);
     }
@@ -658,7 +771,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
 
     try {
       setSearching(true);
-      setErrorText('');
+      setSearchErrorText('');
       const result = await searchRidesAdvanced(request);
       let rides = Array.isArray(result) ? result : [];
 
@@ -674,7 +787,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
 
       setSearchResults(rides);
     } catch (e) {
-      setErrorText(e.message || 'Không thể cập nhật kết quả theo bộ lọc AI.');
+      setSearchErrorText(e.message || 'Không thể cập nhật kết quả theo bộ lọc AI.');
     } finally {
       setSearching(false);
     }
@@ -701,7 +814,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
 
     try {
       setAiSearching(true);
-      setErrorText('');
+      setSearchErrorText('');
       const result = await searchRidesFromText(query);
 
       const criteria = result?.criteria || {};
@@ -776,7 +889,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
         setAiSearchHint(`AI đã phân tích yêu cầu với độ tin cậy ${confidencePercent}%. (Bấm chips để lọc nhanh)`);
       }
     } catch (e) {
-      setErrorText(e.message || 'AI chưa phân tích được yêu cầu. Bạn thử viết rõ tuyến và ngày đi hơn nhé.');
+      setSearchErrorText(e.message || 'AI chưa phân tích được yêu cầu. Bạn thử viết rõ tuyến và ngày đi hơn nhé.');
     } finally {
       setAiSearching(false);
     }
@@ -934,37 +1047,58 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
     if (!message || supportSending) return;
 
     const userMessage = { id: `user-${Date.now()}`, role: 'user', text: message };
-    setSupportMessages((prev) => [...prev, userMessage]);
+    const pendingBotId = `bot-pending-${Date.now()}`;
+    const historyPayload = [...supportMessages, userMessage]
+      .slice(-5)
+      .map((item) => ({
+        role: item?.role === 'bot' ? 'assistant' : 'user',
+        text: String(item?.text || '').trim(),
+      }))
+      .filter((item) => item.text);
+
+    setSupportMessages((prev) => [
+      ...prev,
+      userMessage,
+      {
+        id: pendingBotId,
+        role: 'bot',
+        intent: 'FAQ_GENERAL',
+        text: '⏳ Mình đang xử lý yêu cầu của bạn... ',
+        suggestions: [],
+      },
+    ]);
     if (overrideMessage === undefined) {
       setSupportInput('');
     }
 
     try {
       setSupportSending(true);
-      const result = await supportChat(message);
+      const result = await supportChat(message, historyPayload);
       const replyText = result?.reply || 'Mình chưa có phản hồi phù hợp, bạn thử hỏi lại giúp mình.';
       const suggestions = Array.isArray(result?.suggestions) ? result.suggestions.filter(Boolean) : [];
-      setSupportMessages((prev) => [
-        ...prev,
-        {
-          id: `bot-${Date.now()}`,
-          role: 'bot',
-          intent: String(result?.intent || 'FAQ_GENERAL').toUpperCase(),
-          text: replyText,
-          suggestions: suggestions.slice(0, 6),
-        },
-      ]);
+      setSupportMessages((prev) => prev.map((item) => (
+        item.id === pendingBotId
+          ? {
+            id: `bot-${Date.now()}`,
+            role: 'bot',
+            intent: String(result?.intent || 'FAQ_GENERAL').toUpperCase(),
+            text: replyText,
+            suggestions: suggestions.slice(0, 6),
+          }
+          : item
+      )));
     } catch (e) {
-      setSupportMessages((prev) => [
-        ...prev,
-        {
-          id: `bot-${Date.now()}`,
-          role: 'bot',
-          intent: 'FAQ_APP_ISSUE',
-          text: e.message || '😵 Oops, mình đang hơi nghẽn mạng. Bạn thử lại sau vài giây nhé!',
-          suggestions: ['Kiểm tra booking gần nhất', 'Tôi muốn hủy chuyến', 'Gọi hotline 1900 1234'],
-        },
-      ]);
+      setSupportMessages((prev) => prev.map((item) => (
+        item.id === pendingBotId
+          ? {
+            id: `bot-${Date.now()}`,
+            role: 'bot',
+            intent: 'FAQ_APP_ISSUE',
+            text: e.message || '😵 Oops, mình đang hơi nghẽn mạng. Bạn thử lại sau vài giây nhé!',
+            suggestions: ['Kiểm tra booking gần nhất', 'Tôi muốn hủy chuyến', 'Gọi hotline 1900 1234'],
+          }
+          : item
+      )));
     } finally {
       setSupportSending(false);
     }
@@ -1051,13 +1185,12 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
       const selected = result.assets[0];
       setAvatarUploading(true);
 
-      const uploadedUrl = await uploadFile({
+      const updated = await updateMyAvatar({
         uri: selected.uri,
         name: selected.fileName || `customer-avatar-${Date.now()}.jpg`,
         type: selected.mimeType || 'image/jpeg',
       });
 
-      const updated = await updateMyInfo({ avatarUrl: uploadedUrl || null });
       if (updated) {
         setProfileUser(updated);
         initPersonalForm(updated);
@@ -1259,6 +1392,61 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
   const today = new Date();
   const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
   const toIsoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const parseIsoDate = (value) => {
+    const raw = String(value || '').trim();
+    if (!raw) return new Date();
+    const parsed = new Date(`${raw}T00:00:00`);
+    return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+  };
+  const stripTime = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const isSameDay = (a, b) => a.getTime() === b.getTime();
+  const addMonths = (baseDate, diff) => new Date(baseDate.getFullYear(), baseDate.getMonth() + diff, 1);
+
+  const formatSearchDateLabel = (value) => {
+    const raw = String(value || '').trim();
+    if (!raw) return 'Chọn ngày khởi hành';
+    const parsed = parseIsoDate(raw);
+    return `${String(parsed.getDate()).padStart(2, '0')}/${String(parsed.getMonth() + 1).padStart(2, '0')}/${parsed.getFullYear()}`;
+  };
+
+  const monthLabelFormatter = new Intl.DateTimeFormat('vi-VN', {
+    month: 'long',
+    year: 'numeric',
+  });
+
+  const calendarDays = useMemo(() => {
+    const year = searchCalendarMonth.getFullYear();
+    const month = searchCalendarMonth.getMonth();
+    const firstOfMonth = new Date(year, month, 1);
+    const leadingDays = (firstOfMonth.getDay() + 6) % 7;
+    const firstCellDate = new Date(year, month, 1 - leadingDays);
+
+    return Array.from({ length: 42 }, (_, index) => {
+      const date = new Date(firstCellDate.getFullYear(), firstCellDate.getMonth(), firstCellDate.getDate() + index);
+      return {
+        date,
+        iso: toIsoDate(date),
+        inCurrentMonth: date.getMonth() === month,
+      };
+    });
+  }, [searchCalendarMonth]);
+
+  const openSearchDatePicker = () => {
+    if (!showSearchDatePicker) {
+      setSearchCalendarMonth(searchDate ? parseIsoDate(searchDate) : new Date());
+    }
+    setShowSearchDatePicker((prev) => !prev);
+  };
+
+  const selectSearchDate = (iso) => {
+    setSearchDate(String(iso || '').trim());
+    setShowSearchDatePicker(false);
+  };
+
+  const clearSearchDate = () => {
+    setSearchDate('');
+    setShowSearchDatePicker(false);
+  };
 
   const refreshChatMessages = async (threadId) => {
     if (!threadId) return;
@@ -1414,27 +1602,89 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
                 <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
               </TouchableOpacity>
 
-              <View style={styles.dateInputWrap}>
-                <Ionicons name="calendar-outline" size={16} color="#64748B" />
-                <TextInput
-                  style={styles.dateInput}
-                  value={searchDate}
-                  onChangeText={setSearchDate}
-                  placeholder="Ngày khởi hành (YYYY-MM-DD), để trống nếu không lọc"
-                />
-              </View>
+            <TouchableOpacity
+              style={[styles.dateInputWrap, showSearchDatePicker && styles.dateInputWrapActive]}
+              onPress={openSearchDatePicker}
+              activeOpacity={0.9}
+            >
+              <Ionicons name="calendar-outline" size={16} color="#64748B" />
+              <Text style={[styles.dateInput, !searchDate && styles.dateInputPlaceholder]}>
+                {formatSearchDateLabel(searchDate)}
+              </Text>
+              <Ionicons name={showSearchDatePicker ? 'chevron-up' : 'chevron-down'} size={16} color="#16A34A" />
+            </TouchableOpacity>
 
-              <View style={styles.quickDateRow}>
-                <TouchableOpacity style={styles.quickDateBtn} onPress={() => setSearchDate('')}>
-                  <Text style={styles.quickDateText}>Tất cả ngày</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.quickDateBtn} onPress={() => setSearchDate(toIsoDate(today))}>
-                  <Text style={styles.quickDateText}>Hôm nay</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.quickDateBtn} onPress={() => setSearchDate(toIsoDate(tomorrow))}>
-                  <Text style={styles.quickDateText}>Ngày mai</Text>
-                </TouchableOpacity>
+            {showSearchDatePicker ? (
+              <View style={styles.calendarDropdown}>
+                <View style={styles.calendarHeaderRow}>
+                  <TouchableOpacity
+                    style={styles.calendarNavBtn}
+                    onPress={() => setSearchCalendarMonth((prev) => addMonths(prev, -1))}
+                    activeOpacity={0.85}
+                  >
+                    <Ionicons name="chevron-back" size={16} color="#0F172A" />
+                  </TouchableOpacity>
+                  <Text style={styles.calendarMonthLabel}>{monthLabelFormatter.format(searchCalendarMonth)}</Text>
+                  <TouchableOpacity
+                    style={styles.calendarNavBtn}
+                    onPress={() => setSearchCalendarMonth((prev) => addMonths(prev, 1))}
+                    activeOpacity={0.85}
+                  >
+                    <Ionicons name="chevron-forward" size={16} color="#0F172A" />
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.calendarWeekRow}>
+                  {['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'].map((dayLabel) => (
+                    <Text key={dayLabel} style={styles.calendarWeekLabel}>{dayLabel}</Text>
+                  ))}
+                </View>
+
+                <View style={styles.calendarGrid}>
+                  {calendarDays.map((item) => {
+                    const dayDate = stripTime(item.date);
+                    const isToday = isSameDay(dayDate, stripTime(today));
+                    const isSelected = !!searchDate && item.iso === searchDate;
+                    return (
+                      <TouchableOpacity
+                        key={item.iso}
+                        style={[
+                          styles.calendarDayCell,
+                          !item.inCurrentMonth && styles.calendarDayCellMuted,
+                          isToday && styles.calendarDayCellToday,
+                          isSelected && styles.calendarDayCellSelected,
+                        ]}
+                        onPress={() => selectSearchDate(item.iso)}
+                        activeOpacity={0.85}
+                      >
+                        <Text
+                          style={[
+                            styles.calendarDayText,
+                            !item.inCurrentMonth && styles.calendarDayTextMuted,
+                            isToday && styles.calendarDayTextToday,
+                            isSelected && styles.calendarDayTextSelected,
+                          ]}
+                        >
+                          {item.date.getDate()}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
               </View>
+            ) : null}
+
+            <View style={styles.quickDateRow}>
+              <TouchableOpacity style={styles.quickDateBtn} onPress={clearSearchDate}>
+                <Text style={styles.quickDateText}>Tất cả ngày</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.quickDateBtn} onPress={() => selectSearchDate(toIsoDate(today))}>
+                <Text style={styles.quickDateText}>Hôm nay</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.quickDateBtn} onPress={() => selectSearchDate(toIsoDate(tomorrow))}>
+                <Text style={styles.quickDateText}>Ngày mai</Text>
+              </TouchableOpacity>
+            </View>
 
               <Text style={styles.aiInputLabel}>Dán mô tả chuyến đi bằng AI</Text>
               <TextInput
@@ -1473,7 +1723,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
                 <Text style={styles.searchBtnText}>{searching ? 'Đang tìm...' : 'Tìm chuyến ngay'}</Text>
               </TouchableOpacity>
 
-              {!!errorText && <Text style={styles.errorText}>{errorText}</Text>}
+              {!!searchErrorText && <Text style={styles.errorText}>{searchErrorText}</Text>}
             </View>
           </View>
 
@@ -1488,39 +1738,40 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
               </TouchableOpacity>
             </View>
 
-            {searchResults.length === 0 ? (
-              <View style={styles.emptyState}>
-                <Ionicons name="car-outline" size={22} color="#94A3B8" />
-                <Text style={styles.emptyTitle}>Chưa có chuyến phù hợp</Text>
-                <Text style={styles.emptyText}>Thử đổi điểm đón, điểm đến hoặc ngày khởi hành.</Text>
-              </View>
-            ) : (
-              searchResults.map((trip) => (
+          {searchResults.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="car-outline" size={22} color="#94A3B8" />
+              <Text style={styles.emptyTitle}>Chưa có chuyến phù hợp</Text>
+              <Text style={styles.emptyText}>Thử đổi điểm đón, điểm đến hoặc ngày khởi hành.</Text>
+            </View>
+          ) : (
+            <>
+              {searchResults.map((trip) => (
                 <TouchableOpacity
                   key={trip.id}
                   style={[styles.rideCard, { padding: isSmallPhone ? 10 : 12, marginBottom: isSmallPhone ? 9 : 10 }]}
                   onPress={() => openTripDetail(trip)}
                   activeOpacity={0.92}
                 >
-                  <View style={styles.rideCardTop}>
-                    <View
-                      style={[
-                        styles.driverAvatar,
-                        {
-                          width: isSmallPhone ? 34 : 36,
-                          height: isSmallPhone ? 34 : 36,
-                          marginRight: isSmallPhone ? 7 : 8,
-                        },
-                      ]}
-                    >
-                      <Ionicons name="person-outline" size={isSmallPhone ? 16 : 17} color="#111827" />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.driverTitle, { fontSize: isSmallPhone ? 13 : 14 }]}>{trip.driverName || 'Tài xế RideUp'}</Text>
-                      <Text style={[styles.driverMeta, { fontSize: isSmallPhone ? 10 : 11 }]}>⭐ {trip.driverRating || 0} • Xe ghép liên tỉnh</Text>
-                    </View>
-                    <Text style={[styles.tripPrice, { fontSize: isSmallPhone ? 15 : 17 }]}>{formatCurrency(trip.price)}</Text>
+                <View style={styles.rideCardTop}>
+                  <View
+                    style={[
+                      styles.driverAvatar,
+                      {
+                        width: isSmallPhone ? 34 : 36,
+                        height: isSmallPhone ? 34 : 36,
+                        marginRight: isSmallPhone ? 7 : 8,
+                      },
+                    ]}
+                  >
+                    <Ionicons name="person-outline" size={isSmallPhone ? 16 : 17} color="#111827" />
                   </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.driverTitle, { fontSize: isSmallPhone ? 13 : 14 }]}>{trip.driverName || 'Tài xế RideUp'}</Text>
+                    <Text style={[styles.driverMeta, { fontSize: isSmallPhone ? 10 : 11 }]}>⭐ {trip.driverRating || 0} • Xe ghép liên tỉnh</Text>
+                  </View>
+                  <Text style={[styles.tripPrice, { fontSize: isSmallPhone ? 15 : 17 }]}>{formatCurrency(trip.price)}</Text>
+                </View>
 
                   <View style={styles.routeTimeline}>
                     <View style={styles.routeLineCol}>
@@ -1548,13 +1799,20 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
                     </View>
                   </View>
 
-                  <TouchableOpacity style={styles.bookBtn} onPress={() => openTripDetail(trip)}>
-                    <Text style={styles.bookBtnText}>Xem chi tiết và đặt chỗ</Text>
-                  </TouchableOpacity>
+                <TouchableOpacity style={styles.bookBtn} onPress={() => openTripDetail(trip)}>
+                  <Text style={styles.bookBtnText}>Xem chi tiết và đặt chỗ</Text>
                 </TouchableOpacity>
-              ))
-            )}
-          </View>
+                </TouchableOpacity>
+              ))}
+
+              {searchHasMore ? (
+                <TouchableOpacity style={styles.loadMoreBtn} onPress={loadMoreSearch} disabled={searching}>
+                  <Text style={styles.loadMoreBtnText}>{searching ? 'Đang tải thêm...' : 'Xem thêm chuyến'}</Text>
+                </TouchableOpacity>
+              ) : null}
+            </>
+          )}
+        </View>
 
           <View style={[styles.bottomPad, { height: footerSpacer }]} />
         </ScrollView>
@@ -2222,6 +2480,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
                   onPress={() => {
                     setSelectedPickupPointId(p.id);
                     setPickupDetailLocation({ address: '', lat: null, lng: null });
+                    setPickupMapError('');
                   }}
                 >
                   <Text style={styles.optionText}>{p.wardName || p.address}</Text>
@@ -2233,36 +2492,49 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
               </Text>
 
               {pickupMapCenter ? (
-                <>
-                  <View style={styles.mapCardBox}>
-                    <View style={styles.mapHeaderRow}>
-                      <Text style={styles.mapInlineLabel}>Bản đồ điểm đón</Text>
+                <View style={styles.mapCardBox}>
+                  <View style={styles.mapHeaderRow}>
+                    <Text style={styles.mapInlineLabel}>Bản đồ điểm đón</Text>
+                    <View style={styles.mapHeaderActions}>
+                      <TouchableOpacity
+                        style={styles.mapCurrentBtn}
+                        onPress={() => pickCurrentLocationForMode('pickup')}
+                        disabled={pickupLocating}
+                      >
+                        <Text style={styles.mapCurrentBtnText}>{pickupLocating ? 'Đang lấy vị trí...' : 'Dùng vị trí hiện tại'}</Text>
+                      </TouchableOpacity>
                       <View style={styles.mapBadge}><Text style={styles.mapBadgeText}>20km</Text></View>
                     </View>
-                    <Text style={styles.mapActionHint}>Kéo hoặc zoom bản đồ, vị trí tại ghim giữa sẽ tự cập nhật như Shopee/Grab.</Text>
-                    <RadiusMap
-                      key={`pickup-map-${tripDetail?.id || 'trip'}-${selectedPickupPointId || 'none'}`}
-                      center={pickupMapCenter}
-                      selectedLocation={pickupDetailLocation?.lat != null && pickupDetailLocation?.lng != null
-                        ? { lat: pickupDetailLocation.lat, lng: pickupDetailLocation.lng }
-                        : null}
-                      onPress={handlePickupMapPress}
-                      onViewportCenterChange={handlePickupViewportCenterChange}
-                      onInteractStart={() => setIsMapInteracting(true)}
-                      onInteractEnd={() => setIsMapInteracting(false)}
-                      radiusMeters={MAP_PICK_RADIUS_METERS}
-                      mode="pickup"
-                    />
-                    <View style={styles.liveAddressRow}>
-                      <Ionicons name="navigate-circle-outline" size={14} color="#1D4ED8" />
-                      <Text style={styles.liveAddressText}>
-                        {pickupResolving
-                          ? 'Đang cập nhật địa chỉ...'
-                          : (pickupLiveAddress || 'Kéo map để xem địa chỉ realtime tại tâm ghim')}
-                      </Text>
-                    </View>
                   </View>
-                </>
+                  <Text style={styles.mapActionHint}>Kéo hoặc zoom bản đồ, vị trí tại ghim giữa sẽ tự cập nhật như Shopee/Grab.</Text>
+                  <RadiusMap
+                    key={`pickup-map-${tripDetail?.id || 'trip'}-${selectedPickupPointId || 'none'}`}
+                    center={pickupMapCenter}
+                    selectedLocation={pickupDetailLocation?.lat != null && pickupDetailLocation?.lng != null
+                      ? { lat: pickupDetailLocation.lat, lng: pickupDetailLocation.lng }
+                      : null}
+                    onPress={handlePickupMapPress}
+                    onViewportCenterChange={handlePickupViewportCenterChange}
+                    onInteractStart={() => setIsMapInteracting(true)}
+                    onInteractEnd={() => setIsMapInteracting(false)}
+                    radiusMeters={MAP_PICK_RADIUS_METERS}
+                    mode="pickup"
+                  />
+                  <View style={styles.liveAddressRow}>
+                    <Ionicons name="navigate-circle-outline" size={14} color="#1D4ED8" />
+                    <Text style={styles.liveAddressText}>
+                      {pickupResolving
+                        ? 'Đang cập nhật địa chỉ...'
+                        : (pickupLiveAddress || 'Kéo map để xem địa chỉ realtime tại tâm ghim')}
+                    </Text>
+                  </View>
+                  {pickupDistanceKm != null && (
+                    <Text style={styles.mapMetaText}>
+                      Khoảng cách đến tâm phường: {pickupDistanceKm.toFixed(2)} km (tối đa {MAP_PICK_RADIUS_KM} km)
+                    </Text>
+                  )}
+                  {!!pickupMapError && <Text style={styles.mapErrorText}>{pickupMapError}</Text>}
+                </View>
               ) : (
                 <Text style={styles.mapUnavailableText}>Phường đón chưa có tọa độ để hiển thị bản đồ.</Text>
               )}
@@ -2291,6 +2563,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
                   onPress={() => {
                     setSelectedDropoffPointId(p.id);
                     setDropoffDetailLocation({ address: '', lat: null, lng: null });
+                    setDropoffMapError('');
                   }}
                 >
                   <Text style={styles.optionText}>{p.wardName || p.address}</Text>
@@ -2302,36 +2575,49 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
               </Text>
 
               {dropoffMapCenter ? (
-                <>
-                  <View style={styles.mapCardBox}>
-                    <View style={styles.mapHeaderRow}>
-                      <Text style={styles.mapInlineLabel}>Bản đồ điểm trả</Text>
+                <View style={styles.mapCardBox}>
+                  <View style={styles.mapHeaderRow}>
+                    <Text style={styles.mapInlineLabel}>Bản đồ điểm trả</Text>
+                    <View style={styles.mapHeaderActions}>
+                      <TouchableOpacity
+                        style={styles.mapCurrentBtn}
+                        onPress={() => pickCurrentLocationForMode('dropoff')}
+                        disabled={dropoffLocating}
+                      >
+                        <Text style={styles.mapCurrentBtnText}>{dropoffLocating ? 'Đang lấy vị trí...' : 'Dùng vị trí hiện tại'}</Text>
+                      </TouchableOpacity>
                       <View style={styles.mapBadge}><Text style={styles.mapBadgeText}>20km</Text></View>
                     </View>
-                    <Text style={styles.mapActionHint}>Kéo hoặc zoom bản đồ, vị trí tại ghim giữa sẽ tự cập nhật như Shopee/Grab.</Text>
-                    <RadiusMap
-                      key={`dropoff-map-${tripDetail?.id || 'trip'}-${selectedDropoffPointId || 'none'}`}
-                      center={dropoffMapCenter}
-                      selectedLocation={dropoffDetailLocation?.lat != null && dropoffDetailLocation?.lng != null
-                        ? { lat: dropoffDetailLocation.lat, lng: dropoffDetailLocation.lng }
-                        : null}
-                      onPress={handleDropoffMapPress}
-                      onViewportCenterChange={handleDropoffViewportCenterChange}
-                      onInteractStart={() => setIsMapInteracting(true)}
-                      onInteractEnd={() => setIsMapInteracting(false)}
-                      radiusMeters={MAP_PICK_RADIUS_METERS}
-                      mode="dropoff"
-                    />
-                    <View style={styles.liveAddressRow}>
-                      <Ionicons name="navigate-circle-outline" size={14} color="#1D4ED8" />
-                      <Text style={styles.liveAddressText}>
-                        {dropoffResolving
-                          ? 'Đang cập nhật địa chỉ...'
-                          : (dropoffLiveAddress || 'Kéo map để xem địa chỉ realtime tại tâm ghim')}
-                      </Text>
-                    </View>
                   </View>
-                </>
+                  <Text style={styles.mapActionHint}>Kéo hoặc zoom bản đồ, vị trí tại ghim giữa sẽ tự cập nhật như Shopee/Grab.</Text>
+                  <RadiusMap
+                    key={`dropoff-map-${tripDetail?.id || 'trip'}-${selectedDropoffPointId || 'none'}`}
+                    center={dropoffMapCenter}
+                    selectedLocation={dropoffDetailLocation?.lat != null && dropoffDetailLocation?.lng != null
+                      ? { lat: dropoffDetailLocation.lat, lng: dropoffDetailLocation.lng }
+                      : null}
+                    onPress={handleDropoffMapPress}
+                    onViewportCenterChange={handleDropoffViewportCenterChange}
+                    onInteractStart={() => setIsMapInteracting(true)}
+                    onInteractEnd={() => setIsMapInteracting(false)}
+                    radiusMeters={MAP_PICK_RADIUS_METERS}
+                    mode="dropoff"
+                  />
+                  <View style={styles.liveAddressRow}>
+                    <Ionicons name="navigate-circle-outline" size={14} color="#1D4ED8" />
+                    <Text style={styles.liveAddressText}>
+                      {dropoffResolving
+                        ? 'Đang cập nhật địa chỉ...'
+                        : (dropoffLiveAddress || 'Kéo map để xem địa chỉ realtime tại tâm ghim')}
+                    </Text>
+                  </View>
+                  {dropoffDistanceKm != null && (
+                    <Text style={styles.mapMetaText}>
+                      Khoảng cách đến tâm phường: {dropoffDistanceKm.toFixed(2)} km (tối đa {MAP_PICK_RADIUS_KM} km)
+                    </Text>
+                  )}
+                  {!!dropoffMapError && <Text style={styles.mapErrorText}>{dropoffMapError}</Text>}
+                </View>
               ) : (
                 <Text style={styles.mapUnavailableText}>Phường trả chưa có tọa độ để hiển thị bản đồ.</Text>
               )}
@@ -2493,9 +2779,9 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
             </View>
 
             <View style={styles.ratingDriverCard}>
-              {ratingBooking?.driverAvatarUrl && !ratingAvatarFailed ? (
+              {ratingDriverAvatarUrl && !ratingAvatarFailed ? (
                 <Image
-                  source={{ uri: ratingBooking.driverAvatarUrl }}
+                  source={{ uri: ratingDriverAvatarUrl }}
                   style={styles.ratingDriverAvatar}
                   onError={() => setRatingAvatarFailed(true)}
                 />
@@ -2800,15 +3086,19 @@ const styles = StyleSheet.create({
   inputLabel: { fontSize: 11, color: '#334155', marginTop: 8, marginBottom: 5, fontWeight: '700', textTransform: 'uppercase' },
   dateInputWrap: {
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: '#D7E0E8',
     borderRadius: 12,
     paddingVertical: 8,
-    paddingHorizontal: 10,
+    paddingHorizontal: 9,
     color: COLORS.text,
-    backgroundColor: '#FBFCFD',
+    backgroundColor: '#F8FAFC',
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 2,
+  },
+  dateInputWrapActive: {
+    borderColor: '#00B14F',
+    backgroundColor: '#F0FFF4',
   },
   dateInput: {
     flex: 1,
@@ -2816,20 +3106,105 @@ const styles = StyleSheet.create({
     borderColor: 'transparent',
     borderRadius: 0,
     paddingVertical: 0,
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
     color: COLORS.text,
     backgroundColor: 'transparent',
+    fontSize: 12,
+  },
+  dateInputPlaceholder: {
+    color: '#94A3B8',
+  },
+
+  calendarDropdown: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#D7E0E8',
+    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 8,
+    paddingTop: 8,
+    paddingBottom: 6,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    elevation: 4,
+  },
+  calendarHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  calendarNavBtn: {
+    width: 24,
+    height: 24,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F1F5F9',
+  },
+  calendarMonthLabel: {
     fontSize: 13,
+    fontWeight: '800',
+    color: '#0F172A',
+    textTransform: 'capitalize',
+  },
+  calendarWeekRow: {
+    flexDirection: 'row',
+    marginBottom: 4,
+  },
+  calendarWeekLabel: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  calendarGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  calendarDayCell: {
+    width: '14.2857%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 5,
+    borderRadius: 8,
+    marginBottom: 2,
+  },
+  calendarDayCellMuted: {
+    opacity: 0.42,
+  },
+  calendarDayCellToday: {
+    backgroundColor: '#ECFDF3',
+  },
+  calendarDayCellSelected: {
+    backgroundColor: '#00B14F',
+  },
+  calendarDayText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  calendarDayTextMuted: {
+    color: '#94A3B8',
+  },
+  calendarDayTextToday: {
+    color: '#008A3E',
+  },
+  calendarDayTextSelected: {
+    color: '#FFFFFF',
   },
 
   quickDateRow: { flexDirection: 'row', gap: 8, marginTop: 8 },
   quickDateBtn: {
-    backgroundColor: '#EEF2F3',
+    backgroundColor: '#EDF2F7',
     borderRadius: 999,
-    paddingHorizontal: 11,
-    paddingVertical: 6,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
   },
-  quickDateText: { fontSize: 12, fontWeight: '700', color: '#334155' },
+  quickDateText: { fontSize: 11, fontWeight: '700', color: '#334155' },
 
   aiInputLabel: {
     fontSize: 11,
@@ -3083,6 +3458,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#00B14F',
   },
   bookBtnText: { color: '#FFFFFF', fontWeight: '900', letterSpacing: 0.2 },
+  loadMoreBtn: {
+    marginTop: 8,
+    marginBottom: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#D1FAE5',
+    backgroundColor: '#F0FDF4',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+  },
+  loadMoreBtnText: { color: '#15803D', fontWeight: '800', fontSize: 13 },
 
   bookingCard: {
     backgroundColor: '#FFFFFF',
@@ -3851,6 +4238,24 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 6,
   },
+  mapHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  mapCurrentBtn: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+  },
+  mapCurrentBtnText: {
+    color: '#334155',
+    fontSize: 11,
+    fontWeight: '700',
+  },
   mapBadge: {
     backgroundColor: '#DBEAFE',
     borderRadius: 999,
@@ -3893,6 +4298,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     fontWeight: '600',
+  },
+  mapMetaText: {
+    marginTop: 6,
+    color: '#475569',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  mapErrorText: {
+    marginTop: 6,
+    color: '#DC2626',
+    fontSize: 12,
+    fontWeight: '700',
   },
   mapPickedHint: { marginTop: -2, marginBottom: 8, color: '#0F766E', fontSize: 12, fontWeight: '600' },
   seatRow: { flexDirection: 'row', alignItems: 'center', marginTop: 4, marginBottom: 6 },

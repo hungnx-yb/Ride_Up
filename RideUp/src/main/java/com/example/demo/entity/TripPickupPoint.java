@@ -6,6 +6,9 @@ import lombok.experimental.FieldDefaults;
 import java.time.LocalTime;
 
 @Entity
+@Table(name = "trip_pickup_point", indexes = {
+    @Index(name = "idx_trip_pickup_trip_district", columnList = "trip_id,district_id")
+})
 @Getter
 @Setter
 @NoArgsConstructor

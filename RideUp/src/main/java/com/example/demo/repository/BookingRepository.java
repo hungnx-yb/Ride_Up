@@ -1,6 +1,8 @@
 package com.example.demo.repository;
 
 import com.example.demo.entity.Booking;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -31,6 +33,31 @@ public interface BookingRepository extends JpaRepository<Booking, String> {
     List<Booking> findByCustomerIdWithDetails(@Param("customerId") String customerId);
 
         @Query("""
+            SELECT b.id FROM Booking b
+            WHERE b.customer.id = :customerId
+            ORDER BY b.createdAt DESC
+            """)
+        Page<String> findIdsByCustomerId(@Param("customerId") String customerId, Pageable pageable);
+
+        @Query("""
+            SELECT DISTINCT b FROM Booking b
+            JOIN FETCH b.trip t
+            JOIN FETCH t.driver d
+            JOIN FETCH d.user du
+            JOIN FETCH b.pickupPoint pp
+            JOIN FETCH pp.ward pw
+            JOIN FETCH pw.province
+            JOIN FETCH b.dropoffPoint dp
+            JOIN FETCH dp.ward dw
+            JOIN FETCH dw.province
+            LEFT JOIN FETCH b.payment pay
+            LEFT JOIN FETCH b.review r
+            WHERE b.id IN :bookingIds
+            ORDER BY b.createdAt DESC
+            """)
+        List<Booking> findByIdInWithDetailsOrderByCreatedAtDesc(@Param("bookingIds") List<String> bookingIds);
+
+        @Query("""
             SELECT b FROM Booking b
             LEFT JOIN FETCH b.payment pay
             WHERE b.id = :bookingId
@@ -43,4 +70,20 @@ public interface BookingRepository extends JpaRepository<Booking, String> {
             WHERE pay.transactionId = :transactionId
             """)
         Optional<Booking> findByPaymentTransactionId(@Param("transactionId") String transactionId);
+
+    @Query("""
+            SELECT DISTINCT b FROM Booking b
+            JOIN FETCH b.customer c
+            JOIN FETCH b.trip t
+            JOIN FETCH t.driver d
+            JOIN FETCH d.user du
+            LEFT JOIN FETCH b.pickupPoint pp
+            LEFT JOIN FETCH pp.ward ppw
+            LEFT JOIN FETCH ppw.province
+            LEFT JOIN FETCH b.dropoffPoint dp
+            LEFT JOIN FETCH dp.ward dpw
+            LEFT JOIN FETCH dpw.province
+            WHERE b.id IN :bookingIds
+            """)
+    List<Booking> findAllForChatByIdIn(@Param("bookingIds") List<String> bookingIds);
 }

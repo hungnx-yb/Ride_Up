@@ -1,12 +1,15 @@
 package com.example.demo.controller;
 
 import com.example.demo.dto.request.UpdateMyProfileRequest;
+import com.example.demo.dto.request.UpdateMyAvatarRequest;
 import com.example.demo.dto.response.ApiResponse;
 import com.example.demo.dto.response.UserResponse;
 import com.example.demo.service.UserService;
+import org.springframework.http.MediaType;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
+import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -34,6 +37,14 @@ public class UserController {
         return ApiResponse.<UserResponse>builder()
                 .result(userService.updateMyInfo(request))
                 .message("Update profile successfully")
+                .build();
+    }
+
+    @PutMapping(value = "/me/avatar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ApiResponse<UserResponse> updateMyAvatar(@ModelAttribute UpdateMyAvatarRequest request) {
+        return ApiResponse.<UserResponse>builder()
+                .result(userService.updateMyAvatar(request))
+                .message("Update avatar successfully")
                 .build();
     }
 }

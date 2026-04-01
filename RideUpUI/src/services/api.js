@@ -1,7 +1,7 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Client } from '@stomp/stompjs';
-import { API_CONFIG } from '../config/config';
+import { API_CONFIG, STORAGE_CONFIG } from '../config/config';
 import {
   MOCK_ACCOUNTS,
   MOCK_DRIVER_RIDES,
@@ -107,7 +107,17 @@ export const onAuthExpired = (listener) => {
 const apiClient = axios.create({
   baseURL: API_CONFIG.BASE_URL,
   timeout: API_CONFIG.TIMEOUT,
-  headers: { 'Content-Type': 'application/json' },
+  headers: { Accept: 'application/json' },
+});
+
+apiClient.interceptors.request.use((config) => {
+  if (typeof FormData !== 'undefined' && config?.data instanceof FormData) {
+    if (config.headers) {
+      delete config.headers['Content-Type'];
+      delete config.headers['content-type'];
+    }
+  }
+  return config;
 });
 
 if (__DEV__) {
@@ -176,6 +186,36 @@ apiClient.interceptors.response.use(
 // Helper: lấy .result từ ApiResponse wrapper
 const unwrap = (res) => res.data?.result;
 
+const appendMultipartFile = async (formData, fieldName, { uri, name, type, file } = {}) => {
+  const fallbackName = name || `upload_${Date.now()}.jpg`;
+  const fallbackType = type || 'image/jpeg';
+
+  if (typeof Blob !== 'undefined' && file instanceof Blob) {
+    formData.append(fieldName, file, fallbackName);
+    return;
+  }
+
+  const isWeb = typeof window !== 'undefined' && typeof document !== 'undefined';
+  if (isWeb) {
+    if (!uri) {
+      throw new Error('Khong tim thay tep de tai len');
+    }
+    const response = await fetch(uri);
+    const rawBlob = await response.blob();
+    const blob = rawBlob.type === fallbackType
+      ? rawBlob
+      : rawBlob.slice(0, rawBlob.size, fallbackType);
+    formData.append(fieldName, blob, fallbackName);
+    return;
+  }
+
+  formData.append(fieldName, {
+    uri,
+    name: fallbackName,
+    type: fallbackType,
+  });
+};
+
 const getCached = async (key, ttlMs, fetcher) => {
   const now = Date.now();
   const current = _apiCache.get(key);
@@ -222,6 +262,35 @@ const invalidateCacheByPrefix = (prefix) => {
       _apiCache.delete(key);
     }
   }
+};
+
+export const resolveStoragePublicUrl = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) {
+    return '';
+  }
+  if (/^https?:\/\//i.test(raw) || raw.startsWith('data:') || raw.startsWith('blob:')) {
+    return raw;
+  }
+
+  const base = String(STORAGE_CONFIG.SUPABASE_URL || '').trim().replace(/\/+$/, '');
+  const bucket = String(STORAGE_CONFIG.SUPABASE_BUCKET || '').trim();
+  if (!base || !bucket) {
+    return raw;
+  }
+
+  const objectPath = raw.replace(/^\/+/, '');
+  const encodedPath = objectPath
+    .split('/')
+    .filter(Boolean)
+    .map((segment) => encodeURIComponent(segment))
+    .join('/');
+
+  if (!encodedPath) {
+    return '';
+  }
+
+  return `${base}/storage/v1/object/public/${bucket}/${encodedPath}`;
 };
 
 const _buildChatWebSocketUrl = () => {
@@ -390,6 +459,28 @@ export const updateMyInfo = async (payload) => {
     return payload || {};
   }
   const res = await apiClient.put('/users/me', payload || {});
+  return unwrap(res);
+};
+
+export const updateMyAvatar = async ({ uri, name, type }) => {
+  if (!uri) {
+    throw new Error('Khong tim thay anh avatar de tai len');
+  }
+
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(500);
+    return { avatarUrl: uri || null };
+  }
+
+  const formData = new FormData();
+  await appendMultipartFile(formData, 'file', {
+    uri,
+    name: name || `customer-avatar-${Date.now()}.jpg`,
+    type: type || 'image/jpeg',
+  });
+
+  const res = await apiClient.put('/users/me/avatar', formData);
+
   return unwrap(res);
 };
 
@@ -685,12 +776,13 @@ export const uploadFile = async ({ uri, name, type, file }) => {
       type: fallbackType,
     });
   }
-
-  const res = await apiClient.post('/file/upload', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data',
-    },
+  await appendMultipartFile(formData, 'file', {
+    uri,
+    name: name || `upload_${Date.now()}.jpg`,
+    type: type || 'image/jpeg',
   });
+
+  const res = await apiClient.post('/file/upload', formData);
 
   return res.data?.result || res.data;
 };
@@ -769,12 +861,21 @@ export const updateRideStatus = async (rideId, status) => {
 // ==============================
 
 /** Tìm kiếm chuyến xe */
-export const searchRides = async ({ from, to, date }) => {
+export const searchRides = async ({ from, to, date, status = 'OPEN', page = 0, size = 20 }) => {
   if (USE_MOCK_DATA) {
     await mockApiDelay(1000);
     return MOCK_AVAILABLE_RIDES;
   }
-  const res = await apiClient.get('/rides/search', { params: { fromProvinceId: from, toProvinceId: to, departureDate: date } });
+  const res = await apiClient.get('/rides/search', {
+    params: {
+      fromProvinceId: from,
+      toProvinceId: to,
+      departureDate: date,
+      status,
+      page,
+      size,
+    },
+  });
   return res.data?.result ?? res.data;
 };
 
@@ -785,6 +886,9 @@ export const searchRidesAdvanced = async ({
   fromWardId,
   toWardId,
   departureDate,
+  status = 'OPEN',
+  page = 0,
+  size = 20,
 }) => {
   if (USE_MOCK_DATA) {
     await mockApiDelay(1000);
@@ -797,6 +901,9 @@ export const searchRidesAdvanced = async ({
       fromWardId,
       toWardId,
       departureDate,
+      status,
+      page,
+      size,
     },
   });
   return res.data?.result ?? res.data;
@@ -902,7 +1009,7 @@ export const rateRide = async (bookingId, rating, comment) => {
 };
 
 /** Chat hỗ trợ CSKH (FAQ + tra cứu booking/thanh toán) */
-export const supportChat = async (message) => {
+export const supportChat = async (message, history = []) => {
   if (USE_MOCK_DATA) {
     await mockApiDelay(500);
     return {
@@ -911,7 +1018,14 @@ export const supportChat = async (message) => {
       suggestions: ['Kiểm tra booking gần nhất', 'Tôi muốn hủy chuyến'],
     };
   }
-  const res = await apiClient.post('/support/chat', { message });
+  const cleanedHistory = Array.isArray(history)
+    ? history
+      .filter((h) => h && h.role && h.text)
+      .slice(-5)
+      .map((h) => ({ role: h.role, text: h.text }))
+    : [];
+
+  const res = await apiClient.post('/support/chat', { message, history: cleanedHistory });
   return res.data?.result ?? res.data;
 };
 

@@ -85,7 +85,10 @@ public class RideSearchTextService {
                 toResolved.provinceId(),
                 fromResolved.wardId(),
                 toResolved.wardId(),
-                departureDate);
+            departureDate,
+            "OPEN",
+            0,
+            50);
 
         if (seatCount != null && seatCount > 0) {
             rides = rides.stream()

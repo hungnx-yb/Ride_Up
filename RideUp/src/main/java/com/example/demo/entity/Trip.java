@@ -12,6 +12,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Entity
+@Table(name = "trip", indexes = {
+    @Index(name = "idx_trip_status_departure", columnList = "status,departure_time"),
+    @Index(name = "idx_trip_departure", columnList = "departure_time"),
+    @Index(name = "idx_trip_driver_departure", columnList = "driver_id,departure_time")
+})
 @Getter
 @Setter
 @NoArgsConstructor

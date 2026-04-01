@@ -1,6 +1,17 @@
 import React from 'react';
-import { MapContainer, TileLayer, Circle, CircleMarker, useMapEvents, useMap } from 'react-leaflet';
+import L from 'leaflet';
+import { MapContainer, TileLayer, Circle, CircleMarker, Marker, useMapEvents, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
+
+const markerIcon = L.icon({
+  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41],
+});
 
 const MapEvents = ({ onPress, onViewportCenterChange, onInteractStart, onInteractEnd }) => {
   useMapEvents({
@@ -95,10 +106,9 @@ const RadiusMap = ({
         />
 
         {selectedLocation && (
-          <CircleMarker
-            center={[selectedLocation.lat, selectedLocation.lng]}
-            radius={8}
-            pathOptions={{ color: '#00B14F', fillColor: '#00B14F', fillOpacity: 1 }}
+          <Marker
+            position={[selectedLocation.lat, selectedLocation.lng]}
+            icon={markerIcon}
           />
         )}
 

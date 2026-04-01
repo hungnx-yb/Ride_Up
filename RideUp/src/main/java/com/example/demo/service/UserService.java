@@ -1,4 +1,6 @@
 package com.example.demo.service;
+import com.example.demo.constant.StoragePrefixConstant;
+import com.example.demo.dto.request.UpdateMyAvatarRequest;
 import com.example.demo.dto.request.UpdateMyProfileRequest;
 import com.example.demo.dto.response.UserResponse;
 import com.example.demo.entity.User;
@@ -21,6 +23,7 @@ import org.springframework.util.StringUtils;
 public class UserService {
     UserRepository userRepository;
     ModelMapper modelMapper;
+    FileService fileService;
 
     public User getCurrentUser() {
         String userId = SecurityContextHolder.getContext().getAuthentication().getName();
@@ -54,6 +57,19 @@ public class UserService {
             user.setAvatarUrl(normalizeNullable(request.getAvatarUrl()));
         }
 
+        User saved = userRepository.save(user);
+        return modelMapper.map(saved, UserResponse.class);
+    }
+
+    public UserResponse updateMyAvatar(UpdateMyAvatarRequest request) {
+        User user = getCurrentUser();
+        var file = request == null ? null : request.getFile();
+        if (file == null || file.isEmpty()) {
+            return modelMapper.map(user, UserResponse.class);
+        }
+
+        String avatarPath = fileService.upload(file, StoragePrefixConstant.AVATARS);
+        user.setAvatarUrl(normalizeNullable(avatarPath));
         User saved = userRepository.save(user);
         return modelMapper.map(saved, UserResponse.class);
     }

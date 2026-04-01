@@ -37,8 +37,12 @@ public class CustomerBookingController {
                                                 @RequestParam(required = false) String toProvinceId,
                                                 @RequestParam(required = false) String fromWardId,
                                                 @RequestParam(required = false) String toWardId,
-                                                @RequestParam(required = false) String departureDate) {
-        return customerBookingService.searchRides(fromProvinceId, toProvinceId, fromWardId, toWardId, departureDate);
+                                                @RequestParam(required = false) String departureDate,
+                                                @RequestParam(required = false) String status,
+                                                @RequestParam(required = false) Integer page,
+                                                @RequestParam(required = false) Integer size
+                                                ) {
+        return customerBookingService.searchRides(fromProvinceId, toProvinceId, fromWardId, toWardId, departureDate, status, page, size);
     }
 
     @PostMapping("/rides/search-from-text")
@@ -50,8 +54,11 @@ public class CustomerBookingController {
 
     @GetMapping("/customer/bookings")
     @PreAuthorize("isAuthenticated()")
-    public List<CustomerBookingResponse> getMyBookings() {
-        return customerBookingService.getMyBookings();
+    public List<CustomerBookingResponse> getMyBookings(
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size
+    ) {
+        return customerBookingService.getMyBookings(page, size);
     }
 
     @PostMapping("/customer/bookings")
