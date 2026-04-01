@@ -40,7 +40,7 @@ public class RideSearchTextService {
     Pattern arrowRoutePattern = Pattern.compile("(?iu)(.+?)\\s*(?:->|→|=>|den|đến)\\s+(.+)");
     Pattern seatPattern = Pattern.compile("(?iu)(\\d{1,2})\\s*(?:ghe|ghế|cho|chỗ|ve|vé)");
     Pattern pricePattern = Pattern.compile(
-            "(?iu)(?:duoi|dưới|toi da|tối đa|gia|giá|tam|tầm|khoang|khoảng)\\s*(\\d+(?:[\\.,]\\d+)?)\\s*(k|nghin|nghìn|tr|trieu|triệu|vnd|d)?");
+            "(?iu)(?:duoi|dưới|toi da|tối đa|gia|giá|tam|tầm|kh[oang|khoảng)\\s*(\\d+(?:[\\.,]\\d+)?)\\s*(k|nghin|nghìn|tr|trieu|triệu|vnd|d)?");
     Pattern yyyyMmDdPattern = Pattern.compile("\\b(20\\d{2}-\\d{2}-\\d{2})\\b");
     Pattern ddMmPattern = Pattern.compile("\\b(\\d{1,2})/(\\d{1,2})(?:/(20\\d{2}))?\\b");
 
