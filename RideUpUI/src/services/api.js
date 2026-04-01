@@ -37,9 +37,32 @@ const API_CACHE_TTL = {
   ADMIN_STATS: 15000,
   LOCATION_STATS: 10000,
   USERS: 20000,
+  DRIVER_TRIPS: 60000,
+  DRIVER_STATS: 60000,
+  DRIVER_PROFILE: 45000,
+  CHAT_THREADS: 8000,
 };
 
 const _apiCache = new Map();
+const DRIVER_TRIPS_CACHE_KEY = 'DRIVER_TRIPS:LIST';
+const DRIVER_STATS_CACHE_KEY = 'DRIVER_STATS:ME';
+let _driverTripsSnapshot = [];
+let _driverStatsSnapshot = null;
+
+const _rememberDriverTripsSnapshot = (data) => {
+  if (Array.isArray(data)) {
+    _driverTripsSnapshot = data;
+  }
+};
+
+const _rememberDriverStatsSnapshot = (data) => {
+  if (data && typeof data === 'object') {
+    _driverStatsSnapshot = data;
+  }
+};
+
+export const peekDriverTripsSnapshot = () => (Array.isArray(_driverTripsSnapshot) ? _driverTripsSnapshot : []);
+export const peekDriverStatsSnapshot = () => (_driverStatsSnapshot && typeof _driverStatsSnapshot === 'object' ? _driverStatsSnapshot : null);
 
 const _notifyAuthExpired = (reason) => {
   _authExpiredListeners.forEach((listener) => {
@@ -291,6 +314,7 @@ export const clearStoredAuth = async () => {
   _accessToken = null;
   _refreshToken = null;
   delete apiClient.defaults.headers.common['Authorization'];
+  _apiCache.clear();
   await AsyncStorage.multiRemove([
     STORAGE_KEYS.ACCESS_TOKEN,
     STORAGE_KEYS.REFRESH_TOKEN,
@@ -485,13 +509,25 @@ export const deleteRoute = async (routeId) => {
 // ==============================
 
 /** Lấy danh sách chuyến (trips) của tài xế */
-export const getDriverTrips = async () => {
+export const getDriverTrips = async (options = {}) => {
+  const force = options?.force === true;
   if (USE_MOCK_DATA) {
     await mockApiDelay();
+    _rememberDriverTripsSnapshot(MOCK_DRIVER_TRIPS);
     return MOCK_DRIVER_TRIPS;
   }
-  const res = await apiClient.get('/driver/trips');
-  return res.data;
+
+  if (force) {
+    _apiCache.delete(DRIVER_TRIPS_CACHE_KEY);
+  }
+
+  const trips = await getCached(DRIVER_TRIPS_CACHE_KEY, API_CACHE_TTL.DRIVER_TRIPS, async () => {
+    const res = await apiClient.get('/driver/trips');
+    return res.data;
+  });
+
+  _rememberDriverTripsSnapshot(trips);
+  return trips;
 };
 
 export const getDriverTripDetail = async (tripId) => {
@@ -551,13 +587,25 @@ export const getDriverRides = async () => {
 };
 
 /** Lấy thống kê tài xế */
-export const getDriverStats = async () => {
+export const getDriverStats = async (options = {}) => {
+  const force = options?.force === true;
   if (USE_MOCK_DATA) {
     await mockApiDelay(500);
+    _rememberDriverStatsSnapshot(MOCK_DRIVER_STATS);
     return MOCK_DRIVER_STATS;
   }
-  const res = await apiClient.get('/driver/stats');
-  return res.data;
+
+  if (force) {
+    _apiCache.delete(DRIVER_STATS_CACHE_KEY);
+  }
+
+  const stats = await getCached(DRIVER_STATS_CACHE_KEY, API_CACHE_TTL.DRIVER_STATS, async () => {
+    const res = await apiClient.get('/driver/stats');
+    return res.data;
+  });
+
+  _rememberDriverStatsSnapshot(stats);
+  return stats;
 };
 
 /** Lấy hồ sơ tài xế hiện tại */
@@ -584,8 +632,10 @@ export const getDriverProfile = async () => {
       vehicleVerified: false,
     };
   }
-  const res = await apiClient.get('/driver/profile');
-  return res.data;
+  return getCached('DRIVER_PROFILE:ME', API_CACHE_TTL.DRIVER_PROFILE, async () => {
+    const res = await apiClient.get('/driver/profile');
+    return res.data;
+  });
 };
 
 /** Cập nhật hồ sơ tài xế */
@@ -595,25 +645,46 @@ export const updateDriverProfile = async (payload) => {
     return { ...payload, updatedAt: new Date().toISOString() };
   }
   const res = await apiClient.put('/driver/profile', payload);
+  invalidateCacheByPrefix('DRIVER_PROFILE:');
   return res.data;
 };
 
 export const submitDriverProfile = async (payload) => {
   const res = await apiClient.post('/driver/profile/submit', payload || {});
+  invalidateCacheByPrefix('DRIVER_PROFILE:');
   return res.data;
 };
 
-export const uploadFile = async ({ uri, name, type }) => {
-  if (!uri) {
+export const uploadFile = async ({ uri, name, type, file }) => {
+  if (!uri && !file) {
     throw new Error('Khong tim thay tep de tai len');
   }
 
   const formData = new FormData();
-  formData.append('file', {
-    uri,
-    name: name || `upload_${Date.now()}.jpg`,
-    type: type || 'image/jpeg',
-  });
+  const fallbackName = name || `upload_${Date.now()}.jpg`;
+  const fallbackType = type || 'image/jpeg';
+  const isWebRuntime = typeof window !== 'undefined' && typeof document !== 'undefined';
+
+  if (isWebRuntime) {
+    if (file instanceof File || file instanceof Blob) {
+      const blobType = file.type || fallbackType;
+      const blobName = file.name || fallbackName;
+      formData.append('file', file, blobName);
+      if (!type) {
+        type = blobType;
+      }
+    } else if (uri) {
+      const response = await fetch(uri);
+      const blob = await response.blob();
+      formData.append('file', blob, fallbackName);
+    }
+  } else {
+    formData.append('file', {
+      uri,
+      name: fallbackName,
+      type: fallbackType,
+    });
+  }
 
   const res = await apiClient.post('/file/upload', formData, {
     headers: {
@@ -634,6 +705,7 @@ export const createTrip = async (tripData) => {
     return { ...tripData, id: 'trip_' + Date.now(), availableSeats: tripData.totalSeats };
   }
   const res = await apiClient.post('/driver/trips', tripData);
+  invalidateCacheByPrefix('DRIVER_TRIPS:');
   return res.data;
 };
 
@@ -645,6 +717,7 @@ export const cancelDriverTrip = async (tripId, cancellationReason = null) => {
   }
   const payload = cancellationReason ? { cancellationReason } : {};
   const res = await apiClient.put(`/driver/trips/${tripId}/cancel`, payload);
+  invalidateCacheByPrefix('DRIVER_TRIPS:');
   return res.data;
 };
 
@@ -654,6 +727,7 @@ export const startDriverTrip = async (tripId) => {
     return { id: tripId, status: 'ongoing' };
   }
   const res = await apiClient.put(`/driver/trips/${tripId}/start`);
+  invalidateCacheByPrefix('DRIVER_TRIPS:');
   return res.data;
 };
 
@@ -663,6 +737,7 @@ export const completeDriverTrip = async (tripId) => {
     return { id: tripId, status: 'completed' };
   }
   const res = await apiClient.put(`/driver/trips/${tripId}/complete`);
+  invalidateCacheByPrefix('DRIVER_TRIPS:');
   return res.data;
 };
 
@@ -868,8 +943,10 @@ export const getMyChatThreads = async () => {
     await mockApiDelay(400);
     return [];
   }
-  const res = await apiClient.get('/chat/threads');
-  return res.data?.result ?? res.data;
+  return getCached('CHAT_THREADS:ME', API_CACHE_TTL.CHAT_THREADS, async () => {
+    const res = await apiClient.get('/chat/threads');
+    return res.data?.result ?? res.data;
+  });
 };
 
 /** Lấy tin nhắn của một phòng chat */
@@ -898,6 +975,7 @@ export const sendChatMessage = async (threadId, content) => {
     };
   }
   const res = await apiClient.post(`/chat/threads/${threadId}/messages`, { content });
+  invalidateCacheByPrefix('CHAT_THREADS:');
   return res.data?.result ?? res.data;
 };
 
@@ -908,7 +986,23 @@ export const markChatThreadRead = async (threadId) => {
     return { id: threadId, myUnreadCount: 0 };
   }
   const res = await apiClient.post(`/chat/threads/${threadId}/read`);
+  invalidateCacheByPrefix('CHAT_THREADS:');
   return res.data?.result ?? res.data;
+};
+
+export const prefetchDriverBootstrapData = async (options = {}) => {
+  if (USE_MOCK_DATA) {
+    return;
+  }
+
+  const force = options?.force === true;
+
+  await Promise.allSettled([
+    getDriverTrips({ force }),
+    getDriverStats({ force }),
+    getDriverProfile(),
+    getMyChatThreads(),
+  ]);
 };
 
 // ── Admin: đồng bộ dữ liệu địa lý ──────────────────────────────────────

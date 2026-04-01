@@ -15,7 +15,8 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
-import DriverBottomNav from '../../components/DriverBottomNav';
+import DriverBottomNav, { DRIVER_BOTTOM_NAV_INSET } from '../../components/DriverBottomNav';
+import SkeletonShimmer from '../../components/SkeletonShimmer';
 import {
   createChatRealtimeClient,
   getChatMessages,
@@ -44,6 +45,7 @@ const DriverMessagesScreen = ({ navigation }) => {
   const [threads, setThreads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState('');
 
   const [chatVisible, setChatVisible] = useState(false);
   const [chatLoading, setChatLoading] = useState(false);
@@ -87,8 +89,9 @@ const DriverMessagesScreen = ({ navigation }) => {
       if (isRefresh) setRefreshing(true);
       const data = await getMyChatThreads();
       setThreads(Array.isArray(data) ? data : []);
+      setLoadError('');
     } catch (e) {
-      Alert.alert('Loi', e?.message || 'Khong tai duoc danh sach chat');
+      setLoadError(e?.message || 'Không tải được danh sách chat');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -117,7 +120,7 @@ const DriverMessagesScreen = ({ navigation }) => {
       startRealtime(thread.id);
       loadThreads(true);
     } catch (e) {
-      Alert.alert('Loi', e?.message || 'Khong mo duoc cuoc tro chuyen');
+      Alert.alert('Lỗi', e?.message || 'Không mở được cuộc trò chuyện');
       setChatVisible(false);
     } finally {
       setChatLoading(false);
@@ -163,7 +166,7 @@ const DriverMessagesScreen = ({ navigation }) => {
       setChatPendingImage(null);
       loadThreads(true);
     } catch (e) {
-      Alert.alert('Loi', e?.message || 'Gui tin nhan that bai');
+      Alert.alert('Lỗi', e?.message || 'Gửi tin nhắn thất bại');
     } finally {
       setChatUploadingImage(false);
       setChatSending(false);
@@ -201,7 +204,7 @@ const DriverMessagesScreen = ({ navigation }) => {
       } else {
         const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (!permission?.granted) {
-          Alert.alert('Quyen bi tu choi', 'Vui long cap quyen thu vien anh de gui hinh.');
+          Alert.alert('Quyền bị từ chối', 'Vui lòng cấp quyền thư viện ảnh để gửi hình.');
           return;
         }
 
@@ -221,53 +224,61 @@ const DriverMessagesScreen = ({ navigation }) => {
         });
       }
     } catch (e) {
-      Alert.alert('Loi', e?.message || 'Khong chon duoc hinh anh');
+      Alert.alert('Lỗi', e?.message || 'Không chọn được hình ảnh');
     }
   }, [chatSending, chatThread?.id, chatUploadingImage]);
 
-  if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#E65100" />
-      </View>
-    );
-  }
+  const isInitialLoading = loading && !refreshing && threads.length === 0;
 
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
-        <Text style={styles.title}>Tin nhan tai xe</Text>
-        <Text style={styles.subTitle}>Mo chat nhanh voi khach hang ma khong can vao chi tiet chuyen</Text>
+        <Text style={styles.title}>Tin nhắn tài xế</Text>
+        <Text style={styles.subTitle}>Mở chat nhanh với khách hàng mà không cần vào chi tiết chuyến</Text>
       </View>
 
+      {(loading || refreshing) && (
+        <View style={styles.syncHintWrap}>
+          <ActivityIndicator size="small" color="#C2410C" />
+          <Text style={styles.syncHintText}>Đang cập nhật danh sách chat...</Text>
+        </View>
+      )}
+
+      {!!loadError && <Text style={styles.inlineError}>{loadError}</Text>}
+
       <FlatList
-        data={threads}
+        data={isInitialLoading ? [{ id: 's1' }, { id: 's2' }, { id: 's3' }] : threads}
         keyExtractor={(item, index) => item?.id || `thread-${index}`}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => loadThreads(true)} />}
         contentContainerStyle={styles.listContent}
-        renderItem={({ item }) => (
+        renderItem={({ item }) => (isInitialLoading ? (
+          <View style={styles.threadSkeleton}>
+            <SkeletonShimmer style={styles.skelLineLg} />
+            <SkeletonShimmer style={styles.skelLineMd} />
+          </View>
+        ) : (
           <TouchableOpacity style={styles.threadCard} onPress={() => openThread(item)} activeOpacity={0.9}>
             <View style={styles.threadTop}>
               <Text style={styles.threadTitle}>{item.chatTitle || `Booking: ${item.bookingId || '--'}`}</Text>
               <Text style={styles.threadTime}>{formatTime(item.lastMessageAt)}</Text>
             </View>
-            <Text style={styles.threadPreview} numberOfLines={2}>{item.lastMessagePreview || 'Bat dau tro chuyen'}</Text>
+            <Text style={styles.threadPreview} numberOfLines={2}>{item.lastMessagePreview || 'Bắt đầu trò chuyện'}</Text>
             {!!item.myUnreadCount && <View style={styles.unreadDot} />}
           </TouchableOpacity>
-        )}
-        ListEmptyComponent={<Text style={styles.empty}>Chua co cuoc tro chuyen nao</Text>}
+        ))}
+        ListEmptyComponent={!loading ? <Text style={styles.empty}>Chưa có cuộc trò chuyện nào</Text> : null}
       />
 
       <Modal visible={chatVisible} transparent animationType="fade" onRequestClose={closeChatModal}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Chat voi khach hang</Text>
+            <Text style={styles.modalTitle}>Chat với khách hàng</Text>
             <Text style={styles.modalSub}>Booking: {chatThread?.bookingId || '--'}</Text>
 
             {chatLoading ? (
               <View style={styles.chatLoadingWrap}>
                 <ActivityIndicator size="small" color="#E65100" />
-                <Text style={styles.chatLoadingText}>Dang tai tin nhan...</Text>
+                <Text style={styles.chatLoadingText}>Đang tải tin nhắn...</Text>
               </View>
             ) : (
               <ScrollView
@@ -277,7 +288,7 @@ const DriverMessagesScreen = ({ navigation }) => {
                 onContentSizeChange={() => chatScrollRef.current?.scrollToEnd({ animated: true })}
               >
                 {chatMessages.length === 0 && (
-                  <Text style={styles.chatEmptyText}>Chua co tin nhan.</Text>
+                  <Text style={styles.chatEmptyText}>Chưa có tin nhắn.</Text>
                 )}
                 {chatMessages.map((msg, idx) => (
                   <View key={msg.id || `msg-${idx}`} style={[styles.chatBubble, msg.mine ? styles.chatBubbleMine : styles.chatBubbleOther]}>
@@ -306,7 +317,7 @@ const DriverMessagesScreen = ({ navigation }) => {
                 style={styles.chatInput}
                 value={chatDraft}
                 onChangeText={setChatDraft}
-                placeholder="Nhap tin nhan..."
+                placeholder="Nhập tin nhắn..."
                 maxLength={2000}
               />
 
@@ -325,13 +336,13 @@ const DriverMessagesScreen = ({ navigation }) => {
                 <TouchableOpacity style={styles.chatPendingRemoveBtn} onPress={() => setChatPendingImage(null)}>
                   <Ionicons name="close" size={14} color="#FFFFFF" />
                 </TouchableOpacity>
-                <Text style={styles.chatPendingHint}>Da chon anh. Bam Gui de gui anh.</Text>
+                <Text style={styles.chatPendingHint}>Đã chọn ảnh. Bấm Gửi để gửi ảnh.</Text>
               </View>
             )}
 
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.closeBtn} onPress={closeChatModal}>
-                <Text style={styles.closeBtnText}>Dong</Text>
+                <Text style={styles.closeBtnText}>Đóng</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -349,7 +360,29 @@ const styles = StyleSheet.create({
   header: { paddingTop: 56, paddingHorizontal: 16, paddingBottom: 10, backgroundColor: '#E65100' },
   title: { color: '#FFFFFF', fontSize: 20, fontWeight: '800' },
   subTitle: { color: 'rgba(255,255,255,0.9)', marginTop: 4, fontSize: 12 },
-  listContent: { padding: 12, paddingBottom: 110 },
+  syncHintWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#FFF7ED',
+    borderBottomWidth: 1,
+    borderBottomColor: '#FED7AA',
+  },
+  syncHintText: { fontSize: 12, color: '#9A3412', fontWeight: '600' },
+  inlineError: { color: '#B91C1C', fontSize: 12, paddingHorizontal: 12, paddingTop: 8 },
+  listContent: { padding: 12, paddingBottom: DRIVER_BOTTOM_NAV_INSET },
+  threadSkeleton: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 10,
+  },
+  skelLineLg: { height: 12, borderRadius: 8, width: '64%', backgroundColor: '#ECEFF3', marginBottom: 8 },
+  skelLineMd: { height: 10, borderRadius: 8, width: '84%', backgroundColor: '#ECEFF3' },
   threadCard: {
     backgroundColor: '#FFFFFF',
     borderWidth: 1,

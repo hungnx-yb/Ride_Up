@@ -5,8 +5,14 @@ import {
   Animated, Easing,
 } from 'react-native';
 import { COLORS } from '../../config/config';
-import { getDriverTrips, getDriverStats } from '../../services/api';
-import DriverBottomNav from '../../components/DriverBottomNav';
+import {
+  getDriverTrips,
+  getDriverStats,
+  peekDriverTripsSnapshot,
+  peekDriverStatsSnapshot,
+} from '../../services/api';
+import DriverBottomNav, { DRIVER_BOTTOM_NAV_INSET } from '../../components/DriverBottomNav';
+import SkeletonShimmer from '../../components/SkeletonShimmer';
 import {
   ensureApprovedProfileBeforeCreateTrip,
   ensureApprovedProfileForTripFeature,
@@ -39,16 +45,19 @@ const QUICK_ACTIONS = [
 ];
 
 const DriverHomeScreen = ({ user, onLogout, navigation }) => {
-  const [trips, setTrips]   = useState([]);
-  const [stats, setStats]   = useState(null);
+  const initialTripsRef = useRef(peekDriverTripsSnapshot());
+  const initialStatsRef = useRef(peekDriverStatsSnapshot());
+
+  const [trips, setTrips]   = useState(initialTripsRef.current);
+  const [stats, setStats]   = useState(initialStatsRef.current);
   const [loadError, setLoadError] = useState('');
-  const [loading, setLoading]       = useState(true);
+  const [loading, setLoading]       = useState(initialTripsRef.current.length === 0 && !initialStatsRef.current);
   const [refreshing, setRefreshing] = useState(false);
   const [approvalModalVisible, setApprovalModalVisible] = useState(false);
   const [approvalModalMessage, setApprovalModalMessage] = useState('');
 
   const showApprovalModal = (message) => {
-    setApprovalModalMessage(message || 'Vui long cap nhat ho so tai xe.');
+    setApprovalModalMessage(message || 'Vui lòng cập nhật hồ sơ tài xế.');
     setApprovalModalVisible(true);
   };
 
@@ -69,7 +78,7 @@ const DriverHomeScreen = ({ user, onLogout, navigation }) => {
 
   const handleAllTripsPress = async () => {
     const result = await ensureApprovedProfileForTripFeature(
-      'Vui long cap nhat ho so tai xe va doi admin duyet truoc khi xem danh sach chuyen xe.'
+      'Vui lòng cập nhật hồ sơ tài xế và đợi admin duyệt trước khi xem danh sách chuyến xe.'
     );
     if (result.allowed) {
       navigation?.navigate('AllTrips');
@@ -95,8 +104,8 @@ const DriverHomeScreen = ({ user, onLogout, navigation }) => {
   const loadData = async (isRefresh = false) => {
     try {
       const [tripsRes, statsRes, profileRes] = await Promise.allSettled([
-        getDriverTrips(),
-        getDriverStats(),
+        getDriverTrips({ force: isRefresh }),
+        getDriverStats({ force: isRefresh }),
         warmupDriverProfileApprovalCache({ force: isRefresh }),
       ]);
 
@@ -122,7 +131,8 @@ const DriverHomeScreen = ({ user, onLogout, navigation }) => {
   };
 
   useEffect(() => {
-    loadData().then(runEntrance);
+    runEntrance();
+    loadData();
   }, []);
 
   const formatCurrency = (n) =>
@@ -132,14 +142,7 @@ const DriverHomeScreen = ({ user, onLogout, navigation }) => {
   const todayTrips    = trips.filter((t) => t.departureDate === todayStr || t.status === 'ongoing');
   const upcomingTrips = trips.filter((t) => t.departureDate > todayStr && t.status === 'scheduled');
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={THEME.gradientStart} />
-        <Text style={styles.loadingText}>Đang tải...</Text>
-      </View>
-    );
-  }
+  const isInitialLoading = loading && !refreshing;
 
   const headerTranslate = headerAnim.interpolate({ inputRange: [0, 1], outputRange: [-30, 0] });
   const statsScale      = statsAnim.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] });
@@ -157,6 +160,13 @@ const DriverHomeScreen = ({ user, onLogout, navigation }) => {
           />
         }
       >
+      {(loading || refreshing) && (
+        <View style={styles.syncHintWrap}>
+          <ActivityIndicator size="small" color={THEME.gradientStart} />
+          <Text style={styles.syncHintText}>Đang đồng bộ dữ liệu tài xế...</Text>
+        </View>
+      )}
+
       {/* ── Header (orange-red gradient) ── */}
       <Animated.View style={[styles.header, { opacity: headerAnim, transform: [{ translateY: headerTranslate }] }]}>
         <View style={styles.headerPattern} />
@@ -182,7 +192,7 @@ const DriverHomeScreen = ({ user, onLogout, navigation }) => {
       </Animated.View>
 
       {/* ── Stats card (lifted) ── */}
-      {stats && (
+      {stats ? (
         <Animated.View style={[styles.statsCard, { opacity: statsAnim, transform: [{ scale: statsScale }] }]}>
           <StatMini icon="📋" label="Chuyến tháng"  value={stats.thisMonth.totalRides} />
           <View style={styles.statDivider} />
@@ -190,7 +200,15 @@ const DriverHomeScreen = ({ user, onLogout, navigation }) => {
           <View style={styles.statDivider} />
           <StatMini icon="💰" label="Doanh thu"     value={formatCurrency(stats.thisMonth.revenue)} small />
         </Animated.View>
-      )}
+      ) : isInitialLoading ? (
+        <View style={styles.statsCardSkeleton}>
+          <SkeletonShimmer style={styles.skeletonCol} />
+          <View style={styles.skeletonDivider} />
+          <SkeletonShimmer style={styles.skeletonCol} />
+          <View style={styles.skeletonDivider} />
+          <SkeletonShimmer style={styles.skeletonCol} />
+        </View>
+      ) : null}
 
       {/* ── Revenue preview (orange card) ── */}
       {stats && (
@@ -235,7 +253,12 @@ const DriverHomeScreen = ({ user, onLogout, navigation }) => {
       {/* ── Chuyến hôm nay ── */}
       <Animated.View style={[styles.section, { opacity: listAnim, transform: [{ translateY: listTranslate }] }]}>
         <Text style={styles.sectionTitle}>📅 Hôm nay ({todayTrips.length})</Text>
-        {todayTrips.length === 0 ? (
+        {isInitialLoading ? (
+          <>
+            <TripCardSkeleton />
+            <TripCardSkeleton />
+          </>
+        ) : todayTrips.length === 0 ? (
           <EmptyCard
             text="Không có chuyến hôm nay"
             btnText="✨ Tạo chuyến xe mới"
@@ -325,6 +348,14 @@ const EmptyCard = ({ text, btnText, onPress }) => (
   </View>
 );
 
+const TripCardSkeleton = () => (
+  <View style={styles.tripCardSkeleton}>
+    <SkeletonShimmer style={styles.skeletonLineLg} />
+    <SkeletonShimmer style={styles.skeletonLineMd} />
+    <SkeletonShimmer style={styles.skeletonLineSm} />
+  </View>
+);
+
 // ─── Styles ──────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
@@ -332,6 +363,17 @@ const styles = StyleSheet.create({
   container:        { flex: 1, backgroundColor: COLORS.background },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background },
   loadingText:      { marginTop: 12, color: COLORS.textLight },
+  syncHintWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#FFF7ED',
+    borderBottomWidth: 1,
+    borderBottomColor: '#FED7AA',
+  },
+  syncHintText: { fontSize: 12, color: '#9A3412', fontWeight: '600' },
 
   // Header
   header: {
@@ -366,6 +408,13 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15, shadowRadius: 12, elevation: 6,
     borderWidth: 1.5, borderColor: THEME.cardBorder,
   },
+  statsCardSkeleton: {
+    flexDirection: 'row', backgroundColor: COLORS.surface,
+    marginHorizontal: 16, marginTop: -16, borderRadius: 16, padding: 14,
+    borderWidth: 1.5, borderColor: THEME.cardBorder,
+  },
+  skeletonCol: { flex: 1, height: 44, borderRadius: 10, backgroundColor: '#ECEFF3' },
+  skeletonDivider: { width: 10 },
   statMini:      { flex: 1, alignItems: 'center' },
   statDivider:   { width: 1, backgroundColor: COLORS.border },
   statMiniIcon:  { fontSize: 18 },
@@ -419,6 +468,17 @@ const styles = StyleSheet.create({
   seatText:        { fontSize: 12, color: THEME.gradientStart, fontWeight: '600' },
   seatBarBg:       { height: 4, backgroundColor: COLORS.border, borderRadius: 2 },
   seatBarFill:     { height: 4, backgroundColor: THEME.gradientStart, borderRadius: 2 },
+  tripCardSkeleton: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+  },
+  skeletonLineLg: { height: 13, borderRadius: 8, width: '68%', backgroundColor: '#ECEFF3', marginBottom: 10 },
+  skeletonLineMd: { height: 11, borderRadius: 8, width: '48%', backgroundColor: '#ECEFF3', marginBottom: 8 },
+  skeletonLineSm: { height: 10, borderRadius: 8, width: '34%', backgroundColor: '#ECEFF3' },
 
   // Empty
   emptyBox:     { backgroundColor: COLORS.surface, borderRadius: 16, padding: 24, alignItems: 'center', borderWidth: 1.5, borderColor: THEME.cardBorder },
@@ -430,7 +490,7 @@ const styles = StyleSheet.create({
   },
   emptyBtnText: { color: COLORS.white, fontWeight: '700', fontSize: 14 },
 
-  bottomPad: { height: 106 },
+  bottomPad: { height: DRIVER_BOTTOM_NAV_INSET },
 });
 
 export default DriverHomeScreen;

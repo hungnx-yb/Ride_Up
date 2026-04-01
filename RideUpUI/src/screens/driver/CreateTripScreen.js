@@ -17,7 +17,7 @@ import {
 import { createTrip } from '../../services/api';
 import ProvincePicker from '../../components/ProvincePicker';
 import WardPicker from '../../components/WardPicker';
-import DriverBottomNav from '../../components/DriverBottomNav';
+import DriverBottomNav, { DRIVER_BOTTOM_NAV_INSET } from '../../components/DriverBottomNav';
 import { ensureApprovedProfileBeforeCreateTrip } from '../../services/driverProfileGuard';
 
 const THEME = {
@@ -261,7 +261,7 @@ const CreateTripScreen = ({ navigation }) => {
 
   const handleSubmit = async () => {
     if (!canSubmit) {
-      Alert.alert('Thieu thong tin', 'Vui long nhap du thong tin tuyen va lich khoi hanh.');
+      Alert.alert('Thiếu thông tin', 'Vui lòng nhập đủ thông tin tuyến và lịch khởi hành.');
       return;
     }
 
@@ -287,7 +287,7 @@ const CreateTripScreen = ({ navigation }) => {
       resetForm();
       navigation?.navigate('DriverHome');
     } catch (e) {
-      Alert.alert('Loi', e.message || 'Khong the tao chuyen');
+      Alert.alert('Lỗi', e.message || 'Không thể tạo chuyến');
     } finally {
       setSaving(false);
     }
@@ -299,13 +299,13 @@ const CreateTripScreen = ({ navigation }) => {
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation?.goBack()}>
           <Text style={styles.backIcon}>‹</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Tao chuyen xe</Text>
+        <Text style={styles.headerTitle}>Tạo chuyến xe</Text>
         <View style={{ width: 36 }} />
       </View>
 
       <ProvincePicker
         visible={showPickupProvince}
-        title="Chon tinh/TP don"
+        title="Chọn tỉnh/TP đón"
         requireDb
         onClose={() => setShowPickupProvince(false)}
         onSelect={(p) => {
@@ -315,7 +315,7 @@ const CreateTripScreen = ({ navigation }) => {
       />
       <ProvincePicker
         visible={showDropoffProvince}
-        title="Chon tinh/TP tra"
+        title="Chọn tỉnh/TP trả"
         requireDb
         onClose={() => setShowDropoffProvince(false)}
         onSelect={(p) => {
@@ -325,7 +325,7 @@ const CreateTripScreen = ({ navigation }) => {
       />
       <WardPicker
         visible={showPickupWard}
-        title="Chon xa/phuong don"
+        title="Chọn xã/phường đón"
         provinceId={pickupProvince?.id}
         selectedNames={pickupClusters}
         onClose={() => setShowPickupWard(false)}
@@ -333,7 +333,7 @@ const CreateTripScreen = ({ navigation }) => {
       />
       <WardPicker
         visible={showDropoffWard}
-        title="Chon xa/phuong tra"
+        title="Chọn xã/phường trả"
         provinceId={dropoffProvince?.id}
         selectedNames={dropoffClusters}
         onClose={() => setShowDropoffWard(false)}
@@ -342,22 +342,22 @@ const CreateTripScreen = ({ navigation }) => {
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
-          <Text style={styles.sectionTitle}>1. Tuyen duong</Text>
+          <Text style={styles.sectionTitle}>1. Tuyến đường</Text>
 
-          <Text style={styles.inputLabel}>Tinh/TP don *</Text>
+          <Text style={styles.inputLabel}>Tỉnh/TP đón *</Text>
           <TouchableOpacity style={styles.selector} onPress={() => setShowPickupProvince(true)}>
-            <Text style={styles.selectorText}>{pickupProvince?.name || 'Chon tinh don'}</Text>
+            <Text style={styles.selectorText}>{pickupProvince?.name || 'Chọn tỉnh đón'}</Text>
             <Text style={styles.chevron}>›</Text>
           </TouchableOpacity>
 
-          <Text style={styles.inputLabel}>Xa/phuong don *</Text>
+          <Text style={styles.inputLabel}>Xã/phường đón *</Text>
           <TouchableOpacity
             style={[styles.selector, !pickupProvince && styles.selectorDisabled]}
             onPress={() => setShowPickupWard(true)}
             disabled={!pickupProvince}
           >
             <Text style={styles.selectorText}>
-              {pickupProvince ? 'Chon xa/phuong don' : 'Chon tinh don truoc'}
+              {pickupProvince ? 'Chọn xã/phường đón' : 'Chọn tỉnh đón trước'}
             </Text>
             <Text style={styles.chevron}>›</Text>
           </TouchableOpacity>
@@ -374,20 +374,20 @@ const CreateTripScreen = ({ navigation }) => {
             </View>
           )}
 
-          <Text style={styles.inputLabel}>Tinh/TP tra *</Text>
+          <Text style={styles.inputLabel}>Tỉnh/TP trả *</Text>
           <TouchableOpacity style={styles.selector} onPress={() => setShowDropoffProvince(true)}>
-            <Text style={styles.selectorText}>{dropoffProvince?.name || 'Chon tinh tra'}</Text>
+            <Text style={styles.selectorText}>{dropoffProvince?.name || 'Chọn tỉnh trả'}</Text>
             <Text style={styles.chevron}>›</Text>
           </TouchableOpacity>
 
-          <Text style={styles.inputLabel}>Xa/phuong tra *</Text>
+          <Text style={styles.inputLabel}>Xã/phường trả *</Text>
           <TouchableOpacity
             style={[styles.selector, !dropoffProvince && styles.selectorDisabled]}
             onPress={() => setShowDropoffWard(true)}
             disabled={!dropoffProvince}
           >
             <Text style={styles.selectorText}>
-              {dropoffProvince ? 'Chon xa/phuong tra' : 'Chon tinh tra truoc'}
+              {dropoffProvince ? 'Chọn xã/phường trả' : 'Chọn tỉnh trả trước'}
             </Text>
             <Text style={styles.chevron}>›</Text>
           </TouchableOpacity>
@@ -404,48 +404,48 @@ const CreateTripScreen = ({ navigation }) => {
             </View>
           )}
 
-          <Text style={styles.inputLabel}>Gia ve co dinh (d) *</Text>
+          <Text style={styles.inputLabel}>Giá vé cố định (đ) *</Text>
           <TextInput
             style={styles.input}
-            placeholder="Vi du: 120000"
+            placeholder="Ví dụ: 120000"
             keyboardType="numeric"
             value={fare}
             onChangeText={setFare}
           />
 
-          <Text style={styles.sectionTitle}>2. Lich khoi hanh</Text>
+          <Text style={styles.sectionTitle}>2. Lịch khởi hành</Text>
           <View style={styles.dateTimeRow}>
             <View style={[styles.inputWrapper, { flex: 1, marginRight: 8 }]}>
-              <Text style={styles.inputLabel}>Ngay (dd/MM/yyyy) *</Text>
+              <Text style={styles.inputLabel}>Ngày (dd/MM/yyyy) *</Text>
               <TouchableOpacity
                 style={styles.selector}
                 onPress={openDatePicker}
                 activeOpacity={0.8}
               >
-                <Text style={styles.selectorText}>{departureDate || 'Chon ngay'}</Text>
+                <Text style={styles.selectorText}>{departureDate || 'Chọn ngày'}</Text>
                 <Text style={styles.chevron}>📅</Text>
               </TouchableOpacity>
             </View>
             <View style={[styles.inputWrapper, { flex: 1 }]}>
-              <Text style={styles.inputLabel}>Gio (HH:MM) *</Text>
+              <Text style={styles.inputLabel}>Giờ (HH:MM) *</Text>
               <TouchableOpacity
                 style={styles.selector}
                 onPress={openTimePicker}
                 activeOpacity={0.8}
               >
-                <Text style={styles.selectorText}>{departureTime || 'Chon gio'}</Text>
+                <Text style={styles.selectorText}>{departureTime || 'Chọn giờ'}</Text>
                 <Text style={styles.chevron}>🕒</Text>
               </TouchableOpacity>
             </View>
           </View>
 
-          <Text style={styles.sectionTitle}>3. So ghe</Text>
+          <Text style={styles.sectionTitle}>3. Số ghế</Text>
           <SeatStepper value={totalSeats} onChange={setTotalSeats} />
 
-          <Text style={styles.sectionTitle}>4. Ghi chu (tuy chon)</Text>
+          <Text style={styles.sectionTitle}>4. Ghi chú (tùy chọn)</Text>
           <TextInput
             style={[styles.input, styles.notesInput]}
-            placeholder="Vi du: Co dieu hoa, dung don linh hoat..."
+            placeholder="Ví dụ: Có điều hòa, đón linh hoạt..."
             value={notes}
             onChangeText={setNotes}
             multiline
@@ -459,10 +459,10 @@ const CreateTripScreen = ({ navigation }) => {
             onPress={handleSubmit}
             disabled={!canSubmit || saving}
           >
-            {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitBtnText}>Luu va tao chuyen</Text>}
+            {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitBtnText}>Lưu và tạo chuyến</Text>}
           </TouchableOpacity>
 
-          <View style={{ height: 110 }} />
+          <View style={styles.bottomSpacer} />
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -500,8 +500,8 @@ const CreateTripScreen = ({ navigation }) => {
             >
               <Text style={styles.successBadgeText}>✓</Text>
             </Animated.View>
-            <Text style={styles.successTitle}>Tao chuyen thanh cong</Text>
-            <Text style={styles.successSubTitle}>Dang quay ve trang chu tai xe...</Text>
+            <Text style={styles.successTitle}>Tạo chuyến thành công</Text>
+            <Text style={styles.successSubTitle}>Đang quay về trang chủ tài xế...</Text>
           </Animated.View>
         </Animated.View>
       )}
@@ -555,7 +555,7 @@ const CreateTripScreen = ({ navigation }) => {
             </View>
 
             <TouchableOpacity style={styles.pickerCloseBtn} onPress={() => setShowDatePicker(false)}>
-              <Text style={styles.pickerCloseText}>Dong</Text>
+              <Text style={styles.pickerCloseText}>Đóng</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -569,7 +569,7 @@ const CreateTripScreen = ({ navigation }) => {
       >
         <View style={styles.pickerOverlay}>
           <View style={styles.pickerCard}>
-            <Text style={[styles.pickerTitle, { marginBottom: 10 }]}>Chon gio khoi hanh</Text>
+            <Text style={[styles.pickerTitle, { marginBottom: 10 }]}>Chọn giờ khởi hành</Text>
             <ScrollView style={styles.timeList} contentContainerStyle={styles.timeListContent}>
               {TIME_SLOTS.map((timeValue) => (
                 <TouchableOpacity
@@ -583,7 +583,7 @@ const CreateTripScreen = ({ navigation }) => {
             </ScrollView>
 
             <TouchableOpacity style={styles.pickerCloseBtn} onPress={() => setShowTimePicker(false)}>
-              <Text style={styles.pickerCloseText}>Dong</Text>
+              <Text style={styles.pickerCloseText}>Đóng</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -812,4 +812,5 @@ const styles = StyleSheet.create({
   timeItemSelected: { backgroundColor: '#FFE0B2', borderColor: '#FFB74D' },
   timeItemText: { color: '#444', fontWeight: '600' },
   timeItemTextSelected: { color: THEME.gradientStart, fontWeight: '800' },
+  bottomSpacer: { height: DRIVER_BOTTOM_NAV_INSET },
 });

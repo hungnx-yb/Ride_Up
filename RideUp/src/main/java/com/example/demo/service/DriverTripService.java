@@ -65,10 +65,9 @@ public class DriverTripService {
     public List<DriverTripResponse> getMyTrips() {
         DriverProfile driverProfile = getOrCreateDriverProfile();
         List<Trip> actualTrips = tripRepository.findByDriverIdAndDepartureTimeIsNotNullOrderByDepartureTimeDesc(driverProfile.getId());
-        List<Trip> routeTemplates = tripRepository.findByDriverIdAndDepartureTimeIsNullOrderByUpdatedAtDesc(driverProfile.getId());
 
         return actualTrips.stream()
-                .map(trip -> toTripResponse(trip, routeTemplates))
+                .map(this::toTripListResponse)
                 .collect(Collectors.toList());
     }
 
@@ -77,8 +76,6 @@ public class DriverTripService {
             DriverProfile driverProfile = getOrCreateDriverProfile();
             Trip trip = tripRepository.findByIdAndDriverIdAndDepartureTimeIsNotNull(tripId, driverProfile.getId())
                 .orElseThrow(() -> new AppException(ErrorCode.TRIP_NOT_FOUND));
-
-            List<Trip> routeTemplates = tripRepository.findByDriverIdAndDepartureTimeIsNullOrderByUpdatedAtDesc(driverProfile.getId());
 
             List<DriverTripDetailResponse.PointInfo> pickupPoints = mapPickupPoints(trip.getPickupPoints());
             List<DriverTripDetailResponse.PointInfo> dropoffPoints = mapDropoffPoints(trip.getDropoffPoints());
@@ -104,7 +101,7 @@ public class DriverTripService {
             LocalDateTime departure = trip.getDepartureTime();
             return DriverTripDetailResponse.builder()
                 .id(trip.getId())
-                .routeId(matchTemplateId(trip, routeTemplates).orElse(trip.getId()))
+                .routeId(trip.getId())
                 .status(toUiStatus(trip.getStatus()))
                 .pickupProvince(pickupProvince)
                 .dropoffProvince(dropoffProvince)
@@ -514,6 +511,12 @@ public class DriverTripService {
 
     private DriverProfile getOrCreateDriverProfile() {
         User currentUser = userService.getCurrentUser();
+        Optional<DriverProfile> existingProfile = driverProfileRepository.findByUserId(currentUser.getId());
+        if (existingProfile.isPresent()) {
+            return existingProfile.get();
+        }
+
+        // Fallback for legacy duplicated data.
         List<DriverProfile> profiles = driverProfileRepository.findAllByUserIdOrderByCreatedAtDesc(currentUser.getId());
         if (!profiles.isEmpty()) {
             return profiles.stream()
@@ -590,6 +593,35 @@ public class DriverTripService {
                 .status(toUiStatus(trip.getStatus()))
                 .build();
     }
+
+            private DriverTripResponse toTripListResponse(Trip trip) {
+            String pickupProvince = trip.getPickupPoints().stream()
+                .map(p -> p.getWard() != null && p.getWard().getProvince() != null ? p.getWard().getProvince().getName() : null)
+                .filter(StringUtils::hasText)
+                .findFirst()
+                .orElse("");
+
+            String dropoffProvince = trip.getDropoffPoints().stream()
+                .map(p -> p.getWard() != null && p.getWard().getProvince() != null ? p.getWard().getProvince().getName() : null)
+                .filter(StringUtils::hasText)
+                .findFirst()
+                .orElse("");
+
+            LocalDateTime departure = trip.getDepartureTime();
+
+            return DriverTripResponse.builder()
+                .id(trip.getId())
+                .routeId(trip.getId())
+                .pickupProvince(pickupProvince)
+                .dropoffProvince(dropoffProvince)
+                .departureDate(departure == null ? null : departure.toLocalDate().format(isoDate))
+                .departureTime(departure == null ? null : departure.toLocalTime().format(uiTime))
+                .totalSeats(trip.getTotalSeats() == null ? 0 : trip.getTotalSeats())
+                .availableSeats(trip.getAvailableSeats() == null ? 0 : trip.getAvailableSeats())
+                .fixedFare(trip.getPricePerSeat() == null ? 0L : trip.getPricePerSeat().longValue())
+                .status(toUiStatus(trip.getStatus()))
+                .build();
+            }
 
     private List<DriverTripDetailResponse.PointInfo> mapPickupPoints(List<TripPickupPoint> points) {
         if (points == null || points.isEmpty()) {
