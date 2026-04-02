@@ -3,6 +3,7 @@ package com.example.demo.controller;
 import com.example.demo.dto.request.CreateBookingRequest;
 import com.example.demo.dto.request.CreateBookingReviewRequest;
 import com.example.demo.dto.request.ConfirmPaymentRequest;
+import com.example.demo.dto.request.CancelBookingRequest;
 import com.example.demo.dto.request.RideSearchFromTextRequest;
 import com.example.demo.dto.response.BookingReviewResponse;
 import com.example.demo.dto.response.CustomerBookingResponse;
@@ -82,6 +83,14 @@ public class CustomerBookingController {
         return customerBookingService.confirmBookingPayment(bookingId, request);
     }
 
+    @PostMapping("/customer/bookings/{bookingId}/cancel")
+    @PreAuthorize("isAuthenticated()")
+    public CustomerBookingResponse cancelBooking(@PathVariable String bookingId,
+                                                 @RequestBody(required = false) CancelBookingRequest request,
+                                                 HttpServletRequest httpServletRequest) {
+        return customerBookingService.cancelMyBooking(bookingId, request, getClientIp(httpServletRequest));
+    }
+
     @PostMapping("/customer/bookings/{bookingId}/rate")
     @PreAuthorize("isAuthenticated()")
     public BookingReviewResponse createBookingReview(@PathVariable String bookingId,
@@ -98,10 +107,10 @@ public class CustomerBookingController {
                 String bookingId = safeText(bookingIdRaw);
                 String transactionRef = safeText(result.get("transactionRef"));
                 String detail = safeText(result.get("message"));
-                String title = success ? "Thanh toan thanh cong" : "Thanh toan that bai";
+                String title = success ? "Thanh toán thành công" : "Thanh toán thất bại";
                 String subtitle = success
-                                ? "Giao dich da duoc xac nhan boi RideUp."
-                                : "Khong the xac nhan thanh toan. Vui long thu lai.";
+                                ? "Giao dịch đã được xác nhận bởi RideUp."
+                                : "Không thể xác nhận thanh toán. Vui lòng thử lại.";
                 String targetTripsUrl = safeText(buildCustomerTripsUrl(bookingIdRaw, success));
 
                 String html = """
@@ -190,11 +199,11 @@ public class CustomerBookingController {
                                             <div class=\"sub\">%s</div>
                                         </div>
                                         <div class=\"body\">
-                                            <div class=\"row\"><span class=\"k\">Ma don dat</span><span class=\"v\">%s</span></div>
-                                            <div class=\"row\"><span class=\"k\">Ma giao dich</span><span class=\"v\">%s</span></div>
-                                            <div class=\"row\"><span class=\"k\">Chi tiet</span><span class=\"v\">%s</span></div>
+                                            <div class=\"row\"><span class=\"k\">Mã đơn đặt</span><span class=\"v\">%s</span></div>
+                                            <div class=\"row\"><span class=\"k\">Mã giao dịch</span><span class=\"v\">%s</span></div>
+                                            <div class=\"row\"><span class=\"k\">Chi tiết</span><span class=\"v\">%s</span></div>
                                             <div class=\"actions\">
-                                                <button class=\"btn home\" onclick=\"window.location.href='%s'\">Chuyen cua toi</button>
+                                                <button class=\"btn home\" onclick=\"window.location.href='%s'\">Chuyến của tôi</button>
                                             </div>
                                         </div>
                                     </div>
@@ -263,9 +272,9 @@ public class CustomerBookingController {
                                 </head>
                                 <body>
                                     <div class="card">
-                                        <h1>Da ve trang RideUp</h1>
-                                        <p>Ban co the dong cua so nay va quay lai ung dung RideUp de tiep tuc.</p>
-                                        <button class="btn" onclick="if (window.history.length > 1) { window.history.back(); }">Quay lai trang truoc</button>
+                                        <h1>Đã về trang RideUp</h1>
+                                        <p>Bạn có thể đóng cửa sổ này và quay lại ứng dụng RideUp để tiếp tục.</p>
+                                        <button class="btn" onclick="if (window.history.length > 1) { window.history.back(); }">Quay lại trang trước</button>
                                     </div>
                                 </body>
                                 </html>

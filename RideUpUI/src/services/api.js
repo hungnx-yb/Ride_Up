@@ -25,6 +25,7 @@ export const USE_MOCK_DATA = false;
 let _accessToken = null;
 let _refreshToken = null;
 let _isHandlingAuthExpiry = false;
+let _refreshInFlight = null;
 const _authExpiredListeners = new Set();
 
 export const STORAGE_KEYS = {
@@ -42,6 +43,8 @@ const API_CACHE_TTL = {
   DRIVER_PROFILE: 45000,
   CHAT_THREADS: 8000,
 };
+
+const CHAT_REQUEST_TIMEOUT = 12000;
 
 const _apiCache = new Map();
 const DRIVER_TRIPS_CACHE_KEY = 'DRIVER_TRIPS:LIST';
@@ -91,6 +94,71 @@ const _isTokenExpiredError = (error) => {
   if (status !== 401 && status !== 403) return false;
 
   return !!(_accessToken || error?.config?.headers?.Authorization || error?.config?.headers?.authorization);
+};
+
+const _isRefreshableAuthError = (error) => {
+  const status = error?.response?.status;
+  const code = error?.response?.data?.code;
+  const rawMessage = String(
+    error?.response?.data?.message
+    || error?.response?.data?.error
+    || error?.message
+    || ''
+  ).toLowerCase();
+
+  const hasTokenSignal = code === 1010 || /expired|revoked|jwt|token|unauthorized|forbidden|invalid token/.test(rawMessage);
+  if (!hasTokenSignal) return false;
+
+  return status === 400 || status === 401 || status === 403;
+};
+
+const _isAuthEndpoint = (url = '') => {
+  const normalized = String(url || '').toLowerCase();
+  return normalized.includes('/auth/authentication')
+    || normalized.includes('/auth/register')
+    || normalized.includes('/auth/refresh-token')
+    || normalized.includes('/auth/logout');
+};
+
+const _refreshAccessToken = async () => {
+  if (_refreshInFlight) {
+    return _refreshInFlight;
+  }
+
+  if (!_refreshToken) {
+    throw new Error('Missing refresh token');
+  }
+
+  _refreshInFlight = (async () => {
+    const res = await axios.post(
+      `${API_CONFIG.BASE_URL}/auth/refresh-token`,
+      { refreshToken: _refreshToken },
+      {
+        timeout: API_CONFIG.TIMEOUT,
+        headers: { Accept: 'application/json' },
+      }
+    );
+
+    const data = res?.data?.result;
+    if (!data?.token) {
+      throw new Error('Refresh token response missing access token');
+    }
+
+    const storedUser = await AsyncStorage.getItem(STORAGE_KEYS.USER);
+    const fallbackUser = storedUser ? JSON.parse(storedUser) : null;
+
+    await _persistAuth(
+      data.token,
+      data.refreshToken || _refreshToken,
+      data.user || fallbackUser,
+    );
+
+    return data.token;
+  })().finally(() => {
+    _refreshInFlight = null;
+  });
+
+  return _refreshInFlight;
 };
 
 export const onAuthExpired = (listener) => {
@@ -161,6 +229,37 @@ apiClient.interceptors.response.use(
         }
       }
     }
+    const originalRequest = error?.config || {};
+    const alreadyRetried = originalRequest.__retriedWithRefresh === true;
+    const canRefresh = _refreshToken && !alreadyRetried && !_isAuthEndpoint(originalRequest?.url);
+
+    if (canRefresh && _isRefreshableAuthError(error)) {
+      return _refreshAccessToken()
+        .then((newToken) => {
+          originalRequest.__retriedWithRefresh = true;
+          originalRequest.headers = {
+            ...(originalRequest.headers || {}),
+            Authorization: `Bearer ${newToken}`,
+          };
+          return apiClient(originalRequest);
+        })
+        .catch(() => {
+          if (_isTokenExpiredError(error) && !_isHandlingAuthExpiry) {
+            _isHandlingAuthExpiry = true;
+            clearStoredAuth()
+              .catch(() => { })
+              .finally(() => {
+                _notifyAuthExpired('TOKEN_EXPIRED');
+                _isHandlingAuthExpiry = false;
+              });
+            const authError = new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+            authError.code = 'AUTH_EXPIRED';
+            return Promise.reject(authError);
+          }
+          return Promise.reject(error);
+        });
+    }
+
     if (_isTokenExpiredError(error) && !_isHandlingAuthExpiry) {
       _isHandlingAuthExpiry = true;
       clearStoredAuth()
@@ -198,7 +297,7 @@ const appendMultipartFile = async (formData, fieldName, { uri, name, type, file 
   const isWeb = typeof window !== 'undefined' && typeof document !== 'undefined';
   if (isWeb) {
     if (!uri) {
-      throw new Error('Khong tim thay tep de tai len');
+      throw new Error('Không tìm thấy tệp để tải lên');
     }
     const response = await fetch(uri);
     const rawBlob = await response.blob();
@@ -464,7 +563,7 @@ export const updateMyInfo = async (payload) => {
 
 export const updateMyAvatar = async ({ uri, name, type }) => {
   if (!uri) {
-    throw new Error('Khong tim thay anh avatar de tai len');
+    throw new Error('Không tìm thấy ảnh avatar để tải lên');
   }
 
   if (USE_MOCK_DATA) {
@@ -538,8 +637,8 @@ export const getMyOffers = async () => {
     return [
       {
         code: 'WELCOME10',
-        title: 'Giam 10% chuyen ke tiep',
-        description: 'Ap dung cho chuyen dau thang, toi da 30.000d.',
+        title: 'Giảm 10% chuyến kế tiếp',
+        description: 'Áp dụng cho chuyến đầu tháng, tối đa 30.000đ.',
         active: true,
       },
     ];
@@ -675,7 +774,7 @@ export const getDriverTripDetail = async (tripId) => {
     await mockApiDelay(500);
     const trip = MOCK_DRIVER_TRIPS.find((item) => item.id === tripId);
     if (!trip) {
-      throw new Error('Khong tim thay chuyen xe');
+      throw new Error('Không tìm thấy chuyến xe');
     }
 
     const totalSeats = trip.totalSeats || 0;
@@ -797,7 +896,7 @@ export const submitDriverProfile = async (payload) => {
 
 export const uploadFile = async ({ uri, name, type, file }) => {
   if (!uri && !file) {
-    throw new Error('Khong tim thay tep de tai len');
+    throw new Error('Không tìm thấy tệp để tải lên');
   }
 
   const formData = new FormData();
@@ -1044,6 +1143,19 @@ export const createVnpayPaymentUrl = async (bookingId) => {
   return res.data?.result ?? res.data;
 };
 
+/** Hủy booking của khách hàng */
+export const cancelCustomerBooking = async (bookingId, cancellationReason) => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(500);
+    return { id: bookingId, status: 'cancelled', cancellationReason: cancellationReason || null };
+  }
+  const payload = String(cancellationReason || '').trim()
+    ? { cancellationReason: String(cancellationReason).trim() }
+    : {};
+  const res = await apiClient.post(`/customer/bookings/${bookingId}/cancel`, payload);
+  return res.data?.result ?? res.data;
+};
+
 /** Đánh giá chuyến xe */
 export const rateRide = async (bookingId, rating, comment) => {
   if (USE_MOCK_DATA) {
@@ -1096,7 +1208,9 @@ export const openChatThread = async (bookingId) => {
       myUnreadCount: 0,
     };
   }
-  const res = await apiClient.post('/chat/threads/open', { bookingId });
+  const res = await apiClient.post('/chat/threads/open', { bookingId }, {
+    timeout: CHAT_REQUEST_TIMEOUT,
+  });
   return res.data?.result ?? res.data;
 };
 
@@ -1107,7 +1221,9 @@ export const getMyChatThreads = async () => {
     return [];
   }
   return getCached('CHAT_THREADS:ME', API_CACHE_TTL.CHAT_THREADS, async () => {
-    const res = await apiClient.get('/chat/threads');
+    const res = await apiClient.get('/chat/threads', {
+      timeout: CHAT_REQUEST_TIMEOUT,
+    });
     return res.data?.result ?? res.data;
   });
 };
@@ -1120,24 +1236,40 @@ export const getChatMessages = async (threadId, limit = 50) => {
   }
   const res = await apiClient.get(`/chat/threads/${threadId}/messages`, {
     params: { limit },
+    timeout: CHAT_REQUEST_TIMEOUT,
   });
   return res.data?.result ?? res.data;
 };
 
-/** Gửi tin nhắn text */
-export const sendChatMessage = async (threadId, content) => {
+/** Gửi tin nhắn chat (text/image) */
+export const sendChatMessage = async (threadId, payload) => {
+  const requestBody = typeof payload === 'string'
+    ? { content: payload }
+    : {
+      content: payload?.content ?? null,
+      imageUrl: payload?.imageUrl ?? null,
+      type: payload?.type ?? null,
+    };
+
+  if (!requestBody.content && !requestBody.imageUrl) {
+    throw new Error('Tin nhắn không hợp lệ');
+  }
+
   if (USE_MOCK_DATA) {
     await mockApiDelay(300);
     return {
       id: `msg_${Date.now()}`,
       threadId,
-      content,
-      type: 'TEXT',
+      content: requestBody.content,
+      imageUrl: requestBody.imageUrl,
+      type: requestBody.imageUrl ? 'IMAGE' : 'TEXT',
       mine: true,
       sentAt: new Date().toISOString(),
     };
   }
-  const res = await apiClient.post(`/chat/threads/${threadId}/messages`, { content });
+  const res = await apiClient.post(`/chat/threads/${threadId}/messages`, requestBody, {
+    timeout: CHAT_REQUEST_TIMEOUT,
+  });
   invalidateCacheByPrefix('CHAT_THREADS:');
   return res.data?.result ?? res.data;
 };
@@ -1148,7 +1280,9 @@ export const markChatThreadRead = async (threadId) => {
     await mockApiDelay(250);
     return { id: threadId, myUnreadCount: 0 };
   }
-  const res = await apiClient.post(`/chat/threads/${threadId}/read`);
+  const res = await apiClient.post(`/chat/threads/${threadId}/read`, undefined, {
+    timeout: CHAT_REQUEST_TIMEOUT,
+  });
   invalidateCacheByPrefix('CHAT_THREADS:');
   return res.data?.result ?? res.data;
 };

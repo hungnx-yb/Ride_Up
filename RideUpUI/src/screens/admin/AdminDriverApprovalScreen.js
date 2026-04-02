@@ -112,7 +112,7 @@ const AdminDriverApprovalScreen = ({ navigation }) => {
           />
         ) : (
           <View style={styles.docFallback}>
-            <Text style={styles.docFallbackText}>Khong co anh</Text>
+            <Text style={styles.docFallbackText}>Không có ảnh</Text>
           </View>
         )}
       </View>

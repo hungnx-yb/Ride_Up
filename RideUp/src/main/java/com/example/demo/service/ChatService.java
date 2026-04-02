@@ -103,7 +103,7 @@ public class ChatService {
         }
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public List<ChatThreadResponse> getMyThreads() {
         User currentUser = userService.getCurrentUser();
         String userId = currentUser.getId();
@@ -133,7 +133,22 @@ public class ChatService {
             : bookingRepository.findAllForChatByIdIn(bookingIds).stream()
                 .collect(Collectors.toMap(Booking::getId, b -> b, (a, b) -> a, HashMap::new));
 
-        return uniqueThreads.stream()
+        if (bookingById.isEmpty()) {
+            return List.of();
+        }
+
+        List<ChatThreadDocument> normalizedThreads = uniqueThreads.stream()
+            .filter(thread -> bookingById.containsKey(thread.getBookingId()))
+            .map(thread -> {
+                Booking booking = bookingById.get(thread.getBookingId());
+                if (thread.getStatus() == ChatThreadStatus.ACTIVE && !isChatAllowed(booking)) {
+                    closeThread(thread, "Trip ended");
+                }
+                return thread;
+            })
+            .collect(Collectors.toList());
+
+        return normalizedThreads.stream()
             .map(thread -> toThreadResponse(thread, userId, bookingById.get(thread.getBookingId())))
             .collect(Collectors.toList());
     }
@@ -262,6 +277,20 @@ public class ChatService {
         for (ChatThreadDocument thread : threads) {
             closeThread(thread, reason);
         }
+    }
+
+    @Transactional
+    public void closeThreadByBookingId(String bookingId, String reason) {
+        if (!StringUtils.hasText(bookingId)) {
+            return;
+        }
+
+        chatThreadRepository.findByBookingId(bookingId)
+                .ifPresent(thread -> {
+                    if (thread.getStatus() == ChatThreadStatus.ACTIVE) {
+                        closeThread(thread, reason);
+                    }
+                });
     }
 
     private ChatThreadDocument createThread(Booking booking) {
@@ -487,9 +516,9 @@ public class ChatService {
                 && Objects.equals(booking.getCustomer().getId(), currentUserId);
 
         if (isCustomer) {
-            return StringUtils.hasText(driverName) ? driverName : "Tai xe RideUp";
+            return StringUtils.hasText(driverName) ? driverName : "Tài xế RideUp";
         }
-        return StringUtils.hasText(customerName) ? customerName : "Khach hang RideUp";
+        return StringUtils.hasText(customerName) ? customerName : "Khách hàng RideUp";
     }
 
     private ChatMessageResponse toMessageResponse(ChatMessageDocument message, String currentUserId) {

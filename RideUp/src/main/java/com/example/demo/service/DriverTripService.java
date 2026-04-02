@@ -25,6 +25,7 @@ import com.example.demo.repository.WardRepository;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -47,6 +48,7 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 public class DriverTripService {
 
@@ -55,7 +57,8 @@ public class DriverTripService {
     TripRepository tripRepository;
     ProvinceRepository provinceRepository;
     WardRepository wardRepository;
-//    ChatService chatService;
+    CustomerBookingService customerBookingService;
+    ChatService chatService;
 
     DateTimeFormatter isoDate = DateTimeFormatter.ISO_LOCAL_DATE;
     DateTimeFormatter viDate = DateTimeFormatter.ofPattern("dd/MM/yyyy");
@@ -184,14 +187,14 @@ public class DriverTripService {
 
         Trip saved = tripRepository.save(newTrip);
         DriverTripResponse response = toTripResponse(saved, List.of(template));
-        response.setRouteId(template.getId());
+        response.setRouteId(StringUtils.hasText(template.getId()) ? template.getId() : saved.getId());
         return response;
     }
 
     @Transactional
-    public DriverTripResponse cancelTrip(String tripId, TripCancellationRequest request) {
+    public DriverTripResponse cancelTrip(String tripId, TripCancellationRequest request, String ipAddress) {
         DriverProfile driverProfile = getOrCreateDriverProfile();
-        Trip trip = tripRepository.findByIdAndDriverIdAndDepartureTimeIsNotNull(tripId, driverProfile.getId())
+        Trip trip = tripRepository.findByIdAndDriverIdAndDepartureTimeIsNotNullWithBookings(tripId, driverProfile.getId())
                 .orElseThrow(() -> new AppException(ErrorCode.TRIP_NOT_FOUND));
 
         TripStatus status = trip.getStatus();
@@ -207,10 +210,10 @@ public class DriverTripService {
             trip.setDriverNote(reason.trim());
         }
 
-        markBookingsCancelledByDriver(trip, reason);
+        markBookingsCancelledByDriver(trip, reason, ipAddress);
 
         Trip saved = tripRepository.save(trip);
-//        chatService.closeThreadsByTripId(saved.getId(), "Trip was cancelled by driver");
+        chatService.closeThreadsByTripId(saved.getId(), "Trip was cancelled by driver");
 
         List<Trip> routeTemplates = tripRepository.findByDriverIdAndDepartureTimeIsNullOrderByUpdatedAtDesc(driverProfile.getId());
         return toTripResponse(saved, routeTemplates);
@@ -264,12 +267,12 @@ public class DriverTripService {
         markBookingsCompleted(trip, now);
 
         Trip saved = tripRepository.save(trip);
-//        chatService.closeThreadsByTripId(saved.getId(), "Trip has been completed");
+        chatService.closeThreadsByTripId(saved.getId(), "Trip has been completed");
         List<Trip> routeTemplates = tripRepository.findByDriverIdAndDepartureTimeIsNullOrderByUpdatedAtDesc(driverProfile.getId());
         return toTripResponse(saved, routeTemplates);
     }
 
-    private void markBookingsCancelledByDriver(Trip trip, String reason) {
+    private void markBookingsCancelledByDriver(Trip trip, String reason, String ipAddress) {
         if (trip.getBookings() == null || trip.getBookings().isEmpty()) {
             return;
         }
@@ -288,6 +291,15 @@ public class DriverTripService {
                 booking.setCancellationReason(normalizedReason);
                 booking.setConfirmedAt(null);
                 booking.setCompletedAt(null);
+                try {
+                    customerBookingService.tryAutoRefundVnPay(booking, ipAddress, "Driver cancellation refund " + booking.getId());
+                } catch (Exception ex) {
+                    // Driver cancellation must still succeed even if a specific refund fails.
+                    log.warn("Auto refund failed while driver cancels trip. tripId={}, bookingId={}, message={}",
+                            trip != null ? trip.getId() : null,
+                            booking.getId(),
+                            ex.getMessage());
+                }
             }
         }
     }
@@ -461,7 +473,9 @@ public class DriverTripService {
         template.setPickupPoints(pickupPoints);
         template.setDropoffPoints(dropoffPoints);
 
-        return tripRepository.save(template);
+        // Do not persist a brand-new template here to avoid creating a duplicate
+        // row in trip table when driver creates a trip from ad-hoc form input.
+        return template;
     }
 
     private Province resolveProvince(String provinceId, String provinceName) {
@@ -714,6 +728,10 @@ public class DriverTripService {
     }
 
     private Optional<String> matchTemplateId(Trip trip, List<Trip> templates) {
+        if (templates == null || templates.isEmpty()) {
+            return Optional.empty();
+        }
+
         List<String> pickup = extractPickupWardIds(trip.getPickupPoints());
         List<String> dropoff = extractDropoffWardIds(trip.getDropoffPoints());
 
@@ -721,6 +739,7 @@ public class DriverTripService {
             .filter(t -> pickup.equals(extractPickupWardIds(t.getPickupPoints()))
                 && dropoff.equals(extractDropoffWardIds(t.getDropoffPoints())))
                 .map(Trip::getId)
+                .filter(StringUtils::hasText)
                 .findFirst();
     }
 

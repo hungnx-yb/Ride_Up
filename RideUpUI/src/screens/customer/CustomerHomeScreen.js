@@ -13,6 +13,7 @@ import {
   ImageBackground,
   Linking,
   Alert,
+  Platform,
   useWindowDimensions,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
@@ -25,6 +26,7 @@ import {
   searchRidesFromText,
   bookRide,
   createVnpayPaymentUrl,
+  cancelCustomerBooking,
   rateRide,
   supportChat,
   getWardById,
@@ -170,12 +172,14 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
   const [ratingSubmitting, setRatingSubmitting] = useState(false);
   const [ratingAvatarFailed, setRatingAvatarFailed] = useState(false);
   const [paymentConfirmSubmitting, setPaymentConfirmSubmitting] = useState(false);
+  const [bookingCancelSubmitting, setBookingCancelSubmitting] = useState(false);
   const [chatThreads, setChatThreads] = useState([]);
   const [chatThread, setChatThread] = useState(null);
   const [chatMessages, setChatMessages] = useState([]);
   const [chatDraft, setChatDraft] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const [chatSending, setChatSending] = useState(false);
+  const [chatUploadingImage, setChatUploadingImage] = useState(false);
   const [chatVisible, setChatVisible] = useState(false);
   const chatRealtimeRef = useRef(null);
   const chatMessagesScrollRef = useRef(null);
@@ -246,6 +250,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
   const scrollRef = useRef(null);
 
   const canChatBooking = (booking) => ['pending', 'confirmed', 'in_progress'].includes(String(booking?.status || '').toLowerCase());
+  const isActiveThread = (thread) => String(thread?.status || '').toUpperCase() === 'ACTIVE';
 
   const loadData = async () => {
     try {
@@ -1025,6 +1030,20 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
       && String(booking.paymentStatus || '').toUpperCase() === 'UNPAID';
   };
 
+  const canCancelBooking = (booking) => {
+    if (!booking) return false;
+    const status = String(booking.status || '').toLowerCase();
+    if (status !== 'pending' && status !== 'confirmed') return false;
+
+    const departureTime = booking.departureTime ? new Date(booking.departureTime) : null;
+    if (!departureTime || Number.isNaN(departureTime.getTime())) {
+      return true;
+    }
+
+    const cutoffTime = departureTime.getTime() - (60 * 60 * 1000);
+    return Date.now() < cutoffTime;
+  };
+
   const openVnpayUrl = async (paymentUrl) => {
     if (!paymentUrl) {
       throw new Error('Thiếu link thanh toán VNPAY.');
@@ -1055,6 +1074,45 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
       setErrorText(e.message || 'Mở thanh toán VNPAY thất bại.');
     } finally {
       setPaymentConfirmSubmitting(false);
+    }
+  };
+
+  const submitCancelBooking = async () => {
+    if (!bookingDetail?.id || bookingCancelSubmitting) return;
+
+    let confirmed = false;
+    if (Platform.OS === 'web') {
+      confirmed = typeof window !== 'undefined'
+        ? window.confirm('Bạn có chắc chắn muốn hủy chuyến này không?')
+        : false;
+    } else {
+      confirmed = await new Promise((resolve) => {
+        Alert.alert(
+          'Xác nhận hủy chuyến',
+          'Bạn có chắc chắn muốn hủy chuyến này không?',
+          [
+            { text: 'Giữ lại', style: 'cancel', onPress: () => resolve(false) },
+            { text: 'Hủy chuyến', style: 'destructive', onPress: () => resolve(true) },
+          ],
+          { cancelable: true, onDismiss: () => resolve(false) }
+        );
+      });
+    }
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setBookingCancelSubmitting(true);
+      await cancelCustomerBooking(bookingDetail.id, 'Khách hàng hủy chuyến');
+      setBookingDetail(null);
+      await loadData();
+      setErrorText('Hủy chuyến thành công.');
+    } catch (e) {
+      setErrorText(e.message || 'Không thể hủy chuyến. Vui lòng thử lại.');
+    } finally {
+      setBookingCancelSubmitting(false);
     }
   };
 
@@ -1477,9 +1535,10 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
       setChatMessages(Array.isArray(messages) ? messages.map(normalizeCustomerMessage) : []);
       setChatDraft('');
       startChatRealtime(thread.id);
-      await markChatThreadRead(thread.id).catch(() => { });
-      const threads = await getMyChatThreads().catch(() => []);
-      setChatThreads(Array.isArray(threads) ? threads : []);
+      markChatThreadRead(thread.id).catch(() => { });
+      getMyChatThreads()
+        .then((threads) => setChatThreads(Array.isArray(threads) ? threads : []))
+        .catch(() => { });
     } catch (e) {
       setErrorText(e.message || 'Không thể mở cuộc trò chuyện.');
       Alert.alert('Không thể mở chat', e?.message || 'Vui lòng kiểm tra lại kết nối backend/MongoDB.');
@@ -1500,9 +1559,10 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
       setChatMessages(Array.isArray(messages) ? messages.map(normalizeCustomerMessage) : []);
       setChatDraft('');
       startChatRealtime(thread.id);
-      await markChatThreadRead(thread.id).catch(() => { });
-      const threads = await getMyChatThreads().catch(() => []);
-      setChatThreads(Array.isArray(threads) ? threads : []);
+      markChatThreadRead(thread.id).catch(() => { });
+      getMyChatThreads()
+        .then((threads) => setChatThreads(Array.isArray(threads) ? threads : []))
+        .catch(() => { });
     } catch (e) {
       setErrorText(e.message || 'Không thể tải tin nhắn.');
       Alert.alert('Không thể tải chat', e?.message || 'Vui lòng thử lại sau.');
@@ -1521,7 +1581,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
   };
 
   const submitChatMessage = async () => {
-    if (!chatThread?.id || !chatDraft.trim() || chatSending) {
+    if (!chatThread?.id || !chatDraft.trim() || chatSending || chatUploadingImage) {
       return;
     }
     try {
@@ -1529,14 +1589,115 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
       const sent = await sendChatMessage(chatThread.id, chatDraft.trim());
       appendChatMessageIfNotExists(sent);
       setChatDraft('');
-      const threads = await getMyChatThreads().catch(() => []);
-      setChatThreads(Array.isArray(threads) ? threads : []);
+      getMyChatThreads()
+        .then((threads) => setChatThreads(Array.isArray(threads) ? threads : []))
+        .catch(() => { });
     } catch (e) {
       setErrorText(e.message || 'Không thể gửi tin nhắn.');
     } finally {
       setChatSending(false);
     }
   };
+
+  const submitChatImage = async () => {
+    if (!chatThread?.id || chatSending || chatUploadingImage) {
+      return;
+    }
+
+    try {
+      setChatUploadingImage(true);
+      const isWebRuntime = typeof window !== 'undefined' && typeof document !== 'undefined';
+
+      let selected = null;
+      if (isWebRuntime) {
+        selected = await new Promise((resolve) => {
+          const input = document.createElement('input');
+          input.type = 'file';
+          input.accept = 'image/*';
+          input.onchange = () => {
+            const file = input.files && input.files[0] ? input.files[0] : null;
+            if (!file) {
+              resolve(null);
+              return;
+            }
+            const objectUrl = URL.createObjectURL(file);
+            resolve({
+              uri: objectUrl,
+              name: file.name || `chat-${Date.now()}.jpg`,
+              type: file.type || 'image/jpeg',
+              file,
+            });
+          };
+          input.click();
+        });
+      } else {
+        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!permission?.granted) {
+          Alert.alert('Quyền bị từ chối', 'Vui lòng cấp quyền thư viện ảnh để gửi hình.');
+          return;
+        }
+
+        const picked = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsEditing: true,
+          quality: 0.9,
+        });
+
+        if (picked.canceled || !picked.assets?.length) return;
+        const asset = picked.assets[0];
+        selected = {
+          uri: asset.uri,
+          name: asset.fileName || `chat-${Date.now()}.jpg`,
+          type: asset.mimeType || 'image/jpeg',
+          file: asset.file,
+        };
+      }
+
+      if (!selected) return;
+
+      const uploadedImageUrl = await uploadFile({
+        uri: selected.uri,
+        name: selected.name,
+        type: selected.type,
+        file: selected.file,
+      });
+
+      const sent = await sendChatMessage(chatThread.id, {
+        content: null,
+        imageUrl: uploadedImageUrl,
+      });
+
+      appendChatMessageIfNotExists(sent);
+      getMyChatThreads()
+        .then((threads) => setChatThreads(Array.isArray(threads) ? threads : []))
+        .catch(() => { });
+    } catch (e) {
+      setErrorText(e?.message || 'Không thể gửi ảnh.');
+    } finally {
+      setChatUploadingImage(false);
+    }
+  };
+
+  const sortedChatThreads = useMemo(() => {
+    const rows = Array.isArray(chatThreads) ? [...chatThreads] : [];
+    const toMillis = (value) => {
+      const d = value ? new Date(value) : null;
+      return d && !Number.isNaN(d.getTime()) ? d.getTime() : 0;
+    };
+
+    rows.sort((a, b) => {
+      const aActive = isActiveThread(a);
+      const bActive = isActiveThread(b);
+      if (aActive !== bActive) {
+        return aActive ? -1 : 1;
+      }
+      return toMillis(b?.lastMessageAt) - toMillis(a?.lastMessageAt);
+    });
+
+    return rows;
+  }, [chatThreads]);
+
+  const canComposeInChatModal = useMemo(() => isActiveThread(chatThread), [chatThread]);
 
   const today = new Date();
   const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
@@ -1612,16 +1773,6 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
       stopChatRealtime();
     };
   }, []);
-
-  useEffect(() => {
-    if (!chatVisible || !chatThread?.id) return undefined;
-
-    const syncId = setInterval(() => {
-      refreshChatMessages(chatThread.id);
-    }, 1500);
-
-    return () => clearInterval(syncId);
-  }, [chatVisible, chatThread?.id]);
 
   if (loading) {
     return (
@@ -2255,29 +2406,23 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
 
             {messageView === 'drivers' && (
               <>
-                <View style={styles.inboxBanner}>
-                  <Ionicons name="chatbubble-ellipses" size={18} color="#00B14F" />
-                  <Text style={styles.inboxBannerText}>Bạn có {inboxItems.filter((i) => i.unread).length} tin nhắn chưa đọc</Text>
-                </View>
-
-                {chatThreads.length === 0 ? (
+                {sortedChatThreads.length === 0 ? (
                   <View style={styles.emptyState}>
                     <Ionicons name="chatbubble-ellipses-outline" size={22} color="#94A3B8" />
                     <Text style={styles.emptyTitle}>Chưa có hội thoại</Text>
                     <Text style={styles.emptyText}>Khi bạn đặt chuyến, cuộc trò chuyện với tài xế sẽ hiển thị ở đây.</Text>
                   </View>
                 ) : (
-                  chatThreads.map((item) => (
+                  sortedChatThreads.map((item) => (
                     <TouchableOpacity key={item.id} style={styles.messageCard} activeOpacity={0.9} onPress={() => openChatByThread(item)}>
                       <View style={styles.messageAvatar}>
                         <Ionicons name="person" size={17} color="#0F172A" />
                       </View>
                       <View style={{ flex: 1 }}>
                         <View style={styles.messageTopRow}>
-                          <Text style={styles.messageDriver}>{item.driverUserId || 'Tài xế RideUp'}</Text>
+                          <Text style={styles.messageDriver}>{item.chatTitle || `Booking: ${item.bookingId || '--'}`}</Text>
                           <Text style={styles.messageTime}>{formatTime(item.lastMessageAt)}</Text>
                         </View>
-                        <Text style={styles.messageRoute}>Booking: {item.bookingId}</Text>
                         <Text style={styles.messagePreview} numberOfLines={2}>{item.lastMessagePreview || 'Bắt đầu cuộc trò chuyện'}</Text>
                       </View>
                       {!!item.myUnreadCount && <View style={styles.unreadDot} />}
@@ -2893,12 +3038,31 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
             <Text style={styles.modalSub}>Tổng tiền: {formatCurrency(bookingDetail?.price)}</Text>
             <Text style={styles.modalSub}>Tài xế: {bookingDetail?.driverName} | ⭐ {bookingDetail?.driverRating || 0}</Text>
             <Text style={styles.modalSub}>Thanh toán: {bookingDetail?.paymentMethod === 'VNPAY' ? 'VNPAY' : 'Tiền mặt'}</Text>
-            <Text style={styles.modalSub}>Trạng thái thanh toán: {bookingDetail?.paymentStatus === 'PAID' ? 'Đã thanh toán' : 'Chưa thanh toán'}</Text>
+            <Text style={styles.modalSub}>
+              Trạng thái thanh toán: {
+                bookingDetail?.paymentStatus === 'PAID'
+                  ? 'Đã thanh toán'
+                  : bookingDetail?.paymentStatus === 'REFUNDED'
+                    ? 'Đã hoàn tiền'
+                    : 'Chưa thanh toán'
+              }
+            </Text>
 
             {isAwaitingVnpay(bookingDetail) && (
               <TouchableOpacity style={styles.payNowBtn} onPress={submitVnpayPayment} disabled={paymentConfirmSubmitting}>
                 <Ionicons name="card-outline" size={15} color="#FFFFFF" />
                 <Text style={styles.payNowBtnText}>{paymentConfirmSubmitting ? 'Đang mở...' : 'Thanh toán qua VNPAY'}</Text>
+              </TouchableOpacity>
+            )}
+
+            {canCancelBooking(bookingDetail) && (
+              <TouchableOpacity
+                style={[styles.cancelTripDangerBtn, bookingCancelSubmitting && styles.cancelTripDangerBtnDisabled]}
+                onPress={submitCancelBooking}
+                disabled={bookingCancelSubmitting}
+              >
+                <Ionicons name="close-circle-outline" size={15} color="#FFFFFF" />
+                <Text style={styles.cancelTripDangerBtnText}>{bookingCancelSubmitting ? 'Đang hủy...' : 'Hủy chuyến'}</Text>
               </TouchableOpacity>
             )}
 
@@ -3101,8 +3265,6 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
               <Ionicons name="chatbubble-ellipses" size={20} color="#00B14F" />
               <Text style={styles.modalTitle}>Chat với tài xế</Text>
             </View>
-            <Text style={styles.modalSub}>Booking: {chatThread?.bookingId || '--'}</Text>
-            <Text style={styles.modalSubHint}>Realtime push đang bật</Text>
 
             {chatLoading ? (
               <View style={styles.chatLoadingWrap}>
@@ -3121,25 +3283,47 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
                 )}
                 {chatMessages.map((msg) => (
                   <View key={msg.id} style={[styles.chatBubble, msg.mine ? styles.chatBubbleMine : styles.chatBubbleOther]}>
-                    <Text style={[styles.chatBubbleText, msg.mine && styles.chatBubbleTextMine]}>{msg.content}</Text>
+                    {!!msg.imageUrl && (
+                      <Image
+                        source={{ uri: resolveStoragePublicUrl(msg.imageUrl) || msg.imageUrl }}
+                        style={styles.chatBubbleImage}
+                        resizeMode="cover"
+                      />
+                    )}
+                    {!!msg.content && (
+                      <Text style={[styles.chatBubbleText, msg.mine && styles.chatBubbleTextMine]}>{msg.content}</Text>
+                    )}
                     <Text style={[styles.chatBubbleTime, msg.mine && styles.chatBubbleTimeMine]}>{formatTime(msg.sentAt)}</Text>
                   </View>
                 ))}
               </ScrollView>
             )}
 
-            <View style={styles.chatComposerRow}>
-              <TextInput
-                style={styles.chatInput}
-                value={chatDraft}
-                onChangeText={setChatDraft}
-                placeholder="Nhập tin nhắn..."
-                maxLength={2000}
-              />
-              <TouchableOpacity style={styles.chatSendBtn} onPress={submitChatMessage} disabled={chatSending || !chatDraft.trim()}>
-                <Ionicons name="send" size={16} color="#FFFFFF" />
-              </TouchableOpacity>
-            </View>
+            {canComposeInChatModal ? (
+              <View style={styles.chatComposerRow}>
+                <TouchableOpacity
+                  style={[styles.chatAttachBtn, chatUploadingImage && styles.chatAttachBtnDisabled]}
+                  onPress={submitChatImage}
+                  disabled={chatUploadingImage || chatSending}
+                >
+                  {chatUploadingImage
+                    ? <ActivityIndicator size="small" color="#0F172A" />
+                    : <Ionicons name="image" size={16} color="#0F172A" />}
+                </TouchableOpacity>
+                <TextInput
+                  style={styles.chatInput}
+                  value={chatDraft}
+                  onChangeText={setChatDraft}
+                  placeholder="Nhập tin nhắn..."
+                  maxLength={2000}
+                />
+                <TouchableOpacity style={styles.chatSendBtn} onPress={submitChatMessage} disabled={chatSending || chatUploadingImage || !chatDraft.trim()}>
+                  <Ionicons name="send" size={16} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <Text style={styles.chatLockedHint}>Cuộc trò chuyện đã khóa vì chuyến đã kết thúc hoặc bị hủy.</Text>
+            )}
 
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.cancelBtn} onPress={closeChatModal}>
@@ -4406,9 +4590,27 @@ const styles = StyleSheet.create({
   chatBubbleOther: { alignSelf: 'flex-start', backgroundColor: '#E2E8F0' },
   chatBubbleText: { color: '#0F172A', fontSize: 13 },
   chatBubbleTextMine: { color: '#FFFFFF' },
+  chatBubbleImage: {
+    width: 190,
+    height: 140,
+    borderRadius: 10,
+    marginBottom: 6,
+    backgroundColor: '#E2E8F0',
+  },
   chatBubbleTime: { marginTop: 4, fontSize: 10, color: '#64748B', textAlign: 'right' },
   chatBubbleTimeMine: { color: '#D1FAE5' },
   chatComposerRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10, gap: 8 },
+  chatAttachBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E2E8F0',
+  },
+  chatAttachBtnDisabled: {
+    opacity: 0.65,
+  },
   chatInput: {
     flex: 1,
     borderWidth: 1,
@@ -4427,6 +4629,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#00B14F',
+  },
+  chatLockedHint: {
+    marginTop: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    color: '#475569',
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   successIconWrap: {
     width: 46,
@@ -4780,6 +4995,24 @@ const styles = StyleSheet.create({
     marginLeft: 6,
   },
   confirmBtnText: { color: '#fff', fontWeight: '700' },
+  cancelTripDangerBtn: {
+    marginTop: 8,
+    borderRadius: 10,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#DC2626',
+  },
+  cancelTripDangerBtnDisabled: {
+    backgroundColor: '#F87171',
+  },
+  cancelTripDangerBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
+  },
 
   footerWrap: {
     position: 'absolute',
