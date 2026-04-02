@@ -82,7 +82,7 @@ public class VnPayService {
         params.put("vnp_Amount", toVnpAmount(amount));
         params.put("vnp_CurrCode", "VND");
         params.put("vnp_TxnRef", txnRef);
-        params.put("vnp_OrderInfo", StringUtils.hasText(orderInfo) ? orderInfo : "Thanh toan RideUp");
+        params.put("vnp_OrderInfo", StringUtils.hasText(orderInfo) ? orderInfo : "Thanh toán RideUp");
         params.put("vnp_OrderType", StringUtils.hasText(orderType) ? orderType : "other");
         params.put("vnp_Locale", StringUtils.hasText(locale) ? locale : "vn");
         params.put("vnp_ReturnUrl", returnUrl);

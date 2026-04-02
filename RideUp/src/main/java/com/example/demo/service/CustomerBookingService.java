@@ -559,7 +559,7 @@ public class CustomerBookingService {
                 if (booking.getTrip() != null) {
                         route = booking.getTrip().getId();
                 }
-                String orderInfo = "Thanh toan RideUp " + route + " " + booking.getId();
+                String orderInfo = "Thanh toán RideUp " + route + " " + booking.getId();
                 return vnPayService.buildPaymentUrl(txnRef, payment.getAmount(), ipAddress, orderInfo);
         }
 

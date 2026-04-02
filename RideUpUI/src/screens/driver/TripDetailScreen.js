@@ -383,16 +383,6 @@ const TripDetailScreen = ({ navigation, route }) => {
     };
   }, [stopRealtime]);
 
-  useEffect(() => {
-    if (!chatVisible || !chatThread?.id) return undefined;
-
-    const syncId = setInterval(() => {
-      refreshChatMessages(chatThread.id, { markRead: false });
-    }, 1500);
-
-    return () => clearInterval(syncId);
-  }, [chatVisible, chatThread?.id, refreshChatMessages]);
-
   if (loading) {
     return (
       <View style={styles.screen}>
@@ -478,8 +468,6 @@ const TripDetailScreen = ({ navigation, route }) => {
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Chat với khách hàng</Text>
-            <Text style={styles.modalSub}>Booking: {chatBooking?.id || '--'}</Text>
-            <Text style={styles.modalSyncHint}>Realtime push đang bật</Text>
 
             {chatLoading ? (
               <View style={styles.chatLoadingWrap}>

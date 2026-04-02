@@ -133,7 +133,12 @@ public class ChatService {
             : bookingRepository.findAllForChatByIdIn(bookingIds).stream()
                 .collect(Collectors.toMap(Booking::getId, b -> b, (a, b) -> a, HashMap::new));
 
+        if (bookingById.isEmpty()) {
+            return List.of();
+        }
+
         return uniqueThreads.stream()
+            .filter(thread -> bookingById.containsKey(thread.getBookingId()))
             .map(thread -> toThreadResponse(thread, userId, bookingById.get(thread.getBookingId())))
             .collect(Collectors.toList());
     }
@@ -487,9 +492,9 @@ public class ChatService {
                 && Objects.equals(booking.getCustomer().getId(), currentUserId);
 
         if (isCustomer) {
-            return StringUtils.hasText(driverName) ? driverName : "Tai xe RideUp";
+            return StringUtils.hasText(driverName) ? driverName : "Tài xế RideUp";
         }
-        return StringUtils.hasText(customerName) ? customerName : "Khach hang RideUp";
+        return StringUtils.hasText(customerName) ? customerName : "Khách hàng RideUp";
     }
 
     private ChatMessageResponse toMessageResponse(ChatMessageDocument message, String currentUserId) {

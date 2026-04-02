@@ -234,7 +234,6 @@ const DriverMessagesScreen = ({ navigation }) => {
     <View style={styles.screen}>
       <View style={styles.header}>
         <Text style={styles.title}>Tin nhắn tài xế</Text>
-        <Text style={styles.subTitle}>Mở chat nhanh với khách hàng mà không cần vào chi tiết chuyến</Text>
       </View>
 
       {(loading || refreshing) && (
