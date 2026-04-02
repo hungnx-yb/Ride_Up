@@ -48,6 +48,7 @@ import {
   getRealtimeNotificationFeed,
   onRealtimeNotificationFeedChange,
   appendRealtimeNotification,
+  markAllRealtimeNotificationsRead,
   getChatUnreadThreadsCount,
   onChatUnreadThreadsCountChange,
   updateChatUnreadThreadsCountFromThreads,
@@ -255,6 +256,7 @@ const CustomerHomeScreen = ({ user, onLogout, navigation, route }) => {
   const dropoffReverseSeq = useRef(0);
   const pickupWardCenterSeq = useRef(0);
   const dropoffWardCenterSeq = useRef(0);
+  const lastRealtimeSyncedNotificationIdRef = useRef('');
 
   const [errorText, setErrorText] = useState('');
   const [searchErrorText, setSearchErrorText] = useState('');
@@ -267,6 +269,36 @@ const CustomerHomeScreen = ({ user, onLogout, navigation, route }) => {
     const unsubscribe = onRealtimeNotificationFeedChange((next) => {
       const count = (Array.isArray(next) ? next : []).filter((item) => item?.read !== true).length;
       setUnreadNotificationCount(count);
+    });
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = onRealtimeNotificationFeedChange((next) => {
+      const latest = Array.isArray(next) && next.length > 0 ? next[0] : null;
+      const latestId = String(latest?.id || '').trim();
+      if (!latestId || latestId === lastRealtimeSyncedNotificationIdRef.current) {
+        return;
+      }
+
+      lastRealtimeSyncedNotificationIdRef.current = latestId;
+      const type = String(latest?.type || '').toUpperCase();
+      const signal = `${String(latest?.title || '').toLowerCase()} ${String(latest?.message || '').toLowerCase()}`;
+
+      const shouldSyncBookingData = type.includes('BOOKING')
+        || type.includes('TRIP')
+        || type.includes('PAYMENT')
+        || signal.includes('đặt chỗ')
+        || signal.includes('chuyến')
+        || signal.includes('thanh toán')
+        || signal.includes('hoàn tiền');
+
+      if (!shouldSyncBookingData) {
+        return;
+      }
+
+      setRefreshing(true);
+      loadData();
     });
     return unsubscribe;
   }, []);
@@ -285,7 +317,15 @@ const CustomerHomeScreen = ({ user, onLogout, navigation, route }) => {
         getMyChatThreads().catch(() => []),
         getMyInfo().catch(() => null),
       ]);
-      setBookings(Array.isArray(data) ? data : []);
+      const nextBookings = Array.isArray(data) ? data : [];
+      setBookings(nextBookings);
+      setBookingDetail((prev) => {
+        if (!prev?.id) {
+          return prev;
+        }
+        const latest = nextBookings.find((item) => String(item?.id || '') === String(prev.id || ''));
+        return latest || prev;
+      });
       if (me) {
         setProfileUser(me);
       }
@@ -1054,8 +1094,6 @@ const CustomerHomeScreen = ({ user, onLogout, navigation, route }) => {
       setPickupDetailLocation({ address: '', lat: null, lng: null });
       setDropoffDetailLocation({ address: '', lat: null, lng: null });
       setSeatCount(1);
-      await loadData();
-      await runSearch();
 
       const successTitle = paymentMethod === 'VNPAY'
         ? 'Đặt chỗ thành công'
@@ -1068,6 +1106,12 @@ const CustomerHomeScreen = ({ user, onLogout, navigation, route }) => {
         visible: true,
         title: successTitle,
         message: successMessage,
+      });
+
+      // Keep UI responsive: show success immediately, refresh list/search in background.
+      setRefreshing(true);
+      Promise.allSettled([loadData(), runSearch()]).finally(() => {
+        setRefreshing(false);
       });
 
       appendRealtimeNotification({
@@ -1398,6 +1442,8 @@ const CustomerHomeScreen = ({ user, onLogout, navigation, route }) => {
 
   const openNotificationCenter = () => {
     setActiveFooterTab('notifications');
+    markAllRealtimeNotificationsRead();
+    setUnreadNotificationCount(0);
     navigation?.navigate('NotificationCenter');
   };
 

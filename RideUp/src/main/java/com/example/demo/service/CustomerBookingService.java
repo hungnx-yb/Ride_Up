@@ -73,7 +73,15 @@ public class CustomerBookingService {
         int safePage = page == null ? 0 : Math.max(page, 0);
         int safeSize = size == null ? 20 : Math.min(Math.max(size, 1), 50);
 
-        List<Trip> candidates = tripRepository.searchTrips(fromWardId, toWardId, searchDate, targetStatus, safePage, safeSize);
+        List<Trip> candidates = tripRepository.searchTrips(
+                fromProvinceId,
+                toProvinceId,
+                fromWardId,
+                toWardId,
+                searchDate,
+                targetStatus,
+                safePage,
+                safeSize);
 
         return candidates.stream()
                 .map(this::toRideSearchResponse)
@@ -220,21 +228,14 @@ public class CustomerBookingService {
         chatService.ensureThreadForConfirmedBooking(saved.getId());
 
         String routeLabel = buildRouteLabel(saved);
-        notificationRealtimePublisher.notifyUser(
-                currentUser.getId(),
-                "BOOKING_CREATED",
-                "Đặt chuyến thành công",
-                "Bạn đã đặt thành công chuyến " + routeLabel + ".",
-                saved.getId()
-        );
         String driverUserId = extractDriverUserId(saved);
         if (StringUtils.hasText(driverUserId)) {
                 notificationRealtimePublisher.notifyUser(
-                        driverUserId,
-                        "NEW_BOOKING",
-                        "Có khách đặt chuyến",
-                        "Bạn vừa có khách đặt chuyến " + routeLabel + ".",
-                        saved.getId()
+                                driverUserId,
+                                "NEW_BOOKING",
+                                "Có khách đặt chuyến",
+                                "Bạn vừa có khách đặt chuyến " + routeLabel + ".",
+                                saved.getId()
                 );
         }
 
@@ -415,24 +416,28 @@ public class CustomerBookingService {
                 chatService.closeThreadByBookingId(booking.getId(), "Booking was cancelled");
 
                 Booking saved = bookingRepository.save(booking);
+
                 String routeLabel = buildRouteLabel(saved);
+                String customerUserId = saved.getCustomer() != null ? saved.getCustomer().getId() : null;
                 notificationRealtimePublisher.notifyUser(
-                                currentUser.getId(),
-                                "BOOKING_CANCELLED",
+                                customerUserId,
+                                "BOOKING_CANCELLED_BY_CUSTOMER",
                                 "Hủy chuyến thành công",
-                                "Bạn đã hủy thành công chuyến " + routeLabel + ".",
+                                "Bạn đã hủy chuyến " + routeLabel + ".",
                                 saved.getId()
                 );
+
                 String driverUserId = extractDriverUserId(saved);
                 if (StringUtils.hasText(driverUserId)) {
                         notificationRealtimePublisher.notifyUser(
                                         driverUserId,
                                         "BOOKING_CANCELLED_BY_CUSTOMER",
-                                        "Khách đã hủy chuyến",
-                                        "Một khách đã hủy booking trên chuyến " + routeLabel + ".",
+                                        "Khách đã hủy đặt chỗ",
+                                        "Khách vừa hủy đặt chỗ trên chuyến " + routeLabel + ".",
                                         saved.getId()
                         );
                 }
+
                 return toCustomerBookingResponse(saved);
         }
 
@@ -678,12 +683,24 @@ public class CustomerBookingService {
                                 booking.setConfirmedAt(LocalDateTime.now());
                         }
                         chatService.ensureThreadForConfirmedBooking(booking.getId());
-                        if (booking.getCustomer() != null && StringUtils.hasText(booking.getCustomer().getId())) {
+
+                        String routeLabel = buildRouteLabel(booking);
+                        String customerUserId = booking.getCustomer() != null ? booking.getCustomer().getId() : null;
+                        notificationRealtimePublisher.notifyUser(
+                                        customerUserId,
+                                        "PAYMENT_SUCCESS",
+                                        "Thanh toán thành công",
+                                        "Bạn đã thanh toán thành công chuyến " + routeLabel + ".",
+                                        booking.getId()
+                        );
+
+                        String driverUserId = extractDriverUserId(booking);
+                        if (StringUtils.hasText(driverUserId)) {
                                 notificationRealtimePublisher.notifyUser(
-                                                booking.getCustomer().getId(),
-                                                "PAYMENT_VNPAY_SUCCESS",
-                                                "Thanh toán VNPAY thành công",
-                                                "Thanh toán cho booking " + booking.getId() + " đã thành công.",
+                                                driverUserId,
+                                                "CUSTOMER_PAYMENT_SUCCESS",
+                                                "Khách đã thanh toán",
+                                                "Khách đã thanh toán thành công cho chuyến " + routeLabel + ".",
                                                 booking.getId()
                                 );
                         }
@@ -829,40 +846,6 @@ public class CustomerBookingService {
                 }
         }
 
-        private String buildRouteLabel(Booking booking) {
-                if (booking == null) {
-                        return "--";
-                }
-
-                String from = booking.getPickupPoint() != null && booking.getPickupPoint().getWard() != null
-                                && booking.getPickupPoint().getWard().getProvince() != null
-                                ? booking.getPickupPoint().getWard().getProvince().getName()
-                                : null;
-                String to = booking.getDropoffPoint() != null && booking.getDropoffPoint().getWard() != null
-                                && booking.getDropoffPoint().getWard().getProvince() != null
-                                ? booking.getDropoffPoint().getWard().getProvince().getName()
-                                : null;
-
-                if (!StringUtils.hasText(from) && !StringUtils.hasText(to)) {
-                        return booking.getId();
-                }
-                if (!StringUtils.hasText(from)) {
-                        return "-- - " + to;
-                }
-                if (!StringUtils.hasText(to)) {
-                        return from + " - --";
-                }
-                return from + " - " + to;
-        }
-
-        private String extractDriverUserId(Booking booking) {
-                if (booking == null || booking.getTrip() == null || booking.getTrip().getDriver() == null
-                                || booking.getTrip().getDriver().getUser() == null) {
-                        return null;
-                }
-                return booking.getTrip().getDriver().getUser().getId();
-        }
-
         private void restoreTripSeatAfterCancellation(Trip trip, Integer seatCount) {
                 if (trip == null) {
                         return;
@@ -944,5 +927,35 @@ public class CustomerBookingService {
                                 * Math.sin(dLng / 2) * Math.sin(dLng / 2);
                 double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
                 return earthRadiusKm * c;
+        }
+
+        private String buildRouteLabel(Booking booking) {
+                if (booking == null) {
+                        return "không xác định";
+                }
+
+                String from = booking.getPickupPoint() != null
+                                && booking.getPickupPoint().getWard() != null
+                                && StringUtils.hasText(booking.getPickupPoint().getWard().getName())
+                                ? booking.getPickupPoint().getWard().getName().trim()
+                                : "--";
+
+                String to = booking.getDropoffPoint() != null
+                                && booking.getDropoffPoint().getWard() != null
+                                && StringUtils.hasText(booking.getDropoffPoint().getWard().getName())
+                                ? booking.getDropoffPoint().getWard().getName().trim()
+                                : "--";
+
+                return from + " - " + to;
+        }
+
+        private String extractDriverUserId(Booking booking) {
+                if (booking == null
+                                || booking.getTrip() == null
+                                || booking.getTrip().getDriver() == null
+                                || booking.getTrip().getDriver().getUser() == null) {
+                        return null;
+                }
+                return booking.getTrip().getDriver().getUser().getId();
         }
 }

@@ -1,18 +1,10 @@
 package com.example.demo.dto.request;
 
 import lombok.AccessLevel;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
+import lombok.Data;
 import lombok.experimental.FieldDefaults;
 
-@Getter
-@Setter
-@NoArgsConstructor
-@AllArgsConstructor
-@Builder
+@Data
 @FieldDefaults(level = AccessLevel.PRIVATE)
 public class CancelBookingRequest {
     String cancellationReason;

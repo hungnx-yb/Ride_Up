@@ -11,6 +11,7 @@ import {
   getDriverStats,
   peekDriverTripsSnapshot,
   peekDriverStatsSnapshot,
+  onRealtimeNotificationFeedChange,
 } from '../../services/api';
 import DriverBottomNav, { DRIVER_BOTTOM_NAV_INSET } from '../../components/DriverBottomNav';
 import SkeletonShimmer from '../../components/SkeletonShimmer';
@@ -41,6 +42,7 @@ const STATUS_CONFIG = {
 const DriverHomeScreen = ({ user, onLogout, navigation }) => {
   const initialTripsRef = useRef(peekDriverTripsSnapshot());
   const initialStatsRef = useRef(peekDriverStatsSnapshot());
+  const lastRealtimeSyncedNotificationIdRef = useRef('');
 
   const [trips, setTrips]   = useState(initialTripsRef.current);
   const [stats, setStats]   = useState(initialStatsRef.current);
@@ -127,6 +129,37 @@ const DriverHomeScreen = ({ user, onLogout, navigation }) => {
   useEffect(() => {
     runEntrance();
     loadData();
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = onRealtimeNotificationFeedChange((next) => {
+      const latest = Array.isArray(next) && next.length > 0 ? next[0] : null;
+      const latestId = String(latest?.id || '').trim();
+      if (!latestId || latestId === lastRealtimeSyncedNotificationIdRef.current) {
+        return;
+      }
+
+      lastRealtimeSyncedNotificationIdRef.current = latestId;
+      const type = String(latest?.type || '').toUpperCase();
+      const signal = `${String(latest?.title || '').toLowerCase()} ${String(latest?.message || '').toLowerCase()}`;
+
+      const shouldSyncDriverData = type.includes('BOOKING')
+        || type.includes('TRIP')
+        || type.includes('PAYMENT')
+        || signal.includes('đặt chỗ')
+        || signal.includes('chuyến')
+        || signal.includes('thanh toán')
+        || signal.includes('hủy');
+
+      if (!shouldSyncDriverData) {
+        return;
+      }
+
+      setRefreshing(true);
+      loadData(true);
+    });
+
+    return unsubscribe;
   }, []);
 
   const formatCurrency = (n) =>

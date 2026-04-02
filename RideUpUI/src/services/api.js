@@ -28,6 +28,7 @@ let _isHandlingAuthExpiry = false;
 let _refreshInFlight = null;
 const _authExpiredListeners = new Set();
 let _notificationFeed = [];
+let _notificationFeedOwnerUserId = null;
 const _notificationFeedListeners = new Set();
 let _chatUnreadThreadsCount = 0;
 const _chatUnreadThreadsListeners = new Set();
@@ -37,6 +38,11 @@ export const STORAGE_KEYS = {
   REFRESH_TOKEN: '@rideup_refresh_token',
   USER: '@rideup_user',
   NOTIFICATION_FEED: '@rideup_notification_feed',
+};
+
+const _notificationFeedStorageKeyForUser = (userId) => {
+  const normalized = String(userId || '').trim();
+  return normalized ? `${STORAGE_KEYS.NOTIFICATION_FEED}:${normalized}` : STORAGE_KEYS.NOTIFICATION_FEED;
 };
 
 const API_CACHE_TTL = {
@@ -86,9 +92,39 @@ const _emitRealtimeNotificationFeedChange = () => {
 
 const _persistRealtimeNotificationFeed = async () => {
   try {
-    await AsyncStorage.setItem(STORAGE_KEYS.NOTIFICATION_FEED, JSON.stringify(_notificationFeed));
+    const key = _notificationFeedStorageKeyForUser(_notificationFeedOwnerUserId);
+    await AsyncStorage.setItem(key, JSON.stringify(_notificationFeed));
   } catch {
     // Ignore storage failures to avoid blocking app flow.
+  }
+};
+
+const _restoreRealtimeNotificationFeedForUser = async (userId) => {
+  try {
+    const scopedKey = _notificationFeedStorageKeyForUser(userId);
+    const [scopedValue, legacyValue] = await Promise.all([
+      AsyncStorage.getItem(scopedKey),
+      AsyncStorage.getItem(STORAGE_KEYS.NOTIFICATION_FEED),
+    ]);
+
+    const source = scopedValue || legacyValue;
+    if (!source) {
+      _notificationFeed = [];
+      _emitRealtimeNotificationFeedChange();
+      return;
+    }
+
+    const parsed = JSON.parse(source);
+    _notificationFeed = Array.isArray(parsed) ? parsed.slice(0, 150) : [];
+    _emitRealtimeNotificationFeedChange();
+
+    // One-time migration from old shared key to scoped key.
+    if (!scopedValue && legacyValue && scopedKey !== STORAGE_KEYS.NOTIFICATION_FEED) {
+      await AsyncStorage.setItem(scopedKey, JSON.stringify(_notificationFeed));
+    }
+  } catch {
+    _notificationFeed = [];
+    _emitRealtimeNotificationFeedChange();
   }
 };
 
@@ -586,11 +622,10 @@ export const createUserNotificationRealtimeClient = ({ userId, onNotification, o
 /** Gọi khi khởi động app để khôi phục token đã lưu */
 export const loadStoredAuth = async () => {
   try {
-    const [token, refresh, userStr, notificationFeedStr] = await Promise.all([
+    const [token, refresh, userStr] = await Promise.all([
       AsyncStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN),
       AsyncStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN),
       AsyncStorage.getItem(STORAGE_KEYS.USER),
-      AsyncStorage.getItem(STORAGE_KEYS.NOTIFICATION_FEED),
     ]);
     if (token) {
       _accessToken = token;
@@ -598,17 +633,11 @@ export const loadStoredAuth = async () => {
       apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
     }
 
-    if (notificationFeedStr) {
-      try {
-        const parsed = JSON.parse(notificationFeedStr);
-        _notificationFeed = Array.isArray(parsed) ? parsed.slice(0, 150) : [];
-      } catch {
-        _notificationFeed = [];
-      }
-      _emitRealtimeNotificationFeedChange();
-    }
+    const storedUser = userStr ? JSON.parse(userStr) : null;
+    _notificationFeedOwnerUserId = storedUser?.id || null;
+    await _restoreRealtimeNotificationFeedForUser(_notificationFeedOwnerUserId);
 
-    return userStr ? JSON.parse(userStr) : null;
+    return storedUser;
   } catch {
     return null;
   }
@@ -618,18 +647,21 @@ export const loadStoredAuth = async () => {
 const _persistAuth = async (accessToken, refreshToken, user) => {
   _accessToken = accessToken;
   _refreshToken = refreshToken;
+  _notificationFeedOwnerUserId = user?.id || null;
   apiClient.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
   await Promise.all([
     AsyncStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, accessToken),
     AsyncStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, refreshToken),
     AsyncStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user)),
   ]);
+  await _restoreRealtimeNotificationFeedForUser(_notificationFeedOwnerUserId);
 };
 
 /** Xoá auth khỏi bộ nhớ và AsyncStorage */
 export const clearStoredAuth = async () => {
   _accessToken = null;
   _refreshToken = null;
+  _notificationFeedOwnerUserId = null;
   delete apiClient.defaults.headers.common['Authorization'];
   _apiCache.clear();
   _notificationFeed = [];
@@ -639,7 +671,6 @@ export const clearStoredAuth = async () => {
     STORAGE_KEYS.ACCESS_TOKEN,
     STORAGE_KEYS.REFRESH_TOKEN,
     STORAGE_KEYS.USER,
-    STORAGE_KEYS.NOTIFICATION_FEED,
   ]);
 };
 

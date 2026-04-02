@@ -11,6 +11,7 @@ import {
   prefetchDriverBootstrapData,
   createUserNotificationRealtimeClient,
   appendRealtimeNotification,
+  getRealtimeNotificationFeed,
 } from './src/services/api';
 
 // Auth screens
@@ -94,6 +95,33 @@ export default function App() {
       || combined.includes('refund');
   };
 
+  const isPaymentSuccessNotice = (payload) => {
+    const type = String(payload?.type || '').toUpperCase();
+    const title = String(payload?.title || '').toLowerCase();
+    const message = String(payload?.message || '').toLowerCase();
+    const combined = `${title} ${message}`;
+
+    if (type.includes('PAYMENT_SUCCESS') || type.includes('VNPAY_PAID') || type.includes('BOOKING_PAID')) {
+      return true;
+    }
+
+    return combined.includes('thanh toán thành công')
+      || combined.includes('da thanh toan')
+      || combined.includes('đã thanh toán')
+      || combined.includes('payment success')
+      || combined.includes('paid successfully');
+  };
+
+  const triggerCustomerTripsReload = () => {
+    if (!navRef.isReady()) {
+      return;
+    }
+    navRef.navigate('CustomerHome', {
+      initialTab: 'myTrips',
+      forceReloadAt: Date.now(),
+    });
+  };
+
   // Khôi phục session khi mở app
   useEffect(() => {
     loadStoredAuth().then((storedUser) => {
@@ -140,6 +168,12 @@ export default function App() {
       return;
     }
 
+    const restoredIds = getRealtimeNotificationFeed()
+      .map((item) => (item?.id == null ? null : String(item.id)))
+      .filter(Boolean)
+      .slice(0, 150);
+    seenNotificationIdsRef.current = new Set(restoredIds);
+
     if (notificationRealtimeRef.current) {
       notificationRealtimeRef.current.disconnect();
       notificationRealtimeRef.current = null;
@@ -148,14 +182,16 @@ export default function App() {
     notificationRealtimeRef.current = createUserNotificationRealtimeClient({
       userId,
       onNotification: (payload) => {
-        const id = String(payload?.id || `${payload?.type || 'EVENT'}:${payload?.referenceId || Date.now()}`);
-        if (seenNotificationIdsRef.current.has(id)) {
+        const stableId = payload?.id == null ? null : String(payload.id);
+        if (stableId && seenNotificationIdsRef.current.has(stableId)) {
           return;
         }
-        seenNotificationIdsRef.current.add(id);
-        if (seenNotificationIdsRef.current.size > 150) {
-          const ids = Array.from(seenNotificationIdsRef.current);
-          seenNotificationIdsRef.current = new Set(ids.slice(ids.length - 80));
+        if (stableId) {
+          seenNotificationIdsRef.current.add(stableId);
+          if (seenNotificationIdsRef.current.size > 150) {
+            const ids = Array.from(seenNotificationIdsRef.current);
+            seenNotificationIdsRef.current = new Set(ids.slice(ids.length - 80));
+          }
         }
 
         appendRealtimeNotification(payload);
@@ -164,10 +200,19 @@ export default function App() {
         const message = payload?.message || 'Bạn có cập nhật mới.';
 
         if (isVnpayPaymentNotice(payload)) {
+          const isCustomer = (user?.roles || []).includes(ROLES.CUSTOMER);
+          const isSuccess = isPaymentSuccessNotice(payload);
+
+          if (isCustomer && isSuccess) {
+            triggerCustomerTripsReload();
+          }
+
           setPaymentNoticeModal({
             visible: true,
-            title,
-            message,
+            title: isSuccess ? 'Thanh toán thành công' : title,
+            message: isSuccess
+              ? 'Giao dịch VNPAY đã thành công. Danh sách chuyến đã được cập nhật tự động.'
+              : message,
           });
           return;
         }
@@ -185,7 +230,7 @@ export default function App() {
         notificationRealtimeRef.current = null;
       }
     };
-  }, [user?.id]);
+  }, [user?.id, user?.roles]);
 
   const handleLoginSuccess = (userData, authToken) => {
     setTransitionUserName(userData?.fullName || 'ban');

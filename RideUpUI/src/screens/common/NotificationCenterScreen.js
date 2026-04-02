@@ -35,6 +35,10 @@ const NotificationCenterScreen = ({ navigation, role = 'CUSTOMER' }) => {
     return unsubscribe;
   }, []);
 
+  useEffect(() => {
+    markAllRealtimeNotificationsRead();
+  }, []);
+
   useEffect(() => () => {
     markAllRealtimeNotificationsRead();
   }, []);

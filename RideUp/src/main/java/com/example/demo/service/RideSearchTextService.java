@@ -67,8 +67,12 @@ public class RideSearchTextService {
         AiRideSearchAssistant.ParsedRideQuery aiParsed = aiParsedOptional.orElse(null);
 
         RouteText routeText = extractRouteText(queryText);
-        String fromText = firstNonBlank(aiParsed != null ? aiParsed.getFromText() : null, routeText.fromText());
-        String toText = firstNonBlank(aiParsed != null ? aiParsed.getToText() : null, routeText.toText());
+        String fromText = firstNonBlank(aiParsed != null ? aiParsed.getFromText() : null,
+                routeText.fromText(),
+                extractOriginText(queryText));
+        String toText = firstNonBlank(aiParsed != null ? aiParsed.getToText() : null,
+                routeText.toText(),
+                extractDestinationText(queryText));
 
         String departureDate = firstNonBlank(aiParsed != null ? aiParsed.getDepartureDate() : null,
                 extractDepartureDate(queryText));
@@ -85,10 +89,10 @@ public class RideSearchTextService {
                 toResolved.provinceId(),
                 fromResolved.wardId(),
                 toResolved.wardId(),
-            departureDate,
-            "OPEN",
-            0,
-            50);
+                departureDate,
+                "OPEN",
+                0,
+                50);
 
         if (seatCount != null && seatCount > 0) {
             rides = rides.stream()
@@ -109,11 +113,9 @@ public class RideSearchTextService {
                     .map(String::trim)
                     .forEach(clarificationQuestions::add);
         }
-        if (!StringUtils.hasText(fromResolved.provinceId()) && !StringUtils.hasText(fromResolved.wardId())) {
+        if (!StringUtils.hasText(fromResolved.provinceId()) && !StringUtils.hasText(fromResolved.wardId())
+                && !StringUtils.hasText(toResolved.provinceId()) && !StringUtils.hasText(toResolved.wardId())) {
             clarificationQuestions.add("Bạn muốn đi từ khu vực nào?");
-        }
-        if (!StringUtils.hasText(toResolved.provinceId()) && !StringUtils.hasText(toResolved.wardId())) {
-            clarificationQuestions.add("Bạn muốn đến khu vực nào?");
         }
 
         double confidence = computeConfidence(aiParsed != null ? aiParsed.getConfidence() : null, fromResolved,
@@ -153,6 +155,26 @@ public class RideSearchTextService {
         }
 
         return new RouteText(null, null);
+    }
+
+    private String extractOriginText(String queryText) {
+        Pattern originPattern = Pattern.compile(
+                "(?iu)(?:di|đi)?\\s*(?:tu|từ)\\s+(.+?)(?:$|,|\\.|;|\\s+l[uú]c|\\s+vao|\\s+vào|\\s+den|\\s+đến)");
+        Matcher matcher = originPattern.matcher(queryText);
+        if (matcher.find()) {
+            return cleanLocationText(matcher.group(1));
+        }
+        return null;
+    }
+
+    private String extractDestinationText(String queryText) {
+        Pattern destinationPattern = Pattern
+                .compile("(?iu)\\b(?:den|đến)\\s+(.+?)(?:$|,|\\.|;|\\s+l[uú]c|\\s+vao|\\s+vào)");
+        Matcher matcher = destinationPattern.matcher(queryText);
+        if (matcher.find()) {
+            return cleanLocationText(matcher.group(1));
+        }
+        return null;
     }
 
     private Integer extractSeatCount(String queryText) {
@@ -206,6 +228,9 @@ public class RideSearchTextService {
 
         if (normalized.contains("ngay mai") || normalized.contains("mai")) {
             return now.plusDays(1).toString();
+        }
+        if (normalized.contains("toi nay")) {
+            return now.toString();
         }
         if (normalized.contains("hom nay") || normalized.contains("h nay")) {
             return now.toString();
@@ -460,8 +485,18 @@ public class RideSearchTextService {
         return Math.max(0.0, Math.min(1.0, score));
     }
 
+    private String firstNonBlank(String first, String second, String third) {
+        if (StringUtils.hasText(first)) {
+            return first.trim();
+        }
+        if (StringUtils.hasText(second)) {
+            return second.trim();
+        }
+        return StringUtils.hasText(third) ? third.trim() : null;
+    }
+
     private String firstNonBlank(String first, String second) {
-        return StringUtils.hasText(first) ? first.trim() : (StringUtils.hasText(second) ? second.trim() : null);
+        return firstNonBlank(first, second, null);
     }
 
     private static class RouteText {
