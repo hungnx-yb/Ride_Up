@@ -176,6 +176,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
   const [chatDraft, setChatDraft] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const [chatSending, setChatSending] = useState(false);
+  const [chatUploadingImage, setChatUploadingImage] = useState(false);
   const [chatVisible, setChatVisible] = useState(false);
   const chatRealtimeRef = useRef(null);
   const chatMessagesScrollRef = useRef(null);
@@ -1477,9 +1478,10 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
       setChatMessages(Array.isArray(messages) ? messages.map(normalizeCustomerMessage) : []);
       setChatDraft('');
       startChatRealtime(thread.id);
-      await markChatThreadRead(thread.id).catch(() => { });
-      const threads = await getMyChatThreads().catch(() => []);
-      setChatThreads(Array.isArray(threads) ? threads : []);
+      markChatThreadRead(thread.id).catch(() => { });
+      getMyChatThreads()
+        .then((threads) => setChatThreads(Array.isArray(threads) ? threads : []))
+        .catch(() => { });
     } catch (e) {
       setErrorText(e.message || 'Không thể mở cuộc trò chuyện.');
       Alert.alert('Không thể mở chat', e?.message || 'Vui lòng kiểm tra lại kết nối backend/MongoDB.');
@@ -1500,9 +1502,10 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
       setChatMessages(Array.isArray(messages) ? messages.map(normalizeCustomerMessage) : []);
       setChatDraft('');
       startChatRealtime(thread.id);
-      await markChatThreadRead(thread.id).catch(() => { });
-      const threads = await getMyChatThreads().catch(() => []);
-      setChatThreads(Array.isArray(threads) ? threads : []);
+      markChatThreadRead(thread.id).catch(() => { });
+      getMyChatThreads()
+        .then((threads) => setChatThreads(Array.isArray(threads) ? threads : []))
+        .catch(() => { });
     } catch (e) {
       setErrorText(e.message || 'Không thể tải tin nhắn.');
       Alert.alert('Không thể tải chat', e?.message || 'Vui lòng thử lại sau.');
@@ -1521,7 +1524,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
   };
 
   const submitChatMessage = async () => {
-    if (!chatThread?.id || !chatDraft.trim() || chatSending) {
+    if (!chatThread?.id || !chatDraft.trim() || chatSending || chatUploadingImage) {
       return;
     }
     try {
@@ -1529,12 +1532,92 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
       const sent = await sendChatMessage(chatThread.id, chatDraft.trim());
       appendChatMessageIfNotExists(sent);
       setChatDraft('');
-      const threads = await getMyChatThreads().catch(() => []);
-      setChatThreads(Array.isArray(threads) ? threads : []);
+      getMyChatThreads()
+        .then((threads) => setChatThreads(Array.isArray(threads) ? threads : []))
+        .catch(() => { });
     } catch (e) {
       setErrorText(e.message || 'Không thể gửi tin nhắn.');
     } finally {
       setChatSending(false);
+    }
+  };
+
+  const submitChatImage = async () => {
+    if (!chatThread?.id || chatSending || chatUploadingImage) {
+      return;
+    }
+
+    try {
+      setChatUploadingImage(true);
+      const isWebRuntime = typeof window !== 'undefined' && typeof document !== 'undefined';
+
+      let selected = null;
+      if (isWebRuntime) {
+        selected = await new Promise((resolve) => {
+          const input = document.createElement('input');
+          input.type = 'file';
+          input.accept = 'image/*';
+          input.onchange = () => {
+            const file = input.files && input.files[0] ? input.files[0] : null;
+            if (!file) {
+              resolve(null);
+              return;
+            }
+            const objectUrl = URL.createObjectURL(file);
+            resolve({
+              uri: objectUrl,
+              name: file.name || `chat-${Date.now()}.jpg`,
+              type: file.type || 'image/jpeg',
+              file,
+            });
+          };
+          input.click();
+        });
+      } else {
+        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!permission?.granted) {
+          Alert.alert('Quyền bị từ chối', 'Vui lòng cấp quyền thư viện ảnh để gửi hình.');
+          return;
+        }
+
+        const picked = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsEditing: true,
+          quality: 0.9,
+        });
+
+        if (picked.canceled || !picked.assets?.length) return;
+        const asset = picked.assets[0];
+        selected = {
+          uri: asset.uri,
+          name: asset.fileName || `chat-${Date.now()}.jpg`,
+          type: asset.mimeType || 'image/jpeg',
+          file: asset.file,
+        };
+      }
+
+      if (!selected) return;
+
+      const uploadedImageUrl = await uploadFile({
+        uri: selected.uri,
+        name: selected.name,
+        type: selected.type,
+        file: selected.file,
+      });
+
+      const sent = await sendChatMessage(chatThread.id, {
+        content: null,
+        imageUrl: uploadedImageUrl,
+      });
+
+      appendChatMessageIfNotExists(sent);
+      getMyChatThreads()
+        .then((threads) => setChatThreads(Array.isArray(threads) ? threads : []))
+        .catch(() => { });
+    } catch (e) {
+      setErrorText(e?.message || 'Không thể gửi ảnh.');
+    } finally {
+      setChatUploadingImage(false);
     }
   };
 
@@ -1612,16 +1695,6 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
       stopChatRealtime();
     };
   }, []);
-
-  useEffect(() => {
-    if (!chatVisible || !chatThread?.id) return undefined;
-
-    const syncId = setInterval(() => {
-      refreshChatMessages(chatThread.id);
-    }, 1500);
-
-    return () => clearInterval(syncId);
-  }, [chatVisible, chatThread?.id]);
 
   if (loading) {
     return (
@@ -2274,10 +2347,9 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
                       </View>
                       <View style={{ flex: 1 }}>
                         <View style={styles.messageTopRow}>
-                          <Text style={styles.messageDriver}>{item.driverUserId || 'Tài xế RideUp'}</Text>
+                          <Text style={styles.messageDriver}>{item.chatTitle || `Booking: ${item.bookingId || '--'}`}</Text>
                           <Text style={styles.messageTime}>{formatTime(item.lastMessageAt)}</Text>
                         </View>
-                        <Text style={styles.messageRoute}>Booking: {item.bookingId}</Text>
                         <Text style={styles.messagePreview} numberOfLines={2}>{item.lastMessagePreview || 'Bắt đầu cuộc trò chuyện'}</Text>
                       </View>
                       {!!item.myUnreadCount && <View style={styles.unreadDot} />}
@@ -3101,8 +3173,6 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
               <Ionicons name="chatbubble-ellipses" size={20} color="#00B14F" />
               <Text style={styles.modalTitle}>Chat với tài xế</Text>
             </View>
-            <Text style={styles.modalSub}>Booking: {chatThread?.bookingId || '--'}</Text>
-            <Text style={styles.modalSubHint}>Realtime push đang bật</Text>
 
             {chatLoading ? (
               <View style={styles.chatLoadingWrap}>
@@ -3121,7 +3191,16 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
                 )}
                 {chatMessages.map((msg) => (
                   <View key={msg.id} style={[styles.chatBubble, msg.mine ? styles.chatBubbleMine : styles.chatBubbleOther]}>
-                    <Text style={[styles.chatBubbleText, msg.mine && styles.chatBubbleTextMine]}>{msg.content}</Text>
+                    {!!msg.imageUrl && (
+                      <Image
+                        source={{ uri: resolveStoragePublicUrl(msg.imageUrl) || msg.imageUrl }}
+                        style={styles.chatBubbleImage}
+                        resizeMode="cover"
+                      />
+                    )}
+                    {!!msg.content && (
+                      <Text style={[styles.chatBubbleText, msg.mine && styles.chatBubbleTextMine]}>{msg.content}</Text>
+                    )}
                     <Text style={[styles.chatBubbleTime, msg.mine && styles.chatBubbleTimeMine]}>{formatTime(msg.sentAt)}</Text>
                   </View>
                 ))}
@@ -3129,6 +3208,15 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
             )}
 
             <View style={styles.chatComposerRow}>
+              <TouchableOpacity
+                style={[styles.chatAttachBtn, chatUploadingImage && styles.chatAttachBtnDisabled]}
+                onPress={submitChatImage}
+                disabled={chatUploadingImage || chatSending}
+              >
+                {chatUploadingImage
+                  ? <ActivityIndicator size="small" color="#0F172A" />
+                  : <Ionicons name="image" size={16} color="#0F172A" />}
+              </TouchableOpacity>
               <TextInput
                 style={styles.chatInput}
                 value={chatDraft}
@@ -3136,7 +3224,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
                 placeholder="Nhập tin nhắn..."
                 maxLength={2000}
               />
-              <TouchableOpacity style={styles.chatSendBtn} onPress={submitChatMessage} disabled={chatSending || !chatDraft.trim()}>
+              <TouchableOpacity style={styles.chatSendBtn} onPress={submitChatMessage} disabled={chatSending || chatUploadingImage || !chatDraft.trim()}>
                 <Ionicons name="send" size={16} color="#FFFFFF" />
               </TouchableOpacity>
             </View>
@@ -4406,9 +4494,27 @@ const styles = StyleSheet.create({
   chatBubbleOther: { alignSelf: 'flex-start', backgroundColor: '#E2E8F0' },
   chatBubbleText: { color: '#0F172A', fontSize: 13 },
   chatBubbleTextMine: { color: '#FFFFFF' },
+  chatBubbleImage: {
+    width: 190,
+    height: 140,
+    borderRadius: 10,
+    marginBottom: 6,
+    backgroundColor: '#E2E8F0',
+  },
   chatBubbleTime: { marginTop: 4, fontSize: 10, color: '#64748B', textAlign: 'right' },
   chatBubbleTimeMine: { color: '#D1FAE5' },
   chatComposerRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10, gap: 8 },
+  chatAttachBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E2E8F0',
+  },
+  chatAttachBtnDisabled: {
+    opacity: 0.65,
+  },
   chatInput: {
     flex: 1,
     borderWidth: 1,

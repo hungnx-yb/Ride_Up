@@ -44,6 +44,8 @@ const API_CACHE_TTL = {
   CHAT_THREADS: 8000,
 };
 
+const CHAT_REQUEST_TIMEOUT = 12000;
+
 const _apiCache = new Map();
 const DRIVER_TRIPS_CACHE_KEY = 'DRIVER_TRIPS:LIST';
 const DRIVER_STATS_CACHE_KEY = 'DRIVER_STATS:ME';
@@ -295,7 +297,7 @@ const appendMultipartFile = async (formData, fieldName, { uri, name, type, file 
   const isWeb = typeof window !== 'undefined' && typeof document !== 'undefined';
   if (isWeb) {
     if (!uri) {
-      throw new Error('Khong tim thay tep de tai len');
+      throw new Error('Không tìm thấy tệp để tải lên');
     }
     const response = await fetch(uri);
     const rawBlob = await response.blob();
@@ -561,7 +563,7 @@ export const updateMyInfo = async (payload) => {
 
 export const updateMyAvatar = async ({ uri, name, type }) => {
   if (!uri) {
-    throw new Error('Khong tim thay anh avatar de tai len');
+    throw new Error('Không tìm thấy ảnh avatar để tải lên');
   }
 
   if (USE_MOCK_DATA) {
@@ -635,8 +637,8 @@ export const getMyOffers = async () => {
     return [
       {
         code: 'WELCOME10',
-        title: 'Giam 10% chuyen ke tiep',
-        description: 'Ap dung cho chuyen dau thang, toi da 30.000d.',
+        title: 'Giảm 10% chuyến kế tiếp',
+        description: 'Áp dụng cho chuyến đầu tháng, tối đa 30.000đ.',
         active: true,
       },
     ];
@@ -772,7 +774,7 @@ export const getDriverTripDetail = async (tripId) => {
     await mockApiDelay(500);
     const trip = MOCK_DRIVER_TRIPS.find((item) => item.id === tripId);
     if (!trip) {
-      throw new Error('Khong tim thay chuyen xe');
+      throw new Error('Không tìm thấy chuyến xe');
     }
 
     const totalSeats = trip.totalSeats || 0;
@@ -894,7 +896,7 @@ export const submitDriverProfile = async (payload) => {
 
 export const uploadFile = async ({ uri, name, type, file }) => {
   if (!uri && !file) {
-    throw new Error('Khong tim thay tep de tai len');
+    throw new Error('Không tìm thấy tệp để tải lên');
   }
 
   const formData = new FormData();
@@ -1193,7 +1195,9 @@ export const openChatThread = async (bookingId) => {
       myUnreadCount: 0,
     };
   }
-  const res = await apiClient.post('/chat/threads/open', { bookingId });
+  const res = await apiClient.post('/chat/threads/open', { bookingId }, {
+    timeout: CHAT_REQUEST_TIMEOUT,
+  });
   return res.data?.result ?? res.data;
 };
 
@@ -1204,7 +1208,9 @@ export const getMyChatThreads = async () => {
     return [];
   }
   return getCached('CHAT_THREADS:ME', API_CACHE_TTL.CHAT_THREADS, async () => {
-    const res = await apiClient.get('/chat/threads');
+    const res = await apiClient.get('/chat/threads', {
+      timeout: CHAT_REQUEST_TIMEOUT,
+    });
     return res.data?.result ?? res.data;
   });
 };
@@ -1217,24 +1223,40 @@ export const getChatMessages = async (threadId, limit = 50) => {
   }
   const res = await apiClient.get(`/chat/threads/${threadId}/messages`, {
     params: { limit },
+    timeout: CHAT_REQUEST_TIMEOUT,
   });
   return res.data?.result ?? res.data;
 };
 
-/** Gửi tin nhắn text */
-export const sendChatMessage = async (threadId, content) => {
+/** Gửi tin nhắn chat (text/image) */
+export const sendChatMessage = async (threadId, payload) => {
+  const requestBody = typeof payload === 'string'
+    ? { content: payload }
+    : {
+      content: payload?.content ?? null,
+      imageUrl: payload?.imageUrl ?? null,
+      type: payload?.type ?? null,
+    };
+
+  if (!requestBody.content && !requestBody.imageUrl) {
+    throw new Error('Tin nhắn không hợp lệ');
+  }
+
   if (USE_MOCK_DATA) {
     await mockApiDelay(300);
     return {
       id: `msg_${Date.now()}`,
       threadId,
-      content,
-      type: 'TEXT',
+      content: requestBody.content,
+      imageUrl: requestBody.imageUrl,
+      type: requestBody.imageUrl ? 'IMAGE' : 'TEXT',
       mine: true,
       sentAt: new Date().toISOString(),
     };
   }
-  const res = await apiClient.post(`/chat/threads/${threadId}/messages`, { content });
+  const res = await apiClient.post(`/chat/threads/${threadId}/messages`, requestBody, {
+    timeout: CHAT_REQUEST_TIMEOUT,
+  });
   invalidateCacheByPrefix('CHAT_THREADS:');
   return res.data?.result ?? res.data;
 };
@@ -1245,7 +1267,9 @@ export const markChatThreadRead = async (threadId) => {
     await mockApiDelay(250);
     return { id: threadId, myUnreadCount: 0 };
   }
-  const res = await apiClient.post(`/chat/threads/${threadId}/read`);
+  const res = await apiClient.post(`/chat/threads/${threadId}/read`, undefined, {
+    timeout: CHAT_REQUEST_TIMEOUT,
+  });
   invalidateCacheByPrefix('CHAT_THREADS:');
   return res.data?.result ?? res.data;
 };

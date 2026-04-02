@@ -1,7 +1,7 @@
 import { getDriverProfile } from './api';
 
 const REDIRECT_TITLE = 'Ho so chua duoc duyet';
-const REDIRECT_MESSAGE = 'Vui long cap nhat ho so tai xe va doi admin duyet truoc khi su dung chuc nang nay.';
+const REDIRECT_MESSAGE = 'Vui lòng cập nhật hồ sơ tài xế và đợi admin duyệt trước khi sử dụng chức năng này.';
 const CACHE_TTL_MS = 10 * 60 * 1000;
 
 let cachedProfile = null;
@@ -84,5 +84,5 @@ export const ensureApprovedProfileForTripFeature = async (message, options = {})
 
 export const ensureApprovedProfileBeforeCreateTrip = async () =>
   ensureApprovedProfileForTripFeature(
-    'Vui long cap nhat ho so tai xe va doi admin duyet truoc khi tao chuyen xe.'
+    'Vui lòng cập nhật hồ sơ tài xế và đợi admin duyệt trước khi tạo chuyến xe.'
   );

@@ -98,7 +98,7 @@ const LoginScreen = ({ onLoginSuccess, navigation }) => {
             onPress={handleLogin}
             disabled={loading}
           >
-            <Text style={styles.loginBtnText}>{loading ? 'Dang vao RideUp...' : 'Dang nhap'}</Text>
+            <Text style={styles.loginBtnText}>{loading ? 'Đang vào RideUp...' : 'Đăng nhập'}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
