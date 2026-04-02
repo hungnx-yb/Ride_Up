@@ -25,6 +25,7 @@ export const USE_MOCK_DATA = false;
 let _accessToken = null;
 let _refreshToken = null;
 let _isHandlingAuthExpiry = false;
+let _refreshInFlight = null;
 const _authExpiredListeners = new Set();
 
 export const STORAGE_KEYS = {
@@ -91,6 +92,71 @@ const _isTokenExpiredError = (error) => {
   if (status !== 401 && status !== 403) return false;
 
   return !!(_accessToken || error?.config?.headers?.Authorization || error?.config?.headers?.authorization);
+};
+
+const _isRefreshableAuthError = (error) => {
+  const status = error?.response?.status;
+  const code = error?.response?.data?.code;
+  const rawMessage = String(
+    error?.response?.data?.message
+    || error?.response?.data?.error
+    || error?.message
+    || ''
+  ).toLowerCase();
+
+  const hasTokenSignal = code === 1010 || /expired|revoked|jwt|token|unauthorized|forbidden|invalid token/.test(rawMessage);
+  if (!hasTokenSignal) return false;
+
+  return status === 400 || status === 401 || status === 403;
+};
+
+const _isAuthEndpoint = (url = '') => {
+  const normalized = String(url || '').toLowerCase();
+  return normalized.includes('/auth/authentication')
+    || normalized.includes('/auth/register')
+    || normalized.includes('/auth/refresh-token')
+    || normalized.includes('/auth/logout');
+};
+
+const _refreshAccessToken = async () => {
+  if (_refreshInFlight) {
+    return _refreshInFlight;
+  }
+
+  if (!_refreshToken) {
+    throw new Error('Missing refresh token');
+  }
+
+  _refreshInFlight = (async () => {
+    const res = await axios.post(
+      `${API_CONFIG.BASE_URL}/auth/refresh-token`,
+      { refreshToken: _refreshToken },
+      {
+        timeout: API_CONFIG.TIMEOUT,
+        headers: { Accept: 'application/json' },
+      }
+    );
+
+    const data = res?.data?.result;
+    if (!data?.token) {
+      throw new Error('Refresh token response missing access token');
+    }
+
+    const storedUser = await AsyncStorage.getItem(STORAGE_KEYS.USER);
+    const fallbackUser = storedUser ? JSON.parse(storedUser) : null;
+
+    await _persistAuth(
+      data.token,
+      data.refreshToken || _refreshToken,
+      data.user || fallbackUser,
+    );
+
+    return data.token;
+  })().finally(() => {
+    _refreshInFlight = null;
+  });
+
+  return _refreshInFlight;
 };
 
 export const onAuthExpired = (listener) => {
@@ -161,6 +227,37 @@ apiClient.interceptors.response.use(
         }
       }
     }
+    const originalRequest = error?.config || {};
+    const alreadyRetried = originalRequest.__retriedWithRefresh === true;
+    const canRefresh = _refreshToken && !alreadyRetried && !_isAuthEndpoint(originalRequest?.url);
+
+    if (canRefresh && _isRefreshableAuthError(error)) {
+      return _refreshAccessToken()
+        .then((newToken) => {
+          originalRequest.__retriedWithRefresh = true;
+          originalRequest.headers = {
+            ...(originalRequest.headers || {}),
+            Authorization: `Bearer ${newToken}`,
+          };
+          return apiClient(originalRequest);
+        })
+        .catch(() => {
+          if (_isTokenExpiredError(error) && !_isHandlingAuthExpiry) {
+            _isHandlingAuthExpiry = true;
+            clearStoredAuth()
+              .catch(() => { })
+              .finally(() => {
+                _notifyAuthExpired('TOKEN_EXPIRED');
+                _isHandlingAuthExpiry = false;
+              });
+            const authError = new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+            authError.code = 'AUTH_EXPIRED';
+            return Promise.reject(authError);
+          }
+          return Promise.reject(error);
+        });
+    }
+
     if (_isTokenExpiredError(error) && !_isHandlingAuthExpiry) {
       _isHandlingAuthExpiry = true;
       clearStoredAuth()
