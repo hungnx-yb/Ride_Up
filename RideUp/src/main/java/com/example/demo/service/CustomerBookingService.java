@@ -3,6 +3,7 @@ package com.example.demo.service;
 import com.example.demo.dto.request.CreateBookingRequest;
 import com.example.demo.dto.request.CreateBookingReviewRequest;
 import com.example.demo.dto.request.ConfirmPaymentRequest;
+import com.example.demo.dto.request.CancelBookingRequest;
 import com.example.demo.dto.response.BookingReviewResponse;
 import com.example.demo.dto.response.CustomerBookingResponse;
 import com.example.demo.dto.response.RideSearchResponse;
@@ -27,6 +28,7 @@ import com.example.demo.repository.TripRepository;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,6 +39,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -44,6 +47,7 @@ import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 public class CustomerBookingService {
 
@@ -68,7 +72,8 @@ public class CustomerBookingService {
                 int safePage = page == null ? 0 : Math.max(page, 0);
                 int safeSize = size == null ? 20 : Math.min(Math.max(size, 1), 50);
 
-                List<Trip> candidates = tripRepository.searchTrips(fromProvinceId,
+                List<Trip> candidates = tripRepository.searchTrips(
+                                fromProvinceId,
                                 toProvinceId,
                                 fromWardId,
                                 toWardId,
@@ -127,17 +132,29 @@ public class CustomerBookingService {
                 User currentUser = userService.getCurrentUser();
 
                 Trip trip = tripRepository.findByIdForUpdate(request.getTripId())
-                                .orElseThrow(() -> new AppException(ErrorCode.INVALID_KEY));
+                                .orElseThrow(() -> {
+                                        log.warn("Create booking failed: trip not found, tripId={}",
+                                                        request.getTripId());
+                                        return new AppException(ErrorCode.TRIP_NOT_FOUND);
+                                });
 
                 TripPickupPoint pickupPoint = trip.getPickupPoints().stream()
                                 .filter(p -> Objects.equals(p.getId(), request.getPickupPointId()))
                                 .findFirst()
-                                .orElseThrow(() -> new AppException(ErrorCode.INVALID_KEY));
+                                .orElseThrow(() -> {
+                                        log.warn("Create booking failed: pickup point not in trip, tripId={}, pickupPointId={}",
+                                                        trip.getId(), request.getPickupPointId());
+                                        return new AppException(ErrorCode.BOOKING_POINT_NOT_FOUND);
+                                });
 
                 TripDropoffPoint dropoffPoint = trip.getDropoffPoints().stream()
                                 .filter(p -> Objects.equals(p.getId(), request.getDropoffPointId()))
                                 .findFirst()
-                                .orElseThrow(() -> new AppException(ErrorCode.INVALID_KEY));
+                                .orElseThrow(() -> {
+                                        log.warn("Create booking failed: dropoff point not in trip, tripId={}, dropoffPointId={}",
+                                                        trip.getId(), request.getDropoffPointId());
+                                        return new AppException(ErrorCode.BOOKING_POINT_NOT_FOUND);
+                                });
 
                 Double pickupLat = request.getPickupLat();
                 Double pickupLng = request.getPickupLng();
@@ -165,13 +182,15 @@ public class CustomerBookingService {
 
                 int seatCount = request.getSeatCount() == null ? 1 : request.getSeatCount();
                 if (seatCount < 1) {
-                        throw new AppException(ErrorCode.INVALID_KEY);
+                        throw new AppException(ErrorCode.BOOKING_REQUEST_INVALID);
                 }
 
                 int availableSeats = trip.getAvailableSeats() == null ? 0 : trip.getAvailableSeats();
                 if (availableSeats < seatCount || trip.getStatus() == TripStatus.CANCELLED
                                 || trip.getStatus() == TripStatus.COMPLETED) {
-                        throw new AppException(ErrorCode.INVALID_KEY);
+                        log.warn("Create booking failed: seats/status invalid, tripId={}, availableSeats={}, requestedSeats={}, status={}",
+                                        trip.getId(), availableSeats, seatCount, trip.getStatus());
+                        throw new AppException(ErrorCode.TRIP_NO_AVAILABLE_SEATS);
                 }
 
                 BigDecimal fare = trip.getPricePerSeat() == null ? BigDecimal.ZERO : trip.getPricePerSeat();
@@ -306,7 +325,11 @@ public class CustomerBookingService {
                         return Map.of("RspCode", "02", "Message", "Order already confirmed");
                 }
 
-                completeVnpayPayment(booking, success, params.get("vnp_TransactionNo"));
+                completeVnpayPayment(
+                                booking,
+                                success,
+                                params.get("vnp_TransactionNo"),
+                                params.get("vnp_PayDate"));
 
                 if (ipnRequest) {
                         return Map.of("RspCode", "00", "Message", "Confirm Success");
@@ -362,6 +385,48 @@ public class CustomerBookingService {
 
                 Booking saved = bookingRepository.save(booking);
                 chatService.ensureThreadForConfirmedBooking(saved.getId());
+                return toCustomerBookingResponse(saved);
+        }
+
+        @Transactional
+        public CustomerBookingResponse cancelMyBooking(String bookingId, CancelBookingRequest request,
+                        String ipAddress) {
+                if (!StringUtils.hasText(bookingId)) {
+                        throw new AppException(ErrorCode.BOOKING_REQUEST_INVALID);
+                }
+
+                User currentUser = userService.getCurrentUser();
+                Booking booking = bookingRepository.findByIdWithPayment(bookingId)
+                                .orElseThrow(() -> new AppException(ErrorCode.BOOKING_NOT_FOUND));
+
+                if (booking.getCustomer() == null
+                                || !Objects.equals(booking.getCustomer().getId(), currentUser.getId())) {
+                        throw new AppException(ErrorCode.UNAUTHORIZED);
+                }
+
+                if (booking.getStatus() != BookingStatus.PENDING && booking.getStatus() != BookingStatus.CONFIRMED) {
+                        throw new AppException(ErrorCode.BOOKING_CANCEL_NOT_ALLOWED);
+                }
+
+                Trip trip = booking.getTrip();
+                LocalDateTime departure = trip != null ? trip.getDepartureTime() : null;
+                if (departure != null && LocalDateTime.now().isAfter(departure.minusHours(1))) {
+                        throw new AppException(ErrorCode.BOOKING_CANCEL_TOO_LATE);
+                }
+
+                booking.setStatus(BookingStatus.CANCELLED_BY_CUSTOMER);
+                booking.setCancelledAt(LocalDateTime.now());
+                booking.setCancellationReason(
+                                StringUtils.hasText(request == null ? null : request.getCancellationReason())
+                                                ? request.getCancellationReason().trim()
+                                                : "Customer cancelled booking");
+                booking.setCompletedAt(null);
+
+                restoreTripSeatAfterCancellation(trip, booking.getSeatCount());
+                tryAutoRefundVnPay(booking, ipAddress, "Customer cancellation refund " + booking.getId());
+                chatService.closeThreadByBookingId(booking.getId(), "Booking was cancelled");
+
+                Booking saved = bookingRepository.save(booking);
                 return toCustomerBookingResponse(saved);
         }
 
@@ -428,7 +493,7 @@ public class CustomerBookingService {
                                 || !StringUtils.hasText(request.getTripId())
                                 || !StringUtils.hasText(request.getPickupPointId())
                                 || !StringUtils.hasText(request.getDropoffPointId())) {
-                        throw new AppException(ErrorCode.INVALID_KEY);
+                        throw new AppException(ErrorCode.BOOKING_REQUEST_INVALID);
                 }
         }
 
@@ -608,11 +673,14 @@ public class CustomerBookingService {
                 if (booking.getTrip() != null) {
                         route = booking.getTrip().getId();
                 }
-                String orderInfo = "Thanh toan RideUp " + route + " " + booking.getId();
+                String orderInfo = "Thanh toán RideUp " + route + " " + booking.getId();
                 return vnPayService.buildPaymentUrl(txnRef, payment.getAmount(), ipAddress, orderInfo);
         }
 
-        private void completeVnpayPayment(Booking booking, boolean success, String gatewayTransactionId) {
+        private void completeVnpayPayment(Booking booking,
+                        boolean success,
+                        String gatewayTransactionId,
+                        String gatewayPayDate) {
                 if (booking == null || booking.getPayment() == null) {
                         return;
                 }
@@ -628,9 +696,10 @@ public class CustomerBookingService {
 
                 if (success) {
                         payment.setStatus(PaymentStatus.PAID);
-                        payment.setPaidAt(LocalDateTime.now());
+                        LocalDateTime paidAt = parseGatewayPayDate(gatewayPayDate);
+                        payment.setPaidAt(paidAt != null ? paidAt : LocalDateTime.now());
                         if (StringUtils.hasText(gatewayTransactionId)) {
-                                payment.setTransactionId(gatewayTransactionId.trim());
+                                payment.setProviderTransactionId(gatewayTransactionId.trim());
                         }
                         booking.setStatus(BookingStatus.CONFIRMED);
                         if (booking.getConfirmedAt() == null) {
@@ -642,6 +711,156 @@ public class CustomerBookingService {
                 }
 
                 bookingRepository.save(booking);
+        }
+
+        void tryAutoRefundVnPay(Booking booking, String ipAddress, String refundReason) {
+                if (booking == null || booking.getPayment() == null) {
+                        return;
+                }
+
+                Payment payment = booking.getPayment();
+                if (payment.getMethod() != PaymentMethod.VNPAY || payment.getStatus() != PaymentStatus.PAID) {
+                        return;
+                }
+
+                String txnRef = StringUtils.hasText(payment.getTransactionId())
+                                ? payment.getTransactionId().trim()
+                                : null;
+                if (!StringUtils.hasText(txnRef)) {
+                        throw new AppException(ErrorCode.PAYMENT_REFUND_FAILED);
+                }
+
+                LocalDateTime paidAt = payment.getPaidAt() != null
+                                ? payment.getPaidAt()
+                                : (booking.getConfirmedAt() != null ? booking.getConfirmedAt() : LocalDateTime.now());
+
+                if (!StringUtils.hasText(payment.getProviderTransactionId())) {
+                        resolvePaymentMetadataFromVnPay(booking, payment, txnRef, ipAddress);
+                        paidAt = payment.getPaidAt() != null
+                                        ? payment.getPaidAt()
+                                        : paidAt;
+                }
+
+                String[] providerCandidates = new String[] {
+                                StringUtils.hasText(payment.getProviderTransactionId())
+                                                ? payment.getProviderTransactionId().trim()
+                                                : null,
+                                txnRef
+                };
+
+                VnPayService.RefundResult refundResult = null;
+                for (String providerTxn : providerCandidates) {
+                        if (!StringUtils.hasText(providerTxn)) {
+                                continue;
+                        }
+
+                        refundResult = vnPayService.refund(
+                                        txnRef,
+                                        providerTxn,
+                                        payment.getAmount(),
+                                        paidAt,
+                                        ipAddress,
+                                        refundReason);
+
+                        if (refundResult.success()) {
+                                if (!StringUtils.hasText(payment.getProviderTransactionId())) {
+                                        payment.setProviderTransactionId(providerTxn);
+                                }
+                                payment.setStatus(PaymentStatus.REFUNDED);
+                                payment.setRefundedAt(LocalDateTime.now());
+                                return;
+                        }
+                }
+
+                if (refundResult != null) {
+                        log.warn("VNPAY refund failed after retries. bookingId={}, txnRef={}, providerTxn={}, code={}, message={}",
+                                        booking.getId(),
+                                        txnRef,
+                                        payment.getProviderTransactionId(),
+                                        refundResult.responseCode(),
+                                        refundResult.message());
+                } else {
+                        log.warn("VNPAY refund failed without response. bookingId={}, txnRef={}, providerTxn={}",
+                                        booking.getId(),
+                                        txnRef,
+                                        payment.getProviderTransactionId());
+                }
+
+                throw new AppException(ErrorCode.PAYMENT_REFUND_FAILED);
+        }
+
+        private void resolvePaymentMetadataFromVnPay(Booking booking,
+                        Payment payment,
+                        String txnRef,
+                        String ipAddress) {
+                if (!StringUtils.hasText(txnRef)) {
+                        return;
+                }
+
+                LinkedHashSet<LocalDateTime> queryDates = new LinkedHashSet<>();
+                if (payment.getPaidAt() != null) {
+                        queryDates.add(payment.getPaidAt());
+                }
+                if (booking.getConfirmedAt() != null) {
+                        queryDates.add(booking.getConfirmedAt());
+                }
+                if (payment.getCreatedAt() != null) {
+                        queryDates.add(payment.getCreatedAt());
+                }
+                queryDates.add(LocalDateTime.now());
+
+                for (LocalDateTime queryDate : queryDates) {
+                        VnPayService.QueryResult queryResult = vnPayService.queryTransaction(
+                                        txnRef,
+                                        queryDate,
+                                        ipAddress,
+                                        "RideUp query " + booking.getId());
+                        if (!queryResult.success()) {
+                                continue;
+                        }
+
+                        if (StringUtils.hasText(queryResult.providerTransactionId())) {
+                                payment.setProviderTransactionId(queryResult.providerTransactionId().trim());
+                        }
+                        LocalDateTime queriedPayDate = parseGatewayPayDate(queryResult.payDate());
+                        if (queriedPayDate != null) {
+                                payment.setPaidAt(queriedPayDate);
+                        }
+
+                        if (StringUtils.hasText(payment.getProviderTransactionId())) {
+                                return;
+                        }
+                }
+        }
+
+        private LocalDateTime parseGatewayPayDate(String gatewayPayDate) {
+                if (!StringUtils.hasText(gatewayPayDate)) {
+                        return null;
+                }
+                String raw = gatewayPayDate.trim();
+                if (raw.length() < 14) {
+                        return null;
+                }
+                try {
+                        return LocalDateTime.parse(raw.substring(0, 14), VnPayService.VNP_TIME_FORMAT);
+                } catch (Exception ex) {
+                        return null;
+                }
+        }
+
+        private void restoreTripSeatAfterCancellation(Trip trip, Integer seatCount) {
+                if (trip == null) {
+                        return;
+                }
+                int currentAvailable = trip.getAvailableSeats() == null ? 0 : trip.getAvailableSeats();
+                int totalSeats = trip.getTotalSeats() == null ? currentAvailable : trip.getTotalSeats();
+                int released = seatCount == null ? 0 : Math.max(0, seatCount);
+
+                int restoredAvailable = Math.min(totalSeats, currentAvailable + released);
+                trip.setAvailableSeats(restoredAvailable);
+                if (trip.getStatus() == TripStatus.FULL || trip.getStatus() == TripStatus.OPEN) {
+                        trip.setStatus(restoredAvailable == 0 ? TripStatus.FULL : TripStatus.OPEN);
+                }
         }
 
         private String toUiBookingStatus(BookingStatus status) {
