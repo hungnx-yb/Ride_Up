@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -58,6 +58,8 @@ const DriverMessagesScreen = ({ navigation }) => {
 
   const realtimeRef = useRef(null);
   const chatScrollRef = useRef(null);
+
+  const isActiveThread = useCallback((thread) => String(thread?.status || '').toUpperCase() === 'ACTIVE', []);
 
   const stopRealtime = useCallback(() => {
     realtimeRef.current?.disconnect?.();
@@ -229,6 +231,26 @@ const DriverMessagesScreen = ({ navigation }) => {
   }, [chatSending, chatThread?.id, chatUploadingImage]);
 
   const isInitialLoading = loading && !refreshing && threads.length === 0;
+  const sortedThreads = useMemo(() => {
+    const rows = Array.isArray(threads) ? [...threads] : [];
+    const toMillis = (value) => {
+      const d = value ? new Date(value) : null;
+      return d && !Number.isNaN(d.getTime()) ? d.getTime() : 0;
+    };
+
+    rows.sort((a, b) => {
+      const aActive = isActiveThread(a);
+      const bActive = isActiveThread(b);
+      if (aActive !== bActive) {
+        return aActive ? -1 : 1;
+      }
+      return toMillis(b?.lastMessageAt) - toMillis(a?.lastMessageAt);
+    });
+
+    return rows;
+  }, [threads, isActiveThread]);
+
+  const canComposeInChatModal = useMemo(() => isActiveThread(chatThread), [chatThread, isActiveThread]);
 
   return (
     <View style={styles.screen}>
@@ -246,7 +268,7 @@ const DriverMessagesScreen = ({ navigation }) => {
       {!!loadError && <Text style={styles.inlineError}>{loadError}</Text>}
 
       <FlatList
-        data={isInitialLoading ? [{ id: 's1' }, { id: 's2' }, { id: 's3' }] : threads}
+        data={isInitialLoading ? [{ id: 's1' }, { id: 's2' }, { id: 's3' }] : sortedThreads}
         keyExtractor={(item, index) => item?.id || `thread-${index}`}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => loadThreads(true)} />}
         contentContainerStyle={styles.listContent}
@@ -299,44 +321,50 @@ const DriverMessagesScreen = ({ navigation }) => {
               </ScrollView>
             )}
 
-            <View style={styles.chatComposerRow}>
-              <TouchableOpacity
-                style={[styles.chatImageBtn, (chatSending || chatUploadingImage) && styles.chatImageBtnDisabled]}
-                onPress={submitChatImage}
-                disabled={chatSending || chatUploadingImage}
-              >
-                {chatUploadingImage ? (
-                  <ActivityIndicator size="small" color="#7C2D12" />
-                ) : (
-                  <Ionicons name="image-outline" size={18} color="#7C2D12" />
+            {canComposeInChatModal ? (
+              <>
+                <View style={styles.chatComposerRow}>
+                  <TouchableOpacity
+                    style={[styles.chatImageBtn, (chatSending || chatUploadingImage) && styles.chatImageBtnDisabled]}
+                    onPress={submitChatImage}
+                    disabled={chatSending || chatUploadingImage}
+                  >
+                    {chatUploadingImage ? (
+                      <ActivityIndicator size="small" color="#7C2D12" />
+                    ) : (
+                      <Ionicons name="image-outline" size={18} color="#7C2D12" />
+                    )}
+                  </TouchableOpacity>
+
+                  <TextInput
+                    style={styles.chatInput}
+                    value={chatDraft}
+                    onChangeText={setChatDraft}
+                    placeholder="Nhập tin nhắn..."
+                    maxLength={2000}
+                  />
+
+                  <TouchableOpacity
+                    style={[styles.chatSendBtn, (chatSending || chatUploadingImage) && styles.chatSendBtnDisabled]}
+                    onPress={submitChatMessage}
+                    disabled={chatSending || chatUploadingImage}
+                  >
+                    <Ionicons name="send" size={16} color="#FFFFFF" />
+                  </TouchableOpacity>
+                </View>
+
+                {!!(chatPendingImage?.uri || chatPendingImage?.file) && (
+                  <View style={styles.chatPendingWrap}>
+                    {!!chatPendingImage?.uri && <Image source={{ uri: chatPendingImage.uri }} style={styles.chatPendingImage} resizeMode="cover" />}
+                    <TouchableOpacity style={styles.chatPendingRemoveBtn} onPress={() => setChatPendingImage(null)}>
+                      <Ionicons name="close" size={14} color="#FFFFFF" />
+                    </TouchableOpacity>
+                    <Text style={styles.chatPendingHint}>Đã chọn ảnh. Bấm Gửi để gửi ảnh.</Text>
+                  </View>
                 )}
-              </TouchableOpacity>
-
-              <TextInput
-                style={styles.chatInput}
-                value={chatDraft}
-                onChangeText={setChatDraft}
-                placeholder="Nhập tin nhắn..."
-                maxLength={2000}
-              />
-
-              <TouchableOpacity
-                style={[styles.chatSendBtn, (chatSending || chatUploadingImage) && styles.chatSendBtnDisabled]}
-                onPress={submitChatMessage}
-                disabled={chatSending || chatUploadingImage}
-              >
-                <Ionicons name="send" size={16} color="#FFFFFF" />
-              </TouchableOpacity>
-            </View>
-
-            {!!(chatPendingImage?.uri || chatPendingImage?.file) && (
-              <View style={styles.chatPendingWrap}>
-                {!!chatPendingImage?.uri && <Image source={{ uri: chatPendingImage.uri }} style={styles.chatPendingImage} resizeMode="cover" />}
-                <TouchableOpacity style={styles.chatPendingRemoveBtn} onPress={() => setChatPendingImage(null)}>
-                  <Ionicons name="close" size={14} color="#FFFFFF" />
-                </TouchableOpacity>
-                <Text style={styles.chatPendingHint}>Đã chọn ảnh. Bấm Gửi để gửi ảnh.</Text>
-              </View>
+              </>
+            ) : (
+              <Text style={styles.chatLockedHint}>Cuộc trò chuyện đã khóa vì chuyến đã kết thúc hoặc bị hủy.</Text>
             )}
 
             <View style={styles.modalActions}>
@@ -431,6 +459,19 @@ const styles = StyleSheet.create({
   },
   chatSendBtn: { backgroundColor: '#E65100', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, alignItems: 'center', justifyContent: 'center' },
   chatSendBtnDisabled: { backgroundColor: '#D1D5DB' },
+  chatLockedHint: {
+    marginTop: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#F8FAFC',
+    color: '#475569',
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
   chatPendingWrap: {
     marginTop: 8,
     padding: 8,

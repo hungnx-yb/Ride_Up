@@ -44,8 +44,14 @@ public class Payment {
     // Mã giao dịch (từ cổng thanh toán)
     String transactionId;
 
+    // Mã giao dịch thực tế do VNPAY gateway trả về sau khi thanh toán thành công.
+    String providerTransactionId;
+
     // Thời gian thanh toán thành công
     LocalDateTime paidAt;
+
+    // Thời gian hoàn tiền thành công
+    LocalDateTime refundedAt;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
