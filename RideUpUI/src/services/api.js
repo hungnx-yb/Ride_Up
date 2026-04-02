@@ -499,6 +499,55 @@ export const changeMyPassword = async ({ otp, newPassword }) => {
   return unwrap(res);
 };
 
+export const getMyPaymentSummary = async () => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(400);
+    return {
+      defaultPaymentMethod: 'CASH',
+      defaultPaymentMethodLabel: 'Tien mat',
+      totalTrips: 0,
+      completedTrips: 0,
+      totalSpent: 0,
+      unpaidBookings: 0,
+      hasBankTransferHistory: false,
+      hasCashHistory: true,
+    };
+  }
+  const res = await apiClient.get('/users/me/quick/payment-summary');
+  return unwrap(res) || {};
+};
+
+export const getMySecuritySummary = async () => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(350);
+    return {
+      emailVerified: true,
+      hasPhoneNumber: true,
+      hasAvatar: false,
+      profileCompletion: 80,
+      recommendations: ['Them anh dai dien de tang do tin cay.'],
+    };
+  }
+  const res = await apiClient.get('/users/me/quick/security-summary');
+  return unwrap(res) || {};
+};
+
+export const getMyOffers = async () => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(350);
+    return [
+      {
+        code: 'WELCOME10',
+        title: 'Giam 10% chuyen ke tiep',
+        description: 'Ap dung cho chuyen dau thang, toi da 30.000d.',
+        active: true,
+      },
+    ];
+  }
+  const res = await apiClient.get('/users/me/quick/offers');
+  return unwrap(res) || [];
+};
+
 // ==============================
 // ADMIN
 // ==============================

@@ -88,6 +88,70 @@ public class SupportChatService {
                 .build();
         }
 
+        if (containsAny(normalized, "goi hotline", "gọi hotline", "hotline", "tong dai", "tổng đài", "so cskh", "sdt cskh")) {
+            return SupportChatResponse.builder()
+                .intent("FAQ_CONTACT")
+                .reply("📞 Bạn có thể liên hệ CSKH RideUp qua hotline 1900 1234 để được hỗ trợ nhanh.\n"
+                    + "Khi gọi, bạn chuẩn bị sẵn mã booking để được xử lý ưu tiên nhé.")
+                .suggestions(buildSuggestions("Kiểm tra booking gần nhất", "Tôi muốn hủy chuyến", "Hoàn tiền như thế nào"))
+                .build();
+        }
+
+        if (containsAny(normalized,
+            "lam sao ap ma giam gia", "làm sao áp mã giảm giá", "ap ma giam gia", "áp mã giảm giá", "su dung voucher", "sử dụng voucher")) {
+            return SupportChatResponse.builder()
+                .intent("FAQ_PROMO")
+                .reply("🏷️ Cách áp mã giảm giá:\n"
+                    + "1) Chọn chuyến phù hợp.\n"
+                    + "2) Ở bước xác nhận đặt chỗ, vào mục ưu đãi/voucher.\n"
+                    + "3) Chọn mã còn hiệu lực rồi xác nhận để trừ trực tiếp vào giá chuyến.")
+                .suggestions(buildSuggestions("Có mã giảm giá không", "Kiểm tra booking gần nhất", "Tôi muốn đổi điểm đón"))
+                .build();
+        }
+
+        if (containsAny(normalized,
+            "nhan tai xe", "nhắn tài xế", "lien he tai xe", "liên hệ tài xế", "chat voi tai xe", "chat với tài xế", "goi tai xe", "gọi tài xế")) {
+            return SupportChatResponse.builder()
+                .intent("FAQ_CONTACT_DRIVER")
+                .reply("💬 Bạn có thể liên hệ tài xế ngay trong tab Tin nhắn của booking.\n"
+                    + "Nếu không liên lạc được hoặc tài xế đến trễ quá lâu, bạn bấm liên hệ CSKH để được hỗ trợ tức thời.")
+                .suggestions(buildSuggestions("Tài xế đến trễ thì sao", "Gọi hotline 1900 1234", "Kiểm tra booking gần nhất"))
+                .build();
+        }
+
+        if (containsAny(normalized,
+            "tim chuyen ngay", "tìm chuyến ngay", "cach dat chuyen nhanh", "cách đặt chuyến nhanh", "huong dan dat chuyen", "hướng dẫn đặt chuyến")) {
+            return SupportChatResponse.builder()
+                .intent("FAQ_BOOKING_GUIDE")
+                .reply("🚀 Đặt chuyến nhanh trong 3 bước:\n"
+                    + "1) Chọn điểm đón, điểm đến, ngày khởi hành.\n"
+                    + "2) Chọn chuyến phù hợp và số ghế.\n"
+                    + "3) Xác nhận thanh toán (tiền mặt hoặc chuyển khoản).\n"
+                    + "Mẹo: dùng ô tìm AI để nhập câu tự nhiên như 'mai 7h từ Mỹ Đình đi Hải Phòng'.")
+                .suggestions(buildSuggestions("Hướng dẫn thanh toán", "Kiểm tra booking gần nhất", "Có mã giảm giá không"))
+                .build();
+        }
+
+        if (containsAny(normalized, "huong dan thanh toan", "hướng dẫn thanh toán", "chi tiet thanh toan", "chi tiết thanh toán", "thanh toan the nao", "thanh toán thế nào")) {
+            return SupportChatResponse.builder()
+                .intent("FAQ_PAYMENT")
+                .reply("💳 Hướng dẫn thanh toán:\n"
+                    + "- CASH: xác nhận booking ngay, trả tiền khi đi chuyến.\n"
+                    + "- BANK_TRANSFER: booking ở trạng thái chờ, sau khi chuyển khoản bạn bấm 'Tôi đã chuyển khoản' trong chi tiết booking.\n"
+                    + "Nếu chưa cập nhật, gửi mã booking + mã giao dịch để CSKH kiểm tra ngay.")
+                .suggestions(buildSuggestions("Tôi đã chuyển khoản nhưng chưa xác nhận", "Kiểm tra booking gần nhất", "Hoàn tiền như thế nào"))
+                .build();
+        }
+
+        if (containsAny(normalized, "chinh sach hoan tien", "chính sách hoàn tiền")) {
+            return SupportChatResponse.builder()
+                .intent("FAQ_REFUND")
+                .reply("💸 Chính sách hoàn tiền phụ thuộc thời điểm hủy và trạng thái booking.\n"
+                    + "Bạn gửi mã booking để mình hướng dẫn đúng trường hợp và thời gian xử lý cụ thể.")
+                .suggestions(buildSuggestions("Kiểm tra booking gần nhất", "Tôi muốn hủy chuyến", "Gọi hotline 1900 1234"))
+                .build();
+        }
+
         if (isBookingOrPaymentLookup(normalized)) {
             List<CustomerBookingResponse> bookings = customerBookingService.getMyBookings();
             return buildBookingLookupResponse(bookings);
@@ -224,11 +288,12 @@ public class SupportChatService {
         if (containsAny(normalized, "tre", "trễ", "muon", "muộn", "cho doi", "chờ", "tai xe chua den", "tài xế chưa đến")) {
             return SupportChatResponse.builder()
                 .intent("FAQ_DELAY")
-                .reply("⏰ Nếu tài xế đến trễ, bạn làm giúp mình 3 bước:\n"
-                    + "1) Nhắn tài xế trong tab Tin nhắn để xác nhận vị trí.\n"
-                    + "2) Kiểm tra lại điểm đón đã chính xác chưa.\n"
-                    + "3) Nếu chờ quá lâu, liên hệ CSKH để được ưu tiên xử lý.\n\n"
-                    + "Mình hiểu chờ đợi rất sốt ruột, RideUp sẽ hỗ trợ bạn sớm nhất có thể!")
+                .reply("⏰ Mình hiểu cảm giác chờ rất sốt ruột, nhất là khi bạn đang vội.\n"
+                    + "Nếu tài xế đến trễ, bạn xử lý nhanh theo thứ tự này nhé:\n"
+                    + "1) Mở tab Tin nhắn và nhắn tài xế để xác nhận vị trí hiện tại.\n"
+                    + "2) Kiểm tra lại điểm đón trên booking (nhiều trường hợp ghim lệch vài trăm mét).\n"
+                    + "3) Nếu đã chờ lâu hoặc tài xế không phản hồi, liên hệ CSKH để được ưu tiên hỗ trợ.\n\n"
+                    + "Nếu bạn cần đi gấp, RideUp có thể hỗ trợ hủy/chuyển chuyến phù hợp hơn.")
                 .suggestions(buildSuggestions("Kiểm tra booking gần nhất", "Gọi hotline 1900 1234", "Tôi muốn hủy chuyến", "Hoàn tiền như thế nào"))
                 .build();
         }
@@ -391,10 +456,19 @@ public class SupportChatService {
         }
 
         String normalizedCurrent = normalize(current);
-        boolean likelyFollowUp = normalizedCurrent.length() < 20
-                || containsAny(normalizedCurrent,
-                "cai do", "cái đó", "the thi", "thế thì", "vay", "vậy",
-                "roi sao", "rồi sao", "con", "còn", "them", "thêm", "chi tiet", "chi tiết");
+        boolean hasClearIntent = containsAny(
+            normalizedCurrent,
+            "huy", "huy chuyen", "hoan tien", "thanh toan", "chuyen khoan",
+            "booking", "dat cho", "danh gia", "tai khoan", "mat khau",
+            "voucher", "ma giam gia", "khuyen mai", "tre", "muon", "tai xe",
+            "hanh ly", "thu cung", "loi app", "quen do", "khieu nai", "hoa don",
+            "hotline", "goi hotline", "doi diem don", "doi diem tra"
+        );
+
+        boolean likelyFollowUp = !hasClearIntent
+            && (normalizedCurrent.length() <= 10
+            || containsAny(normalizedCurrent,
+            "cai do", "the thi", "vay", "roi sao", "con", "them", "chi tiet", "ok", "uh", "um"));
 
         if (!likelyFollowUp || history == null || history.isEmpty()) {
             return current;

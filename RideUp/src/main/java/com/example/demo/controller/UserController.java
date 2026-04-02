@@ -16,6 +16,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+import java.util.Map;
+
 @RestController
 @RequestMapping("/users")
 @RequiredArgsConstructor
@@ -45,6 +48,27 @@ public class UserController {
         return ApiResponse.<UserResponse>builder()
                 .result(userService.updateMyAvatar(request))
                 .message("Update avatar successfully")
+                .build();
+    }
+
+    @GetMapping("/me/quick/payment-summary")
+    public ApiResponse<Map<String, Object>> getMyPaymentSummary() {
+        return ApiResponse.<Map<String, Object>>builder()
+                .result(userService.getMyPaymentSummary())
+                .build();
+    }
+
+    @GetMapping("/me/quick/security-summary")
+    public ApiResponse<Map<String, Object>> getMySecuritySummary() {
+        return ApiResponse.<Map<String, Object>>builder()
+                .result(userService.getMySecuritySummary())
+                .build();
+    }
+
+    @GetMapping("/me/quick/offers")
+    public ApiResponse<List<Map<String, Object>>> getMyOffers() {
+        return ApiResponse.<List<Map<String, Object>>>builder()
+                .result(userService.getMyOffers())
                 .build();
     }
 }

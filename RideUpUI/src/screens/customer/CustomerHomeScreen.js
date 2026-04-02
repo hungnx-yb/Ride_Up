@@ -34,6 +34,9 @@ import {
   uploadFile,
   requestChangePasswordOtp,
   changeMyPassword,
+  getMyPaymentSummary,
+  getMySecuritySummary,
+  getMyOffers,
   openChatThread,
   getMyChatThreads,
   getChatMessages,
@@ -178,6 +181,17 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
   const chatMessagesScrollRef = useRef(null);
   const [bookingSuccessModal, setBookingSuccessModal] = useState({ visible: false, title: '', message: '' });
   const [showSupportCenter, setShowSupportCenter] = useState(false);
+  const [showQuickResultModal, setShowQuickResultModal] = useState(false);
+  const [quickResultData, setQuickResultData] = useState({
+    type: 'payment',
+    title: '',
+    subtitle: '',
+    rows: [],
+    notes: [],
+    offers: [],
+    actionLabel: '',
+    actionKey: '',
+  });
   const [showPersonalInfo, setShowPersonalInfo] = useState(false);
   const [accountAvatarFailed, setAccountAvatarFailed] = useState(false);
   const [profileSubmitting, setProfileSubmitting] = useState(false);
@@ -279,6 +293,8 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
   const customerPhone = (profileUser?.phoneNumber || profileUser?.phone || '').trim() || '--';
   const customerAvatarUrl = resolveStoragePublicUrl(profileUser?.avatarUrl);
   const ratingDriverAvatarUrl = resolveStoragePublicUrl(ratingBooking?.driverAvatarUrl);
+  const tripDriverAvatarUrl = resolveStoragePublicUrl(tripDetail?.driverAvatarUrl);
+  const tripVehicleImageUrl = resolveStoragePublicUrl(tripDetail?.vehicleImageUrl);
   const roleValues = Array.isArray(profileUser?.roles)
     ? profileUser.roles
     : (profileUser?.role ? [profileUser.role] : []);
@@ -1266,6 +1282,139 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
     setShowSupportCenter(true);
   };
 
+  const openQuickResultModal = ({
+    type,
+    title,
+    subtitle,
+    rows = [],
+    notes = [],
+    offers = [],
+    actionLabel = '',
+    actionKey = '',
+  }) => {
+    setQuickResultData({
+      type: type || 'payment',
+      title: String(title || ''),
+      subtitle: String(subtitle || ''),
+      rows: Array.isArray(rows) ? rows : [],
+      notes: Array.isArray(notes) ? notes : [],
+      offers: Array.isArray(offers) ? offers : [],
+      actionLabel: String(actionLabel || ''),
+      actionKey: String(actionKey || ''),
+    });
+    setShowQuickResultModal(true);
+  };
+
+  const closeQuickResultModal = () => {
+    setShowQuickResultModal(false);
+  };
+
+  const onQuickResultPrimaryAction = () => {
+    if (quickResultData.actionKey === 'change-password') {
+      closeQuickResultModal();
+      openChangePasswordModal();
+      return;
+    }
+    if (quickResultData.actionKey === 'go-home') {
+      closeQuickResultModal();
+      goHome();
+      return;
+    }
+    closeQuickResultModal();
+  };
+
+  const openPaymentQuick = async () => {
+    try {
+      const summary = await getMyPaymentSummary();
+      const defaultMethod = String(summary?.defaultPaymentMethodLabel || summary?.defaultPaymentMethod || '--');
+      const totalTrips = Number(summary?.totalTrips || 0);
+      const completedTrips = Number(summary?.completedTrips || 0);
+      const totalSpentValue = Number(summary?.totalSpent || 0);
+      const unpaidBookings = Number(summary?.unpaidBookings || 0);
+
+      openQuickResultModal({
+        type: 'payment',
+        title: 'Ví & thanh toán',
+        subtitle: 'Tổng quan chi tiêu và trạng thái thanh toán của bạn',
+        rows: [
+          { label: 'Phương thức mặc định', value: defaultMethod },
+          { label: 'Tổng chuyến', value: `${totalTrips}` },
+          { label: 'Hoàn thành', value: `${completedTrips}` },
+          { label: 'Đã chi', value: formatCurrency(totalSpentValue) },
+          { label: 'Đơn chưa thanh toán', value: `${unpaidBookings}` },
+        ],
+        notes: unpaidBookings > 0
+          ? ['Bạn có booking chưa thanh toán. Mở Chi tiết đặt chỗ để xử lý nhanh.']
+          : ['Thanh toán đang ổn định. Bạn không có đơn treo.'],
+      });
+    } catch (e) {
+      Alert.alert('Không tải được thanh toán', e?.message || 'Vui lòng thử lại sau.');
+    }
+  };
+
+  const openSecurityQuick = async () => {
+    try {
+      const summary = await getMySecuritySummary();
+      const completion = Number(summary?.profileCompletion || 0);
+      const emailVerified = summary?.emailVerified ? 'Đã xác minh' : 'Chưa xác minh';
+      const phoneVerified = summary?.hasPhoneNumber ? 'Đã có' : 'Chưa có';
+      const recommendations = Array.isArray(summary?.recommendations) ? summary.recommendations : [];
+
+      openQuickResultModal({
+        type: 'security',
+        title: 'An toàn tài khoản',
+        subtitle: 'Kiểm tra mức bảo mật hiện tại của tài khoản',
+        rows: [
+          { label: 'Mức hoàn thiện', value: `${completion}%` },
+          { label: 'Email', value: emailVerified },
+          { label: 'Số điện thoại', value: phoneVerified },
+        ],
+        notes: recommendations.length
+          ? recommendations.slice(0, 3)
+          : ['Nên đổi mật khẩu định kỳ để tăng an toàn tài khoản.'],
+        actionLabel: 'Đổi mật khẩu',
+        actionKey: 'change-password',
+      });
+    } catch (e) {
+      Alert.alert('Không tải được bảo mật', e?.message || 'Vui lòng thử lại sau.');
+    }
+  };
+
+  const openOffersQuick = async () => {
+    try {
+      const offers = await getMyOffers();
+      const available = (Array.isArray(offers) ? offers : []).filter((item) => item?.active !== false);
+      if (!available.length) {
+        openQuickResultModal({
+          type: 'offer',
+          title: 'Ưu đãi của tôi',
+          subtitle: 'Hiện chưa có ưu đãi khả dụng',
+          offers: [],
+          notes: ['Bạn quay lại sau hoặc hoàn thành thêm chuyến để mở khóa ưu đãi mới.'],
+        });
+        return;
+      }
+
+      const mappedOffers = available.slice(0, 4).map((item, index) => {
+        const code = String(item?.code || `OFFER${index + 1}`);
+        const title = String(item?.title || 'Ưu đãi RideUp');
+        const description = String(item?.description || 'Áp dụng theo điều kiện chương trình.');
+        return { code, title, description };
+      });
+
+      openQuickResultModal({
+        type: 'offer',
+        title: 'Ưu đãi của tôi',
+        subtitle: `Bạn có ${mappedOffers.length} ưu đãi đang khả dụng`,
+        offers: mappedOffers,
+        actionLabel: 'Tìm chuyến áp dụng',
+        actionKey: 'go-home',
+      });
+    } catch (e) {
+      Alert.alert('Không tải được ưu đãi', e?.message || 'Vui lòng thử lại sau.');
+    }
+  };
+
   const openSupportChat = () => {
     setShowSupportCenter(false);
     setActiveFooterTab('messages');
@@ -1930,15 +2079,15 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
                 <Ionicons name="person-circle-outline" size={20} color="#00B14F" />
                 <Text style={styles.quickCardText}>Thông tin cá nhân</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.quickCard} activeOpacity={0.9}>
+              <TouchableOpacity style={styles.quickCard} activeOpacity={0.9} onPress={openPaymentQuick}>
                 <Ionicons name="card-outline" size={20} color="#00B14F" />
                 <Text style={styles.quickCardText}>Thanh toán</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.quickCard} activeOpacity={0.9}>
+              <TouchableOpacity style={styles.quickCard} activeOpacity={0.9} onPress={openSecurityQuick}>
                 <Ionicons name="shield-checkmark-outline" size={20} color="#00B14F" />
                 <Text style={styles.quickCardText}>An toàn tài khoản</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.quickCard} activeOpacity={0.9}>
+              <TouchableOpacity style={styles.quickCard} activeOpacity={0.9} onPress={openOffersQuick}>
                 <Ionicons name="gift-outline" size={20} color="#00B14F" />
                 <Text style={styles.quickCardText}>Ưu đãi của tôi</Text>
               </TouchableOpacity>
@@ -1975,7 +2124,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
               <Text style={styles.accountMenuText}>Thông tin cá nhân</Text>
               <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.accountMenuItem} activeOpacity={0.9}>
+            <TouchableOpacity style={styles.accountMenuItem} activeOpacity={0.9} onPress={openPaymentQuick}>
               <Ionicons name="card-outline" size={18} color="#00B14F" />
               <Text style={styles.accountMenuText}>Phương thức thanh toán</Text>
               <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
@@ -2434,9 +2583,9 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
                   <Text style={styles.infoSectionTitle}>Thông tin tài xế</Text>
                 </View>
                 <View style={styles.profileRow}>
-                  {tripDetail?.driverAvatarUrl && !driverImageFailed ? (
+                  {tripDriverAvatarUrl && !driverImageFailed ? (
                     <Image
-                      source={{ uri: tripDetail.driverAvatarUrl }}
+                      source={{ uri: tripDriverAvatarUrl }}
                       style={styles.profileImage}
                       onError={() => setDriverImageFailed(true)}
                     />
@@ -2456,9 +2605,9 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
                   <Text style={styles.infoSectionTitle}>Thông tin xe</Text>
                 </View>
                 <View style={styles.profileRow}>
-                  {tripDetail?.vehicleImageUrl && !vehicleImageFailed ? (
+                  {tripVehicleImageUrl && !vehicleImageFailed ? (
                     <Image
-                      source={{ uri: tripDetail.vehicleImageUrl }}
+                      source={{ uri: tripVehicleImageUrl }}
                       style={styles.vehicleImage}
                       onError={() => setVehicleImageFailed(true)}
                     />
@@ -2866,6 +3015,74 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
               <TouchableOpacity style={styles.confirmBtn} onPress={() => setShowSupportCenter(false)}>
                 <Text style={styles.confirmBtnText}>Đóng</Text>
               </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={showQuickResultModal} transparent animationType="slide" onRequestClose={closeQuickResultModal}>
+        <View style={[styles.modalOverlay, styles.quickResultOverlay]}>
+          <View style={[styles.modalCard, styles.quickResultSheet]}>
+            <View style={styles.quickResultHandle} />
+            <View style={styles.quickResultHeader}>
+              <View style={styles.quickResultIconWrap}>
+                <Ionicons
+                  name={quickResultData.type === 'security' ? 'shield-checkmark-outline' : quickResultData.type === 'offer' ? 'gift-outline' : 'wallet-outline'}
+                  size={20}
+                  color="#FFFFFF"
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.quickResultTitle}>{quickResultData.title}</Text>
+                {!!quickResultData.subtitle && <Text style={styles.quickResultSubtitle}>{quickResultData.subtitle}</Text>}
+              </View>
+            </View>
+
+            {Array.isArray(quickResultData.rows) && quickResultData.rows.length > 0 && (
+              <View style={styles.quickResultRowsWrap}>
+                {quickResultData.rows.map((row) => (
+                  <View key={`${row.label}-${row.value}`} style={styles.quickResultRow}>
+                    <Text style={styles.quickResultLabel}>{row.label}</Text>
+                    <Text style={styles.quickResultValue}>{row.value}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {Array.isArray(quickResultData.offers) && quickResultData.offers.length > 0 && (
+              <View style={styles.quickOfferList}>
+                {quickResultData.offers.map((offer) => (
+                  <View key={`${offer.code}-${offer.title}`} style={styles.quickOfferCard}>
+                    <View style={styles.quickOfferCodePill}>
+                      <Text style={styles.quickOfferCodeText}>{offer.code}</Text>
+                    </View>
+                    <Text style={styles.quickOfferTitle}>{offer.title}</Text>
+                    <Text style={styles.quickOfferDesc}>{offer.description}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {Array.isArray(quickResultData.notes) && quickResultData.notes.length > 0 && (
+              <View style={styles.quickResultNoteWrap}>
+                {quickResultData.notes.map((note, index) => (
+                  <View key={`${index}-${note}`} style={styles.quickResultNoteRow}>
+                    <View style={styles.quickResultNoteDot} />
+                    <Text style={styles.quickResultNoteText}>{note}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            <View style={styles.quickResultActions}>
+              <TouchableOpacity style={styles.quickResultCloseBtn} onPress={closeQuickResultModal}>
+                <Text style={styles.quickResultCloseText}>Đóng</Text>
+              </TouchableOpacity>
+              {!!quickResultData.actionLabel && (
+                <TouchableOpacity style={styles.quickResultPrimaryBtn} onPress={onQuickResultPrimaryAction}>
+                  <Text style={styles.quickResultPrimaryText}>{quickResultData.actionLabel}</Text>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
         </View>
@@ -3793,6 +4010,185 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   accountLogoutText: { color: '#FFFFFF', fontSize: 13, fontWeight: '800' },
+  quickResultOverlay: {
+    justifyContent: 'flex-end',
+    paddingBottom: 0,
+  },
+  quickResultSheet: {
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderWidth: 0,
+    paddingTop: 10,
+    paddingHorizontal: 14,
+    paddingBottom: 16,
+    maxHeight: '78%',
+    backgroundColor: '#F8FAFC',
+  },
+  quickResultHandle: {
+    width: 46,
+    height: 5,
+    borderRadius: 999,
+    alignSelf: 'center',
+    backgroundColor: '#D1D9E0',
+    marginBottom: 12,
+  },
+  quickResultHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 14,
+    backgroundColor: '#00B14F',
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+  },
+  quickResultIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 999,
+    marginRight: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  quickResultTitle: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  quickResultSubtitle: {
+    color: 'rgba(255,255,255,0.92)',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  quickResultRowsWrap: {
+    marginTop: 12,
+    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5EAF0',
+    overflow: 'hidden',
+  },
+  quickResultRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEF2F7',
+  },
+  quickResultLabel: {
+    color: '#64748B',
+    fontSize: 12,
+    fontWeight: '600',
+    flex: 1,
+  },
+  quickResultValue: {
+    color: '#0F172A',
+    fontSize: 12,
+    fontWeight: '800',
+    marginLeft: 10,
+    maxWidth: '58%',
+    textAlign: 'right',
+  },
+  quickOfferList: {
+    marginTop: 12,
+    gap: 8,
+  },
+  quickOfferCard: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#D9F3E4',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 11,
+    paddingVertical: 10,
+  },
+  quickOfferCodePill: {
+    alignSelf: 'flex-start',
+    borderRadius: 999,
+    backgroundColor: '#E9FFF1',
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    marginBottom: 6,
+  },
+  quickOfferCodeText: {
+    color: '#008A3E',
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  quickOfferTitle: {
+    color: '#0F172A',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  quickOfferDesc: {
+    color: '#475569',
+    fontSize: 12,
+    marginTop: 3,
+    lineHeight: 18,
+  },
+  quickResultNoteWrap: {
+    marginTop: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 11,
+    paddingVertical: 8,
+    gap: 6,
+  },
+  quickResultNoteRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  quickResultNoteDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: '#00B14F',
+    marginTop: 6,
+    marginRight: 8,
+  },
+  quickResultNoteText: {
+    flex: 1,
+    color: '#334155',
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  quickResultActions: {
+    marginTop: 13,
+    flexDirection: 'row',
+    gap: 8,
+  },
+  quickResultCloseBtn: {
+    flex: 1,
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: '#CFD8E3',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 11,
+  },
+  quickResultCloseText: {
+    color: '#0F172A',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  quickResultPrimaryBtn: {
+    flex: 1,
+    borderRadius: 11,
+    backgroundColor: '#00B14F',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 11,
+  },
+  quickResultPrimaryText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
+  },
   messageModeRow: {
     flexDirection: 'row',
     gap: 8,
