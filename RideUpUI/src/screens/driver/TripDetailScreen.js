@@ -19,6 +19,7 @@ import { COLORS } from '../../config/config';
 import DriverBottomNav, { DRIVER_BOTTOM_NAV_INSET } from '../../components/DriverBottomNav';
 import SkeletonShimmer from '../../components/SkeletonShimmer';
 import {
+  confirmCashPayment,
   createChatRealtimeClient,
   getChatMessages,
   getDriverTripDetail,
@@ -92,47 +93,85 @@ const PointList = ({ title, points }) => (
   </SectionCard>
 );
 
-const BookingCard = ({ booking, canChat, onOpenChat }) => (
-  <View style={styles.bookingCard}>
-    <Text style={styles.bookingHead}>Booking #{booking.id?.slice?.(0, 8) || '--'}</Text>
-    <DetailRow label="Trạng thái" value={booking.status} />
-    <DetailRow label="Số ghế" value={booking.seatCount != null ? String(booking.seatCount) : '--'} />
-    <DetailRow label="Tổng tiền" value={fmtMoney(booking.totalPrice)} />
-
-    <Text style={styles.subTitle}>Thông tin khách hàng</Text>
-    <DetailRow label="Tên khách" value={booking.customerName || booking.passengerName} />
-    <DetailRow label="SĐT" value={booking.contactPhone || booking.customerPhone} />
-    <DetailRow label="Email" value={booking.customerEmail} />
-    <View style={styles.chatActionRow}>
-      <TouchableOpacity
-        style={[styles.chatBtn, !canChat && styles.chatBtnDisabled]}
-        disabled={!canChat}
-        onPress={() => onOpenChat?.(booking)}
-      >
-        <Text style={styles.chatBtnText}>{canChat ? 'Chat với khách hàng' : 'Chỉ chat khi chuyến chưa hoàn thành'}</Text>
-      </TouchableOpacity>
+const PaymentStatusBadge = ({ status }) => {
+  const isPaid = String(status || '').toUpperCase() === 'PAID';
+  return (
+    <View style={[styles.paymentBadge, isPaid ? styles.paymentBadgePaid : styles.paymentBadgeUnpaid]}>
+      <Text style={[styles.paymentBadgeText, isPaid ? styles.paymentBadgeTextPaid : styles.paymentBadgeTextUnpaid]}>
+        {isPaid ? '✓ Đã thanh toán' : 'Chưa thanh toán'}
+      </Text>
     </View>
+  );
+};
 
-    <Text style={styles.subTitle}>Hành trình booking</Text>
-    <DetailRow label="Điểm đón" value={booking.pickupAddress} />
-    <DetailRow label="Điểm trả" value={booking.dropoffAddress} />
-    <DetailRow label="Khoảng cách" value={booking.distanceKm != null ? `${booking.distanceKm} km` : '--'} />
-    <DetailRow label="Ghi chú khách" value={booking.customerNote} />
+const BookingCard = ({ booking, canChat, onOpenChat, onConfirmCash, confirmingId }) => {
+  const isCash = String(booking.paymentMethod || '').toUpperCase() === 'CASH';
+  const isUnpaid = String(booking.paymentStatus || '').toUpperCase() === 'UNPAID';
+  const canConfirmCash = isCash && isUnpaid;
+  const isConfirming = confirmingId === booking.id;
 
-    <Text style={styles.subTitle}>Thanh toán</Text>
-    <DetailRow label="PTTT" value={booking.paymentMethod} />
-    <DetailRow label="Trạng thái TT" value={booking.paymentStatus} />
-    <DetailRow label="Số tiền TT" value={booking.paymentAmount != null ? fmtMoney(booking.paymentAmount) : '--'} />
-    <DetailRow label="Mã giao dịch" value={booking.transactionId} />
+  return (
+    <View style={styles.bookingCard}>
+      <Text style={styles.bookingHead}>Booking #{booking.id?.slice?.(0, 8) || '--'}</Text>
+      <DetailRow label="Trạng thái" value={booking.status} />
+      <DetailRow label="Số ghế" value={booking.seatCount != null ? String(booking.seatCount) : '--'} />
+      <DetailRow label="Tổng tiền" value={fmtMoney(booking.totalPrice)} />
 
-    <Text style={styles.subTitle}>Mốc thời gian</Text>
-    <DetailRow label="Tạo lúc" value={booking.createdAt} />
-    <DetailRow label="Xác nhận" value={booking.confirmedAt} />
-    <DetailRow label="Hủy lúc" value={booking.cancelledAt} />
-    <DetailRow label="Lý do hủy" value={booking.cancellationReason} />
-    <DetailRow label="Hoàn thành" value={booking.completedAt} />
-  </View>
-);
+      <Text style={styles.subTitle}>Thông tin khách hàng</Text>
+      <DetailRow label="Tên khách" value={booking.customerName || booking.passengerName} />
+      <DetailRow label="SĐT" value={booking.contactPhone || booking.customerPhone} />
+      <DetailRow label="Email" value={booking.customerEmail} />
+      <View style={styles.chatActionRow}>
+        <TouchableOpacity
+          style={[styles.chatBtn, !canChat && styles.chatBtnDisabled]}
+          disabled={!canChat}
+          onPress={() => onOpenChat?.(booking)}
+        >
+          <Text style={styles.chatBtnText}>{canChat ? 'Chat với khách hàng' : 'Chỉ chat khi chuyến chưa hoàn thành'}</Text>
+        </TouchableOpacity>
+      </View>
+
+      <Text style={styles.subTitle}>Hành trình booking</Text>
+      <DetailRow label="Điểm đón" value={booking.pickupAddress} />
+      <DetailRow label="Điểm trả" value={booking.dropoffAddress} />
+      <DetailRow label="Khoảng cách" value={booking.distanceKm != null ? `${booking.distanceKm} km` : '--'} />
+      <DetailRow label="Ghi chú khách" value={booking.customerNote} />
+
+      <Text style={styles.subTitle}>Thanh toán</Text>
+      <DetailRow label="PTTT" value={booking.paymentMethod === 'CASH' ? 'Tiền mặt' : booking.paymentMethod} />
+      <View style={styles.paymentStatusRow}>
+        <Text style={styles.label}>Trạng thái TT</Text>
+        <PaymentStatusBadge status={booking.paymentStatus} />
+      </View>
+      <DetailRow label="Số tiền TT" value={booking.paymentAmount != null ? fmtMoney(booking.paymentAmount) : '--'} />
+      <DetailRow label="Mã giao dịch" value={booking.transactionId} />
+
+      {canConfirmCash && (
+        <TouchableOpacity
+          style={[styles.confirmCashBtn, isConfirming && styles.confirmCashBtnDisabled]}
+          disabled={isConfirming}
+          onPress={() => onConfirmCash?.(booking)}
+        >
+          {isConfirming ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <>
+              <Ionicons name="cash-outline" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+              <Text style={styles.confirmCashBtnText}>Xác nhận đã nhận tiền mặt</Text>
+            </>
+          )}
+        </TouchableOpacity>
+      )}
+
+      <Text style={styles.subTitle}>Mốc thời gian</Text>
+      <DetailRow label="Tạo lúc" value={booking.createdAt} />
+      <DetailRow label="Xác nhận" value={booking.confirmedAt} />
+      <DetailRow label="Hủy lúc" value={booking.cancelledAt} />
+      <DetailRow label="Lý do hủy" value={booking.cancellationReason} />
+      <DetailRow label="Hoàn thành" value={booking.completedAt} />
+    </View>
+  );
+};
 
 const TripDetailLoadingSkeleton = () => (
   <>
@@ -173,6 +212,7 @@ const TripDetailScreen = ({ navigation, route }) => {
   const [chatMessages, setChatMessages] = useState([]);
   const [chatDraft, setChatDraft] = useState('');
   const [chatBooking, setChatBooking] = useState(null);
+  const [confirmingBookingId, setConfirmingBookingId] = useState(null);
   const realtimeRef = useRef(null);
   const chatScrollRef = useRef(null);
 
@@ -458,7 +498,49 @@ const TripDetailScreen = ({ navigation, route }) => {
             data={data.bookings}
             keyExtractor={(item, index) => item?.id || `booking-${index}`}
             renderItem={({ item }) => (
-              <BookingCard booking={item} canChat={canChatThisTrip} onOpenChat={openChatForBooking} />
+              <BookingCard
+                booking={item}
+                canChat={canChatThisTrip}
+                onOpenChat={openChatForBooking}
+                confirmingId={confirmingBookingId}
+                onConfirmCash={async (booking) => {
+                  const msg = `Bạn xác nhận đã nhận ${fmtMoney(booking.paymentAmount || booking.totalPrice)} tiền mặt từ khách ${booking.customerName || booking.passengerName || ''}?`;
+                  const isWeb = typeof window !== 'undefined' && typeof window.confirm === 'function';
+
+                  const doConfirm = async () => {
+                    try {
+                      setConfirmingBookingId(booking.id);
+                      await confirmCashPayment(tripId, booking.id);
+                      if (isWeb) {
+                        window.alert('Đã xác nhận thanh toán tiền mặt.');
+                      } else {
+                        Alert.alert('Thành công', 'Đã xác nhận thanh toán tiền mặt.');
+                      }
+                      load(true);
+                    } catch (e) {
+                      const errMsg = e?.response?.data?.message || e?.message || 'Không thể xác nhận thanh toán';
+                      if (isWeb) {
+                        window.alert('Lỗi: ' + errMsg);
+                      } else {
+                        Alert.alert('Lỗi', errMsg);
+                      }
+                    } finally {
+                      setConfirmingBookingId(null);
+                    }
+                  };
+
+                  if (isWeb) {
+                    if (window.confirm(msg)) {
+                      await doConfirm();
+                    }
+                  } else {
+                    Alert.alert('Xác nhận thanh toán', msg, [
+                      { text: 'Hủy', style: 'cancel' },
+                      { text: 'Xác nhận', onPress: doConfirm },
+                    ]);
+                  }
+                }}
+              />
             )}
             scrollEnabled={false}
           />
@@ -713,6 +795,50 @@ const styles = StyleSheet.create({
   },
   bookingHead: { color: '#1F2937', fontWeight: '800', fontSize: 13, marginBottom: 7 },
   subTitle: { marginTop: 8, marginBottom: 4, color: '#B45309', fontWeight: '800', fontSize: 12 },
+  paymentStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  paymentBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  paymentBadgePaid: {
+    backgroundColor: '#D1FAE5',
+  },
+  paymentBadgeUnpaid: {
+    backgroundColor: '#FEF3C7',
+  },
+  paymentBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  paymentBadgeTextPaid: {
+    color: '#065F46',
+  },
+  paymentBadgeTextUnpaid: {
+    color: '#92400E',
+  },
+  confirmCashBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#059669',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginTop: 10,
+  },
+  confirmCashBtnDisabled: {
+    backgroundColor: '#9CA3AF',
+  },
+  confirmCashBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
   chatActionRow: {
     marginBottom: 8,
   },

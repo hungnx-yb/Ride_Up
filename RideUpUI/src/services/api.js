@@ -1165,6 +1165,16 @@ export const completeDriverTrip = async (tripId) => {
   return res.data;
 };
 
+/** Tài xế xác nhận đã nhận tiền mặt từ khách */
+export const confirmCashPayment = async (tripId, bookingId) => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(600);
+    return { id: bookingId, paymentStatus: 'PAID' };
+  }
+  const res = await apiClient.put(`/driver/trips/${tripId}/bookings/${bookingId}/confirm-cash-payment`);
+  return res.data;
+};
+
 /** Tạo chuyến xe mới */
 export const createRide = async (rideData) => {
   if (USE_MOCK_DATA) {

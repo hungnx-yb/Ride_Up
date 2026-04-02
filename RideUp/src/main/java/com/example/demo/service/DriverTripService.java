@@ -15,6 +15,8 @@ import com.example.demo.entity.User;
 import com.example.demo.entity.Ward;
 import com.example.demo.enums.BookingStatus;
 import com.example.demo.enums.DriverStatus;
+import com.example.demo.enums.PaymentMethod;
+import com.example.demo.enums.PaymentStatus;
 import com.example.demo.enums.TripStatus;
 import com.example.demo.exception.AppException;
 import com.example.demo.exception.ErrorCode;
@@ -285,6 +287,17 @@ public class DriverTripService {
             throw new AppException(ErrorCode.TRIP_COMPLETE_NOT_ALLOWED);
         }
 
+        if (trip.getBookings() != null) {
+            boolean hasUnconfirmedCashPayment = trip.getBookings().stream()
+                    .filter(b -> b != null && (b.getStatus() == BookingStatus.CONFIRMED || b.getStatus() == BookingStatus.PENDING))
+                    .map(com.example.demo.entity.Booking::getPayment)
+                    .anyMatch(p -> p != null && p.getMethod() == PaymentMethod.CASH && p.getStatus() == PaymentStatus.UNPAID);
+
+            if (hasUnconfirmedCashPayment) {
+                throw new AppException(ErrorCode.UNCONFIRMED_CASH_PAYMENTS);
+            }
+        }
+
         LocalDateTime now = LocalDateTime.now();
         trip.setStatus(TripStatus.COMPLETED);
         if (trip.getActualDepartureTime() == null) {
@@ -317,6 +330,50 @@ public class DriverTripService {
         }
         List<Trip> routeTemplates = tripRepository.findByDriverIdAndDepartureTimeIsNullOrderByUpdatedAtDesc(driverProfile.getId());
         return toTripResponse(saved, routeTemplates);
+    }
+
+    @Transactional
+    public DriverTripDetailResponse.BookingInfo confirmCashPayment(String tripId, String bookingId) {
+        DriverProfile driverProfile = getOrCreateDriverProfile();
+        Trip trip = tripRepository.findByIdAndDriverIdAndDepartureTimeIsNotNullWithBookings(tripId, driverProfile.getId())
+                .orElseThrow(() -> new AppException(ErrorCode.TRIP_NOT_FOUND));
+
+        Booking booking = trip.getBookings().stream()
+                .filter(b -> b != null && bookingId.equals(b.getId()))
+                .findFirst()
+                .orElseThrow(() -> new AppException(ErrorCode.BOOKING_NOT_FOUND));
+
+        Payment payment = booking.getPayment();
+        if (payment == null) {
+            throw new AppException(ErrorCode.PAYMENT_NOT_FOUND);
+        }
+
+        if (payment.getMethod() != PaymentMethod.CASH) {
+            throw new AppException(ErrorCode.PAYMENT_CONFIRM_NOT_ALLOWED);
+        }
+
+        if (payment.getStatus() != PaymentStatus.UNPAID) {
+            throw new AppException(ErrorCode.PAYMENT_CONFIRM_NOT_ALLOWED);
+        }
+
+        payment.setStatus(PaymentStatus.PAID);
+        payment.setPaidAt(LocalDateTime.now());
+
+        tripRepository.save(trip);
+
+        // Notify the customer that their cash payment has been confirmed
+        User customer = booking.getCustomer();
+        if (customer != null && StringUtils.hasText(customer.getId())) {
+            notificationRealtimePublisher.notifyUser(
+                customer.getId(),
+                "CASH_PAYMENT_CONFIRMED",
+                "Thanh toán đã được xác nhận",
+                "Tài xế đã xác nhận nhận tiền mặt cho chuyến " + buildTripRouteLabel(trip) + ".",
+                trip.getId()
+            );
+        }
+
+        return toBookingInfo(booking);
     }
 
     private void markBookingsCancelledByDriver(Trip trip, String reason, String ipAddress) {

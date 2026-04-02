@@ -63,6 +63,15 @@ public class DriverTripController {
         return driverTripService.completeTrip(tripId);
     }
 
+    @PutMapping("/trips/{tripId}/bookings/{bookingId}/confirm-cash-payment")
+    @PreAuthorize("isAuthenticated()")
+    public DriverTripDetailResponse.BookingInfo confirmCashPayment(
+            @PathVariable String tripId,
+            @PathVariable String bookingId
+    ) {
+        return driverTripService.confirmCashPayment(tripId, bookingId);
+    }
+
     @GetMapping("/stats")
     @PreAuthorize("isAuthenticated()")
     public Map<String, Object> getDriverStats() {

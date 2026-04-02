@@ -177,7 +177,7 @@ public class CustomerBookingService {
         }
 
         int availableSeats = trip.getAvailableSeats() == null ? 0 : trip.getAvailableSeats();
-        if (availableSeats < seatCount || trip.getStatus() == TripStatus.CANCELLED || trip.getStatus() == TripStatus.COMPLETED) {
+        if (availableSeats < seatCount || trip.getStatus() == TripStatus.CANCELLED || trip.getStatus() == TripStatus.COMPLETED || trip.getStatus() == TripStatus.IN_PROGRESS) {
                         log.warn("Create booking failed: seats/status invalid, tripId={}, availableSeats={}, requestedSeats={}, status={}",
                                         trip.getId(), availableSeats, seatCount, trip.getStatus());
                         throw new AppException(ErrorCode.TRIP_NO_AVAILABLE_SEATS);

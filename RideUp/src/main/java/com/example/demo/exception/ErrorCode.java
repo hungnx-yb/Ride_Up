@@ -45,7 +45,8 @@ public enum ErrorCode {
     TRIP_NO_AVAILABLE_SEATS(1041, "Trip does not have enough available seats", HttpStatus.BAD_REQUEST),
     BOOKING_CANCEL_NOT_ALLOWED(1042, "Booking cannot be cancelled at current status", HttpStatus.BAD_REQUEST),
     BOOKING_CANCEL_TOO_LATE(1043, "Booking can only be cancelled at least 1 hour before departure", HttpStatus.BAD_REQUEST),
-    PAYMENT_REFUND_FAILED(1044, "VNPAY refund failed", HttpStatus.BAD_REQUEST);
+    PAYMENT_REFUND_FAILED(1044, "VNPAY refund failed", HttpStatus.BAD_REQUEST),
+    UNCONFIRMED_CASH_PAYMENTS(1045, "Vui lòng xác nhận tất cả thanh toán tiền mặt trước khi kết thúc chuyến đi", HttpStatus.BAD_REQUEST);
 
     private Integer code;
     private String message;
