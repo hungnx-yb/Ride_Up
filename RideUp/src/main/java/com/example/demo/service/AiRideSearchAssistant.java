@@ -61,7 +61,8 @@ public class AiRideSearchAssistant {
                     + "{\"fromText\":\"...\",\"toText\":\"...\",\"departureDate\":\"YYYY-MM-DD hoặc null\","
                     + "\"seatCount\":number hoặc null,\"maxPrice\":number hoặc null,"
                     + "\"confidence\":number 0..1,\"clarificationQuestions\":[\"...\",\"...\"]}. "
-                    + "Nếu không chắc from/to thì để null và thêm câu hỏi làm rõ vào clarificationQuestions. "
+                    + "Nếu người dùng chỉ nêu một đầu tuyến thì vẫn giữ đầu còn lại là null, không tự đoán thêm. "
+                    + "Chỉ hỏi làm rõ khi thực sự không xác định được cả điểm đi lẫn điểm đến. "
                     + "Không thêm markdown, không thêm ký tự ngoài JSON.";
 
             Map<String, Object> payload = new HashMap<>();

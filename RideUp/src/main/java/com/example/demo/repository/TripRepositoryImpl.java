@@ -20,21 +20,35 @@ public class TripRepositoryImpl implements TripRepositoryCustom {
     private EntityManager entityManager;
 
     @Override
-    public List<Trip> searchTrips(String fromWardId, String toWardId, LocalDate departureDate, TripStatus status, int page, int size) {
+    public List<Trip> searchTrips(String fromProvinceId,
+            String toProvinceId,
+            String fromWardId,
+            String toWardId,
+            LocalDate departureDate,
+            TripStatus status,
+            int page,
+            int size) {
         StringBuilder jpql = new StringBuilder(
                 "SELECT t FROM Trip t " +
-                "JOIN FETCH t.driver d " +
-                "JOIN FETCH d.user du " +
-            "LEFT JOIN FETCH d.vehicle dv " +
-                "WHERE t.status = :status "
+                        "JOIN FETCH t.driver d " +
+                        "JOIN FETCH d.user du " +
+                        "LEFT JOIN FETCH d.vehicle dv " +
+                        "WHERE t.status = :status "
 
         );
 
         if (StringUtils.hasText(fromWardId)) {
-            jpql.append("AND EXISTS (SELECT 1 FROM TripPickupPoint pp WHERE pp.trip = t AND pp.ward.id = :fromWardId) ");
+            jpql.append(
+                    "AND EXISTS (SELECT 1 FROM TripPickupPoint pp WHERE pp.trip = t AND pp.ward.id = :fromWardId) ");
+        } else if (StringUtils.hasText(fromProvinceId)) {
+            jpql.append(
+                    "AND EXISTS (SELECT 1 FROM TripPickupPoint pp WHERE pp.trip = t AND pp.ward.province.id = :fromProvinceId) ");
         }
         if (StringUtils.hasText(toWardId)) {
             jpql.append("AND EXISTS (SELECT 1 FROM TripDropoffPoint dp WHERE dp.trip = t AND dp.ward.id = :toWardId) ");
+        } else if (StringUtils.hasText(toProvinceId)) {
+            jpql.append(
+                    "AND EXISTS (SELECT 1 FROM TripDropoffPoint dp WHERE dp.trip = t AND dp.ward.province.id = :toProvinceId) ");
         }
         if (departureDate != null) {
             jpql.append("AND t.departureTime >= :fromDateTime AND t.departureTime < :toDateTime ");
@@ -45,7 +59,12 @@ public class TripRepositoryImpl implements TripRepositoryCustom {
         TypedQuery<Trip> query = entityManager.createQuery(jpql.toString(), Trip.class);
         query.setParameter("status", status);
 
-
+        if (StringUtils.hasText(fromProvinceId)) {
+            query.setParameter("fromProvinceId", fromProvinceId.trim());
+        }
+        if (StringUtils.hasText(toProvinceId)) {
+            query.setParameter("toProvinceId", toProvinceId.trim());
+        }
         if (StringUtils.hasText(fromWardId)) {
             query.setParameter("fromWardId", fromWardId.trim());
         }

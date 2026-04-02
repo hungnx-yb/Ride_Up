@@ -47,33 +47,40 @@ import java.util.Objects;
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 public class CustomerBookingService {
 
-    TripRepository tripRepository;
-    BookingRepository bookingRepository;
+        TripRepository tripRepository;
+        BookingRepository bookingRepository;
         BookingReviewRepository bookingReviewRepository;
         ChatService chatService;
-    UserService userService;
+        UserService userService;
         VnPayService vnPayService;
 
-    @Transactional(readOnly = true)
-    public List<RideSearchResponse> searchRides(String fromProvinceId,
-                                                String toProvinceId,
-                                                String fromWardId,
-                                                String toWardId,
-                                                String departureDate,
-                                                String status,
-                                                Integer page,
-                                                Integer size) {
-        LocalDate searchDate = parseDateOrNull(departureDate);
-        TripStatus targetStatus = parseSearchRideStatus(status);
-        int safePage = page == null ? 0 : Math.max(page, 0);
-        int safeSize = size == null ? 20 : Math.min(Math.max(size, 1), 50);
+        @Transactional(readOnly = true)
+        public List<RideSearchResponse> searchRides(String fromProvinceId,
+                        String toProvinceId,
+                        String fromWardId,
+                        String toWardId,
+                        String departureDate,
+                        String status,
+                        Integer page,
+                        Integer size) {
+                LocalDate searchDate = parseDateOrNull(departureDate);
+                TripStatus targetStatus = parseSearchRideStatus(status);
+                int safePage = page == null ? 0 : Math.max(page, 0);
+                int safeSize = size == null ? 20 : Math.min(Math.max(size, 1), 50);
 
-        List<Trip> candidates = tripRepository.searchTrips(fromWardId, toWardId, searchDate, targetStatus, safePage, safeSize);
+                List<Trip> candidates = tripRepository.searchTrips(fromProvinceId,
+                                toProvinceId,
+                                fromWardId,
+                                toWardId,
+                                searchDate,
+                                targetStatus,
+                                safePage,
+                                safeSize);
 
-        return candidates.stream()
-                .map(this::toRideSearchResponse)
-                .toList();
-    }
+                return candidates.stream()
+                                .map(this::toRideSearchResponse)
+                                .toList();
+        }
 
         private TripStatus parseSearchRideStatus(String status) {
                 if (!StringUtils.hasText(status)) {
@@ -86,22 +93,21 @@ public class CustomerBookingService {
                 }
         }
 
-    @Transactional(readOnly = true)
-    public List<CustomerBookingResponse> getMyBookings() {
+        @Transactional(readOnly = true)
+        public List<CustomerBookingResponse> getMyBookings() {
                 return getMyBookings(0, 100);
         }
 
         @Transactional(readOnly = true)
         public List<CustomerBookingResponse> getMyBookings(Integer page, Integer size) {
-        User currentUser = userService.getCurrentUser();
+                User currentUser = userService.getCurrentUser();
 
                 int safePage = page == null ? 0 : Math.max(page, 0);
                 int safeSize = size == null ? 100 : Math.min(Math.max(size, 1), 100);
 
                 List<String> bookingIds = bookingRepository.findIdsByCustomerId(
-                                                currentUser.getId(),
-                                                PageRequest.of(safePage, safeSize)
-                                )
+                                currentUser.getId(),
+                                PageRequest.of(safePage, safeSize))
                                 .getContent();
 
                 if (bookingIds.isEmpty()) {
@@ -109,106 +115,126 @@ public class CustomerBookingService {
                 }
 
                 return bookingRepository.findByIdInWithDetailsOrderByCreatedAtDesc(bookingIds)
-                .stream()
-                .map(this::toCustomerBookingResponse)
-                .toList();
-    }
+                                .stream()
+                                .map(this::toCustomerBookingResponse)
+                                .toList();
+        }
 
         @Transactional
         public CustomerBookingResponse createBooking(CreateBookingRequest request, String ipAddress) {
-        validateCreateRequest(request);
+                validateCreateRequest(request);
 
-        User currentUser = userService.getCurrentUser();
+                User currentUser = userService.getCurrentUser();
 
-        Trip trip = tripRepository.findByIdForUpdate(request.getTripId())
-                .orElseThrow(() -> new AppException(ErrorCode.INVALID_KEY));
+                Trip trip = tripRepository.findByIdForUpdate(request.getTripId())
+                                .orElseThrow(() -> new AppException(ErrorCode.INVALID_KEY));
 
-        TripPickupPoint pickupPoint = trip.getPickupPoints().stream()
-                .filter(p -> Objects.equals(p.getId(), request.getPickupPointId()))
-                .findFirst()
-                .orElseThrow(() -> new AppException(ErrorCode.INVALID_KEY));
+                TripPickupPoint pickupPoint = trip.getPickupPoints().stream()
+                                .filter(p -> Objects.equals(p.getId(), request.getPickupPointId()))
+                                .findFirst()
+                                .orElseThrow(() -> new AppException(ErrorCode.INVALID_KEY));
 
-        TripDropoffPoint dropoffPoint = trip.getDropoffPoints().stream()
-                .filter(p -> Objects.equals(p.getId(), request.getDropoffPointId()))
-                .findFirst()
-                .orElseThrow(() -> new AppException(ErrorCode.INVALID_KEY));
+                TripDropoffPoint dropoffPoint = trip.getDropoffPoints().stream()
+                                .filter(p -> Objects.equals(p.getId(), request.getDropoffPointId()))
+                                .findFirst()
+                                .orElseThrow(() -> new AppException(ErrorCode.INVALID_KEY));
 
-        Double pickupLat = request.getPickupLat();
-        Double pickupLng = request.getPickupLng();
-        Double dropoffLat = request.getDropoffLat();
-        Double dropoffLng = request.getDropoffLng();
+                Double pickupLat = request.getPickupLat();
+                Double pickupLng = request.getPickupLng();
+                Double dropoffLat = request.getDropoffLat();
+                Double dropoffLng = request.getDropoffLng();
 
-        validateCoordinatePair(pickupLat, pickupLng);
-        validateCoordinatePair(dropoffLat, dropoffLng);
+                validateCoordinatePair(pickupLat, pickupLng);
+                validateCoordinatePair(dropoffLat, dropoffLng);
 
-        Double pickupWardLat = pickupPoint.getWard() != null && pickupPoint.getWard().getLat() != null ? pickupPoint.getWard().getLat().doubleValue() : null;
-        Double pickupWardLng = pickupPoint.getWard() != null && pickupPoint.getWard().getLng() != null ? pickupPoint.getWard().getLng().doubleValue() : null;
-        Double dropoffWardLat = dropoffPoint.getWard() != null && dropoffPoint.getWard().getLat() != null ? dropoffPoint.getWard().getLat().doubleValue() : null;
-        Double dropoffWardLng = dropoffPoint.getWard() != null && dropoffPoint.getWard().getLng() != null ? dropoffPoint.getWard().getLng().doubleValue() : null;
+                Double pickupWardLat = pickupPoint.getWard() != null && pickupPoint.getWard().getLat() != null
+                                ? pickupPoint.getWard().getLat().doubleValue()
+                                : null;
+                Double pickupWardLng = pickupPoint.getWard() != null && pickupPoint.getWard().getLng() != null
+                                ? pickupPoint.getWard().getLng().doubleValue()
+                                : null;
+                Double dropoffWardLat = dropoffPoint.getWard() != null && dropoffPoint.getWard().getLat() != null
+                                ? dropoffPoint.getWard().getLat().doubleValue()
+                                : null;
+                Double dropoffWardLng = dropoffPoint.getWard() != null && dropoffPoint.getWard().getLng() != null
+                                ? dropoffPoint.getWard().getLng().doubleValue()
+                                : null;
 
-        validateWithinRadius(pickupWardLat, pickupWardLng, pickupLat, pickupLng, 20.0);
-        validateWithinRadius(dropoffWardLat, dropoffWardLng, dropoffLat, dropoffLng, 20.0);
+                validateWithinRadius(pickupWardLat, pickupWardLng, pickupLat, pickupLng, 20.0);
+                validateWithinRadius(dropoffWardLat, dropoffWardLng, dropoffLat, dropoffLng, 20.0);
 
-        int seatCount = request.getSeatCount() == null ? 1 : request.getSeatCount();
-        if (seatCount < 1) {
-            throw new AppException(ErrorCode.INVALID_KEY);
+                int seatCount = request.getSeatCount() == null ? 1 : request.getSeatCount();
+                if (seatCount < 1) {
+                        throw new AppException(ErrorCode.INVALID_KEY);
+                }
+
+                int availableSeats = trip.getAvailableSeats() == null ? 0 : trip.getAvailableSeats();
+                if (availableSeats < seatCount || trip.getStatus() == TripStatus.CANCELLED
+                                || trip.getStatus() == TripStatus.COMPLETED) {
+                        throw new AppException(ErrorCode.INVALID_KEY);
+                }
+
+                BigDecimal fare = trip.getPricePerSeat() == null ? BigDecimal.ZERO : trip.getPricePerSeat();
+                BigDecimal totalPrice = fare.multiply(BigDecimal.valueOf(seatCount));
+
+                PaymentMethod paymentMethod = parsePaymentMethod(request.getPaymentMethod());
+                BookingStatus initialStatus = paymentMethod == PaymentMethod.VNPAY
+                                ? BookingStatus.PENDING
+                                : BookingStatus.CONFIRMED;
+
+                Booking booking = Booking.builder()
+                                .trip(trip)
+                                .customer(currentUser)
+                                .pickupPoint(pickupPoint)
+                                .dropoffPoint(dropoffPoint)
+                                .seatCount(seatCount)
+                                .totalPrice(totalPrice)
+                                .status(initialStatus)
+                                .confirmedAt(initialStatus == BookingStatus.CONFIRMED ? java.time.LocalDateTime.now()
+                                                : null)
+                                .customerNote(StringUtils.hasText(request.getCustomerNote())
+                                                ? request.getCustomerNote().trim()
+                                                : null)
+                                .passengerName(StringUtils.hasText(request.getPassengerName())
+                                                ? request.getPassengerName().trim()
+                                                : currentUser.getFullName())
+                                .contactPhone(StringUtils.hasText(request.getContactPhone())
+                                                ? request.getContactPhone().trim()
+                                                : currentUser.getPhoneNumber())
+                                .pickupAddress(StringUtils.hasText(request.getPickupAddress())
+                                                ? request.getPickupAddress().trim()
+                                                : pickupPoint.getAddress())
+                                .pickupLat(pickupLat)
+                                .pickupLng(pickupLng)
+                                .dropoffAddress(StringUtils.hasText(request.getDropoffAddress())
+                                                ? request.getDropoffAddress().trim()
+                                                : dropoffPoint.getAddress())
+                                .dropoffLat(dropoffLat)
+                                .dropoffLng(dropoffLng)
+                                .build();
+
+                Payment payment = Payment.builder()
+                                .booking(booking)
+                                .amount(totalPrice)
+                                .method(paymentMethod)
+                                .status(PaymentStatus.UNPAID)
+                                .paidAt(null)
+                                .build();
+                booking.setPayment(payment);
+
+                int newAvailable = availableSeats - seatCount;
+                trip.setAvailableSeats(newAvailable);
+                trip.setStatus(newAvailable == 0 ? TripStatus.FULL : TripStatus.OPEN);
+
+                Booking saved = bookingRepository.save(booking);
+                chatService.ensureThreadForConfirmedBooking(saved.getId());
+
+                String paymentUrl = null;
+                if (paymentMethod == PaymentMethod.VNPAY) {
+                        paymentUrl = createVnPayPaymentUrlForBooking(saved, currentUser.getId(), ipAddress);
+                }
+                return toCustomerBookingResponse(saved, paymentUrl);
         }
-
-        int availableSeats = trip.getAvailableSeats() == null ? 0 : trip.getAvailableSeats();
-        if (availableSeats < seatCount || trip.getStatus() == TripStatus.CANCELLED || trip.getStatus() == TripStatus.COMPLETED) {
-            throw new AppException(ErrorCode.INVALID_KEY);
-        }
-
-        BigDecimal fare = trip.getPricePerSeat() == null ? BigDecimal.ZERO : trip.getPricePerSeat();
-        BigDecimal totalPrice = fare.multiply(BigDecimal.valueOf(seatCount));
-
-        PaymentMethod paymentMethod = parsePaymentMethod(request.getPaymentMethod());
-        BookingStatus initialStatus = paymentMethod == PaymentMethod.VNPAY
-                ? BookingStatus.PENDING
-                : BookingStatus.CONFIRMED;
-
-        Booking booking = Booking.builder()
-                .trip(trip)
-                .customer(currentUser)
-                .pickupPoint(pickupPoint)
-                .dropoffPoint(dropoffPoint)
-                .seatCount(seatCount)
-                .totalPrice(totalPrice)
-                .status(initialStatus)
-                .confirmedAt(initialStatus == BookingStatus.CONFIRMED ? java.time.LocalDateTime.now() : null)
-                .customerNote(StringUtils.hasText(request.getCustomerNote()) ? request.getCustomerNote().trim() : null)
-                .passengerName(StringUtils.hasText(request.getPassengerName()) ? request.getPassengerName().trim() : currentUser.getFullName())
-                .contactPhone(StringUtils.hasText(request.getContactPhone()) ? request.getContactPhone().trim() : currentUser.getPhoneNumber())
-                .pickupAddress(StringUtils.hasText(request.getPickupAddress()) ? request.getPickupAddress().trim() : pickupPoint.getAddress())
-                .pickupLat(pickupLat)
-                .pickupLng(pickupLng)
-                .dropoffAddress(StringUtils.hasText(request.getDropoffAddress()) ? request.getDropoffAddress().trim() : dropoffPoint.getAddress())
-                .dropoffLat(dropoffLat)
-                .dropoffLng(dropoffLng)
-                .build();
-
-        Payment payment = Payment.builder()
-                .booking(booking)
-                .amount(totalPrice)
-                .method(paymentMethod)
-                .status(PaymentStatus.UNPAID)
-                .paidAt(null)
-                .build();
-        booking.setPayment(payment);
-
-        int newAvailable = availableSeats - seatCount;
-        trip.setAvailableSeats(newAvailable);
-        trip.setStatus(newAvailable == 0 ? TripStatus.FULL : TripStatus.OPEN);
-
-        Booking saved = bookingRepository.save(booking);
-        chatService.ensureThreadForConfirmedBooking(saved.getId());
-
-        String paymentUrl = null;
-        if (paymentMethod == PaymentMethod.VNPAY) {
-                paymentUrl = createVnPayPaymentUrlForBooking(saved, currentUser.getId(), ipAddress);
-        }
-        return toCustomerBookingResponse(saved, paymentUrl);
-    }
 
         @Transactional
         public Map<String, String> createVnpayPaymentUrl(String bookingId, String ipAddress) {
@@ -220,7 +246,8 @@ public class CustomerBookingService {
                 Booking booking = bookingRepository.findByIdWithPayment(bookingId)
                                 .orElseThrow(() -> new AppException(ErrorCode.BOOKING_NOT_FOUND));
 
-                if (booking.getCustomer() == null || !Objects.equals(booking.getCustomer().getId(), currentUser.getId())) {
+                if (booking.getCustomer() == null
+                                || !Objects.equals(booking.getCustomer().getId(), currentUser.getId())) {
                         throw new AppException(ErrorCode.UNAUTHORIZED);
                 }
 
@@ -228,7 +255,8 @@ public class CustomerBookingService {
                 Map<String, String> result = new LinkedHashMap<>();
                 result.put("bookingId", booking.getId());
                 result.put("paymentUrl", paymentUrl);
-                result.put("transactionRef", booking.getPayment() != null ? booking.getPayment().getTransactionId() : null);
+                result.put("transactionRef",
+                                booking.getPayment() != null ? booking.getPayment().getTransactionId() : null);
                 return result;
         }
 
@@ -288,8 +316,7 @@ public class CustomerBookingService {
                                 "status", (success || alreadyPaid) ? "PAID" : "FAILED",
                                 "bookingId", booking.getId(),
                                 "transactionRef", txnRef,
-                                "message", (success || alreadyPaid) ? "Payment success" : "Payment failed"
-                );
+                                "message", (success || alreadyPaid) ? "Payment success" : "Payment failed");
         }
 
         @Transactional
@@ -303,7 +330,8 @@ public class CustomerBookingService {
                 Booking booking = bookingRepository.findById(bookingId)
                                 .orElseThrow(() -> new AppException(ErrorCode.BOOKING_NOT_FOUND));
 
-                if (booking.getCustomer() == null || !Objects.equals(booking.getCustomer().getId(), currentUser.getId())) {
+                if (booking.getCustomer() == null
+                                || !Objects.equals(booking.getCustomer().getId(), currentUser.getId())) {
                         throw new AppException(ErrorCode.UNAUTHORIZED);
                 }
 
@@ -353,7 +381,8 @@ public class CustomerBookingService {
                 Booking booking = bookingRepository.findById(bookingId)
                                 .orElseThrow(() -> new AppException(ErrorCode.BOOKING_NOT_FOUND));
 
-                if (booking.getCustomer() == null || !Objects.equals(booking.getCustomer().getId(), currentUser.getId())) {
+                if (booking.getCustomer() == null
+                                || !Objects.equals(booking.getCustomer().getId(), currentUser.getId())) {
                         throw new AppException(ErrorCode.UNAUTHORIZED);
                 }
 
@@ -394,123 +423,156 @@ public class CustomerBookingService {
                                 .build();
         }
 
-    private void validateCreateRequest(CreateBookingRequest request) {
-        if (request == null
-                || !StringUtils.hasText(request.getTripId())
-                || !StringUtils.hasText(request.getPickupPointId())
-                || !StringUtils.hasText(request.getDropoffPointId())) {
-            throw new AppException(ErrorCode.INVALID_KEY);
+        private void validateCreateRequest(CreateBookingRequest request) {
+                if (request == null
+                                || !StringUtils.hasText(request.getTripId())
+                                || !StringUtils.hasText(request.getPickupPointId())
+                                || !StringUtils.hasText(request.getDropoffPointId())) {
+                        throw new AppException(ErrorCode.INVALID_KEY);
+                }
         }
-    }
 
-    private RideSearchResponse toRideSearchResponse(Trip trip) {
+        private RideSearchResponse toRideSearchResponse(Trip trip) {
                 User driverUser = trip.getDriver() != null ? trip.getDriver().getUser() : null;
                 Vehicle vehicle = trip.getDriver() != null ? trip.getDriver().getVehicle() : null;
 
-        String fromProvince = trip.getPickupPoints().stream()
-                .map(p -> p.getWard() != null && p.getWard().getProvince() != null ? p.getWard().getProvince().getName() : null)
-                .filter(StringUtils::hasText)
-                .findFirst()
-                .orElse("");
+                String fromProvince = trip.getPickupPoints().stream()
+                                .map(p -> p.getWard() != null && p.getWard().getProvince() != null
+                                                ? p.getWard().getProvince().getName()
+                                                : null)
+                                .filter(StringUtils::hasText)
+                                .findFirst()
+                                .orElse("");
 
-        String toProvince = trip.getDropoffPoints().stream()
-                .map(p -> p.getWard() != null && p.getWard().getProvince() != null ? p.getWard().getProvince().getName() : null)
-                .filter(StringUtils::hasText)
-                .findFirst()
-                .orElse("");
+                String toProvince = trip.getDropoffPoints().stream()
+                                .map(p -> p.getWard() != null && p.getWard().getProvince() != null
+                                                ? p.getWard().getProvince().getName()
+                                                : null)
+                                .filter(StringUtils::hasText)
+                                .findFirst()
+                                .orElse("");
 
-        List<RideSearchResponse.PointOption> pickupOptions = trip.getPickupPoints().stream()
-                .sorted(Comparator.comparingInt(p -> p.getSortOrder() == null ? 0 : p.getSortOrder()))
-                .map(p -> RideSearchResponse.PointOption.builder()
-                        .id(p.getId())
-                        .wardId(p.getWard() != null ? p.getWard().getId() : null)
-                        .wardName(p.getWard() != null ? p.getWard().getName() : null)
-                        .address(StringUtils.hasText(p.getAddress()) ? p.getAddress() : (p.getWard() != null ? p.getWard().getName() : ""))
-                        .lat(p.getWard() != null && p.getWard().getLat() != null ? p.getWard().getLat().doubleValue() : null)
-                        .lng(p.getWard() != null && p.getWard().getLng() != null ? p.getWard().getLng().doubleValue() : null)
-                        .build())
-                .toList();
+                List<RideSearchResponse.PointOption> pickupOptions = trip.getPickupPoints().stream()
+                                .sorted(Comparator.comparingInt(p -> p.getSortOrder() == null ? 0 : p.getSortOrder()))
+                                .map(p -> RideSearchResponse.PointOption.builder()
+                                                .id(p.getId())
+                                                .wardId(p.getWard() != null ? p.getWard().getId() : null)
+                                                .wardName(p.getWard() != null ? p.getWard().getName() : null)
+                                                .address(StringUtils.hasText(p.getAddress()) ? p.getAddress()
+                                                                : (p.getWard() != null ? p.getWard().getName() : ""))
+                                                .lat(p.getWard() != null && p.getWard().getLat() != null
+                                                                ? p.getWard().getLat().doubleValue()
+                                                                : null)
+                                                .lng(p.getWard() != null && p.getWard().getLng() != null
+                                                                ? p.getWard().getLng().doubleValue()
+                                                                : null)
+                                                .build())
+                                .toList();
 
-        List<RideSearchResponse.PointOption> dropoffOptions = trip.getDropoffPoints().stream()
-                .sorted(Comparator.comparingInt(p -> p.getSortOrder() == null ? 0 : p.getSortOrder()))
-                .map(p -> RideSearchResponse.PointOption.builder()
-                        .id(p.getId())
-                        .wardId(p.getWard() != null ? p.getWard().getId() : null)
-                        .wardName(p.getWard() != null ? p.getWard().getName() : null)
-                        .address(StringUtils.hasText(p.getAddress()) ? p.getAddress() : (p.getWard() != null ? p.getWard().getName() : ""))
-                        .lat(p.getWard() != null && p.getWard().getLat() != null ? p.getWard().getLat().doubleValue() : null)
-                        .lng(p.getWard() != null && p.getWard().getLng() != null ? p.getWard().getLng().doubleValue() : null)
-                        .build())
-                .toList();
+                List<RideSearchResponse.PointOption> dropoffOptions = trip.getDropoffPoints().stream()
+                                .sorted(Comparator.comparingInt(p -> p.getSortOrder() == null ? 0 : p.getSortOrder()))
+                                .map(p -> RideSearchResponse.PointOption.builder()
+                                                .id(p.getId())
+                                                .wardId(p.getWard() != null ? p.getWard().getId() : null)
+                                                .wardName(p.getWard() != null ? p.getWard().getName() : null)
+                                                .address(StringUtils.hasText(p.getAddress()) ? p.getAddress()
+                                                                : (p.getWard() != null ? p.getWard().getName() : ""))
+                                                .lat(p.getWard() != null && p.getWard().getLat() != null
+                                                                ? p.getWard().getLat().doubleValue()
+                                                                : null)
+                                                .lng(p.getWard() != null && p.getWard().getLng() != null
+                                                                ? p.getWard().getLng().doubleValue()
+                                                                : null)
+                                                .build())
+                                .toList();
 
-        return RideSearchResponse.builder()
-                .id(trip.getId())
-                .from(fromProvince)
-                .to(toProvince)
-                .departureTime(trip.getDepartureTime())
-                .availableSeats(trip.getAvailableSeats())
-                .totalSeats(trip.getTotalSeats())
-                .price(trip.getPricePerSeat())
-                .tripStatus(trip.getStatus() != null ? trip.getStatus().name() : null)
-                .estimatedDistanceKm(trip.getEstimatedDistanceKm())
-                .estimatedDurationMinutes(trip.getEstimatedDurationMinutes())
-                .driverNote(trip.getDriverNote())
-                .driverName(driverUser != null ? driverUser.getFullName() : "")
-                .driverRating(trip.getDriver() != null ? trip.getDriver().getDriverRating() : 0.0)
-                .driverPhone(driverUser != null ? driverUser.getPhoneNumber() : null)
-                .driverTotalRides(trip.getDriver() != null ? trip.getDriver().getTotalDriverRides() : null)
-                .driverAvatarUrl(driverUser != null ? driverUser.getAvatarUrl() : null)
-                .vehiclePlateNumber(vehicle != null ? vehicle.getPlateNumber() : null)
-                .vehicleBrand(vehicle != null ? vehicle.getVehicleBrand() : null)
-                .vehicleModel(vehicle != null ? vehicle.getVehicleModel() : null)
-                .vehicleColor(vehicle != null ? vehicle.getVehicleColor() : null)
-                .vehicleType(vehicle != null && vehicle.getVehicleType() != null ? vehicle.getVehicleType().name() : null)
-                .vehicleImageUrl(vehicle != null ? vehicle.getVehicleImage() : null)
-                .pickupPoints(pickupOptions)
-                .dropoffPoints(dropoffOptions)
-                .build();
-    }
+                return RideSearchResponse.builder()
+                                .id(trip.getId())
+                                .from(fromProvince)
+                                .to(toProvince)
+                                .departureTime(trip.getDepartureTime())
+                                .availableSeats(trip.getAvailableSeats())
+                                .totalSeats(trip.getTotalSeats())
+                                .price(trip.getPricePerSeat())
+                                .tripStatus(trip.getStatus() != null ? trip.getStatus().name() : null)
+                                .estimatedDistanceKm(trip.getEstimatedDistanceKm())
+                                .estimatedDurationMinutes(trip.getEstimatedDurationMinutes())
+                                .driverNote(trip.getDriverNote())
+                                .driverName(driverUser != null ? driverUser.getFullName() : "")
+                                .driverRating(trip.getDriver() != null ? trip.getDriver().getDriverRating() : 0.0)
+                                .driverPhone(driverUser != null ? driverUser.getPhoneNumber() : null)
+                                .driverTotalRides(trip.getDriver() != null ? trip.getDriver().getTotalDriverRides()
+                                                : null)
+                                .driverAvatarUrl(driverUser != null ? driverUser.getAvatarUrl() : null)
+                                .vehiclePlateNumber(vehicle != null ? vehicle.getPlateNumber() : null)
+                                .vehicleBrand(vehicle != null ? vehicle.getVehicleBrand() : null)
+                                .vehicleModel(vehicle != null ? vehicle.getVehicleModel() : null)
+                                .vehicleColor(vehicle != null ? vehicle.getVehicleColor() : null)
+                                .vehicleType(vehicle != null && vehicle.getVehicleType() != null
+                                                ? vehicle.getVehicleType().name()
+                                                : null)
+                                .vehicleImageUrl(vehicle != null ? vehicle.getVehicleImage() : null)
+                                .pickupPoints(pickupOptions)
+                                .dropoffPoints(dropoffOptions)
+                                .build();
+        }
 
         private CustomerBookingResponse toCustomerBookingResponse(Booking booking) {
                 return toCustomerBookingResponse(booking, null);
         }
 
         private CustomerBookingResponse toCustomerBookingResponse(Booking booking, String paymentUrl) {
-        Trip trip = booking.getTrip();
+                Trip trip = booking.getTrip();
 
-        String fromProvince = booking.getPickupPoint() != null
-                && booking.getPickupPoint().getWard() != null
-                && booking.getPickupPoint().getWard().getProvince() != null
-                ? booking.getPickupPoint().getWard().getProvince().getName()
-                : "";
+                String fromProvince = booking.getPickupPoint() != null
+                                && booking.getPickupPoint().getWard() != null
+                                && booking.getPickupPoint().getWard().getProvince() != null
+                                                ? booking.getPickupPoint().getWard().getProvince().getName()
+                                                : "";
 
-        String toProvince = booking.getDropoffPoint() != null
-                && booking.getDropoffPoint().getWard() != null
-                && booking.getDropoffPoint().getWard().getProvince() != null
-                ? booking.getDropoffPoint().getWard().getProvince().getName()
-                : "";
+                String toProvince = booking.getDropoffPoint() != null
+                                && booking.getDropoffPoint().getWard() != null
+                                && booking.getDropoffPoint().getWard().getProvince() != null
+                                                ? booking.getDropoffPoint().getWard().getProvince().getName()
+                                                : "";
 
-        return CustomerBookingResponse.builder()
-                .id(booking.getId())
-                .status(toUiBookingStatus(booking.getStatus()))
-                .seatCount(booking.getSeatCount())
-                .price(booking.getTotalPrice())
-                .from(fromProvince)
-                .to(toProvince)
-                .pickupPoint(booking.getPickupPoint() != null && booking.getPickupPoint().getWard() != null ? booking.getPickupPoint().getWard().getName() : "")
-                .dropPoint(booking.getDropoffPoint() != null && booking.getDropoffPoint().getWard() != null ? booking.getDropoffPoint().getWard().getName() : "")
-                .departureTime(trip.getDepartureTime())
-                .driverName(trip.getDriver() != null && trip.getDriver().getUser() != null ? trip.getDriver().getUser().getFullName() : "")
-                .driverAvatarUrl(trip.getDriver() != null && trip.getDriver().getUser() != null ? trip.getDriver().getUser().getAvatarUrl() : null)
-                .driverRating(trip.getDriver() != null ? trip.getDriver().getDriverRating() : 0.0)
-                .paymentMethod(booking.getPayment() != null && booking.getPayment().getMethod() != null ? booking.getPayment().getMethod().name() : null)
-                .paymentStatus(booking.getPayment() != null && booking.getPayment().getStatus() != null ? booking.getPayment().getStatus().name() : null)
+                return CustomerBookingResponse.builder()
+                                .id(booking.getId())
+                                .status(toUiBookingStatus(booking.getStatus()))
+                                .seatCount(booking.getSeatCount())
+                                .price(booking.getTotalPrice())
+                                .from(fromProvince)
+                                .to(toProvince)
+                                .pickupPoint(booking.getPickupPoint() != null
+                                                && booking.getPickupPoint().getWard() != null
+                                                                ? booking.getPickupPoint().getWard().getName()
+                                                                : "")
+                                .dropPoint(booking.getDropoffPoint() != null
+                                                && booking.getDropoffPoint().getWard() != null
+                                                                ? booking.getDropoffPoint().getWard().getName()
+                                                                : "")
+                                .departureTime(trip.getDepartureTime())
+                                .driverName(trip.getDriver() != null && trip.getDriver().getUser() != null
+                                                ? trip.getDriver().getUser().getFullName()
+                                                : "")
+                                .driverAvatarUrl(trip.getDriver() != null && trip.getDriver().getUser() != null
+                                                ? trip.getDriver().getUser().getAvatarUrl()
+                                                : null)
+                                .driverRating(trip.getDriver() != null ? trip.getDriver().getDriverRating() : 0.0)
+                                .paymentMethod(booking.getPayment() != null && booking.getPayment().getMethod() != null
+                                                ? booking.getPayment().getMethod().name()
+                                                : null)
+                                .paymentStatus(booking.getPayment() != null && booking.getPayment().getStatus() != null
+                                                ? booking.getPayment().getStatus().name()
+                                                : null)
                                 .paymentUrl(paymentUrl)
-                                .paymentTransactionRef(booking.getPayment() != null ? booking.getPayment().getTransactionId() : null)
-                .hasRated(booking.getReview() != null)
-                .myRating(booking.getReview() != null ? booking.getReview().getRating() : null)
-                .build();
-    }
+                                .paymentTransactionRef(
+                                                booking.getPayment() != null ? booking.getPayment().getTransactionId()
+                                                                : null)
+                                .hasRated(booking.getReview() != null)
+                                .myRating(booking.getReview() != null ? booking.getReview().getRating() : null)
+                                .build();
+        }
 
         private String createVnPayPaymentUrlForBooking(Booking booking, String customerId, String ipAddress) {
                 if (booking == null || !StringUtils.hasText(booking.getId())) {
@@ -582,27 +644,30 @@ public class CustomerBookingService {
                 bookingRepository.save(booking);
         }
 
-    private String toUiBookingStatus(BookingStatus status) {
-                if (status == null) return "confirmed";
-        return switch (status) {
-            case CONFIRMED -> "confirmed";
+        private String toUiBookingStatus(BookingStatus status) {
+                if (status == null)
+                        return "confirmed";
+                return switch (status) {
+                        case CONFIRMED -> "confirmed";
                         case PENDING -> "pending";
-            case COMPLETED -> "completed";
-            case CANCELLED_BY_CUSTOMER, CANCELLED_BY_DRIVER, NO_SHOW -> "cancelled";
-        };
-    }
-
-    private LocalDate parseDateOrNull(String text) {
-        if (!StringUtils.hasText(text)) return null;
-        try {
-            return LocalDate.parse(text.trim());
-        } catch (DateTimeParseException ex) {
-            throw new AppException(ErrorCode.INVALID_KEY);
+                        case COMPLETED -> "completed";
+                        case CANCELLED_BY_CUSTOMER, CANCELLED_BY_DRIVER, NO_SHOW -> "cancelled";
+                };
         }
-    }
+
+        private LocalDate parseDateOrNull(String text) {
+                if (!StringUtils.hasText(text))
+                        return null;
+                try {
+                        return LocalDate.parse(text.trim());
+                } catch (DateTimeParseException ex) {
+                        throw new AppException(ErrorCode.INVALID_KEY);
+                }
+        }
 
         private PaymentMethod parsePaymentMethod(String method) {
-                if (!StringUtils.hasText(method)) return PaymentMethod.CASH;
+                if (!StringUtils.hasText(method))
+                        return PaymentMethod.CASH;
                 try {
                         PaymentMethod parsed = PaymentMethod.valueOf(method.trim().toUpperCase());
                         // Keep compatibility with older clients that still send BANK_TRANSFER.
@@ -624,7 +689,8 @@ public class CustomerBookingService {
                 }
         }
 
-        private void validateWithinRadius(Double centerLat, Double centerLng, Double pickedLat, Double pickedLng, double radiusKm) {
+        private void validateWithinRadius(Double centerLat, Double centerLng, Double pickedLat, Double pickedLng,
+                        double radiusKm) {
                 if (pickedLat == null || pickedLng == null) {
                         return;
                 }
@@ -645,7 +711,7 @@ public class CustomerBookingService {
 
                 double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
                                 + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
-                                * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+                                                * Math.sin(dLng / 2) * Math.sin(dLng / 2);
                 double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
                 return earthRadiusKm * c;
         }
