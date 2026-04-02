@@ -15,6 +15,7 @@ import {
   View,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../../config/config';
 import DriverBottomNav, { DRIVER_BOTTOM_NAV_INSET } from '../../components/DriverBottomNav';
 import SkeletonShimmer from '../../components/SkeletonShimmer';
@@ -403,7 +404,12 @@ const DriverProfileScreen = ({ navigation }) => {
         <Text style={styles.heroTitle}>Quản lý thông tin tài xế</Text>
         <View style={styles.badgeRow}>
           <View style={styles.badgePill}><Text style={styles.badgeText}>Trạng thái: {statusText}</Text></View>
-          <View style={styles.badgePillSoft}><Text style={styles.badgeTextSoft}>⭐ {profile?.driverRating || 0} · {profile?.totalDriverRides || 0} chuyến</Text></View>
+          <View style={styles.badgePillSoft}>
+            <View style={styles.ratingBadgeRow}>
+              <Ionicons name="star" size={13} color="#F59E0B" />
+              <Text style={styles.badgeTextSoft}>{profile?.driverRating || 0} · {profile?.totalDriverRides || 0} chuyến</Text>
+            </View>
+          </View>
         </View>
         {isLocked && <Text style={styles.lockedHint}>Hồ sơ đang chờ duyệt, bạn chỉ có thể xem và chưa thể chỉnh sửa.</Text>}
         {profile?.status === 'REJECTED' && profile?.rejectionReason ? (
@@ -542,7 +548,7 @@ const DateField = ({ label, value, placeholder, editable, onPress }) => (
     <Text style={styles.fieldLabel}>{label}</Text>
     <TouchableOpacity style={[styles.selectorBox, !editable && styles.inputDisabled]} onPress={onPress} disabled={!editable}>
       <Text style={[styles.selectorText, !value && styles.selectorPlaceholder]}>{value || placeholder}</Text>
-      <Text style={styles.selectorIcon}>📅</Text>
+      <Ionicons name="calendar-outline" size={16} color="#64748B" style={styles.selectorIcon} />
     </TouchableOpacity>
   </View>
 );
@@ -639,6 +645,7 @@ const styles = StyleSheet.create({
   badgeRow: { marginTop: 14, flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   badgePill: { backgroundColor: 'rgba(255,255,255,0.18)', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
   badgePillSoft: { backgroundColor: 'rgba(255,255,255,0.10)', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
+  ratingBadgeRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   badgeText: { color: COLORS.white, fontSize: 12, fontWeight: '700' },
   badgeTextSoft: { color: '#E8FFF1', fontSize: 12, fontWeight: '600' },
   lockedHint: { marginTop: 10, color: '#FEE2E2', fontSize: 12, fontWeight: '600' },

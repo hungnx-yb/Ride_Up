@@ -1,10 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { View, ActivityIndicator, Alert } from 'react-native';
-import { NavigationContainer } from '@react-navigation/native';
+import { View, ActivityIndicator, Alert, Modal, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { COLORS, ROLES } from './src/config/config';
-import { loadStoredAuth, logoutApi, onAuthExpired, prefetchDriverBootstrapData } from './src/services/api';
+import {
+  loadStoredAuth,
+  logoutApi,
+  onAuthExpired,
+  prefetchDriverBootstrapData,
+  createUserNotificationRealtimeClient,
+  appendRealtimeNotification,
+  getRealtimeNotificationFeed,
+} from './src/services/api';
 
 // Auth screens
 import LoginScreen from './src/screens/auth/LoginScreen';
@@ -25,9 +33,11 @@ import AllTripsScreen from './src/screens/driver/AllTripsScreen';
 import DriverProfileScreen from './src/screens/driver/DriverProfileScreen';
 import TripDetailScreen from './src/screens/driver/TripDetailScreen';
 import DriverMessagesScreen from './src/screens/driver/DriverMessagesScreen';
+import NotificationCenterScreen from './src/screens/common/NotificationCenterScreen';
 import LoginTransitionOverlay from './src/components/LoginTransitionOverlay';
 
 const Stack = createNativeStackNavigator();
+const navRef = createNavigationContainerRef();
 
 /** Trả về role ưu tiên cao nhất từ mảng roles */
 const getPrimaryRole = (roles = []) => {
@@ -46,6 +56,71 @@ export default function App() {
   const [transitionMinDone, setTransitionMinDone] = useState(false);
   const [postLoginSettled, setPostLoginSettled] = useState(false);
   const prefetchedForUserIdRef = useRef('');
+  const notificationRealtimeRef = useRef(null);
+  const seenNotificationIdsRef = useRef(new Set());
+  const [paymentNoticeModal, setPaymentNoticeModal] = useState({
+    visible: false,
+    title: '',
+    message: '',
+  });
+
+  const closePaymentNoticeModal = () => {
+    setPaymentNoticeModal({ visible: false, title: '', message: '' });
+  };
+
+  const goToCustomerMyTrips = () => {
+    closePaymentNoticeModal();
+    if (!navRef.isReady()) {
+      return;
+    }
+    navRef.navigate('CustomerHome', {
+      initialTab: 'myTrips',
+      forceReloadAt: Date.now(),
+    });
+  };
+
+  const isVnpayPaymentNotice = (payload) => {
+    const type = String(payload?.type || '').toUpperCase();
+    const title = String(payload?.title || '').toLowerCase();
+    const message = String(payload?.message || '').toLowerCase();
+
+    if (type.includes('VNPAY') || type.includes('REFUND') || type.includes('PAYMENT')) {
+      return true;
+    }
+
+    const combined = `${title} ${message}`;
+    return combined.includes('vnpay')
+      || combined.includes('thanh toán')
+      || combined.includes('hoàn tiền')
+      || combined.includes('refund');
+  };
+
+  const isPaymentSuccessNotice = (payload) => {
+    const type = String(payload?.type || '').toUpperCase();
+    const title = String(payload?.title || '').toLowerCase();
+    const message = String(payload?.message || '').toLowerCase();
+    const combined = `${title} ${message}`;
+
+    if (type.includes('PAYMENT_SUCCESS') || type.includes('VNPAY_PAID') || type.includes('BOOKING_PAID')) {
+      return true;
+    }
+
+    return combined.includes('thanh toán thành công')
+      || combined.includes('da thanh toan')
+      || combined.includes('đã thanh toán')
+      || combined.includes('payment success')
+      || combined.includes('paid successfully');
+  };
+
+  const triggerCustomerTripsReload = () => {
+    if (!navRef.isReady()) {
+      return;
+    }
+    navRef.navigate('CustomerHome', {
+      initialTab: 'myTrips',
+      forceReloadAt: Date.now(),
+    });
+  };
 
   // Khôi phục session khi mở app
   useEffect(() => {
@@ -81,6 +156,81 @@ export default function App() {
     prefetchedForUserIdRef.current = userId;
     prefetchDriverBootstrapData().catch(() => {});
   }, [user]);
+
+  useEffect(() => {
+    const userId = user?.id;
+    if (!userId) {
+      if (notificationRealtimeRef.current) {
+        notificationRealtimeRef.current.disconnect();
+        notificationRealtimeRef.current = null;
+      }
+      seenNotificationIdsRef.current = new Set();
+      return;
+    }
+
+    const restoredIds = getRealtimeNotificationFeed()
+      .map((item) => (item?.id == null ? null : String(item.id)))
+      .filter(Boolean)
+      .slice(0, 150);
+    seenNotificationIdsRef.current = new Set(restoredIds);
+
+    if (notificationRealtimeRef.current) {
+      notificationRealtimeRef.current.disconnect();
+      notificationRealtimeRef.current = null;
+    }
+
+    notificationRealtimeRef.current = createUserNotificationRealtimeClient({
+      userId,
+      onNotification: (payload) => {
+        const stableId = payload?.id == null ? null : String(payload.id);
+        if (stableId && seenNotificationIdsRef.current.has(stableId)) {
+          return;
+        }
+        if (stableId) {
+          seenNotificationIdsRef.current.add(stableId);
+          if (seenNotificationIdsRef.current.size > 150) {
+            const ids = Array.from(seenNotificationIdsRef.current);
+            seenNotificationIdsRef.current = new Set(ids.slice(ids.length - 80));
+          }
+        }
+
+        appendRealtimeNotification(payload);
+
+        const title = payload?.title || 'Thông báo RideUp';
+        const message = payload?.message || 'Bạn có cập nhật mới.';
+
+        if (isVnpayPaymentNotice(payload)) {
+          const isCustomer = (user?.roles || []).includes(ROLES.CUSTOMER);
+          const isSuccess = isPaymentSuccessNotice(payload);
+
+          if (isCustomer && isSuccess) {
+            triggerCustomerTripsReload();
+          }
+
+          setPaymentNoticeModal({
+            visible: true,
+            title: isSuccess ? 'Thanh toán thành công' : title,
+            message: isSuccess
+              ? 'Giao dịch VNPAY đã thành công. Danh sách chuyến đã được cập nhật tự động.'
+              : message,
+          });
+          return;
+        }
+
+        // Non-payment notifications are surfaced via bottom-nav red dots and notification center.
+      },
+      onError: () => {
+        // Keep silent for notification channel errors to avoid alert spam.
+      },
+    });
+
+    return () => {
+      if (notificationRealtimeRef.current) {
+        notificationRealtimeRef.current.disconnect();
+        notificationRealtimeRef.current = null;
+      }
+    };
+  }, [user?.id, user?.roles]);
 
   const handleLoginSuccess = (userData, authToken) => {
     setTransitionUserName(userData?.fullName || 'ban');
@@ -152,13 +302,21 @@ export default function App() {
             <Stack.Screen name="DriverMessages" component={DriverMessagesScreen} />
             <Stack.Screen name="DriverProfile" component={DriverProfileScreen} />
             <Stack.Screen name="TripDetail" component={TripDetailScreen} />
+            <Stack.Screen name="NotificationCenter">
+              {(props) => <NotificationCenterScreen {...props} role="DRIVER" />}
+            </Stack.Screen>
           </>
         );
       case ROLES.CUSTOMER:
         return (
-          <Stack.Screen name="CustomerHome">
-            {() => <CustomerHomeScreen user={user} onLogout={handleLogout} />}
-          </Stack.Screen>
+          <>
+            <Stack.Screen name="CustomerHome">
+              {(props) => <CustomerHomeScreen {...props} user={user} onLogout={handleLogout} />}
+            </Stack.Screen>
+            <Stack.Screen name="NotificationCenter">
+              {(props) => <NotificationCenterScreen {...props} role="CUSTOMER" />}
+            </Stack.Screen>
+          </>
         );
       default:
         // Không có role hợp lệ → quay về Login
@@ -170,6 +328,7 @@ export default function App() {
     <>
       <StatusBar style="light" />
       <NavigationContainer
+        ref={navRef}
         onStateChange={() => {
           if (user !== null) {
             setPostLoginSettled(true);
@@ -195,6 +354,114 @@ export default function App() {
         visible={loginTransitionVisible}
         userName={transitionUserName}
       />
+      <Modal
+        visible={paymentNoticeModal.visible}
+        transparent
+        animationType="fade"
+        onRequestClose={closePaymentNoticeModal}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalBadge}>VNPAY</Text>
+            <Text style={styles.modalTitle}>{paymentNoticeModal.title || 'Thông báo thanh toán'}</Text>
+            <Text style={styles.modalMessage}>{paymentNoticeModal.message || 'Giao dịch của bạn đã được cập nhật.'}</Text>
+            <View style={styles.modalActionRow}>
+              <TouchableOpacity
+                style={styles.modalGhostButton}
+                onPress={closePaymentNoticeModal}
+                activeOpacity={0.9}
+              >
+                <Text style={styles.modalGhostButtonText}>Đã hiểu</Text>
+              </TouchableOpacity>
+              {(user?.roles || []).includes(ROLES.CUSTOMER) && (
+                <TouchableOpacity
+                  style={styles.modalButton}
+                  onPress={goToCustomerMyTrips}
+                  activeOpacity={0.9}
+                >
+                  <Text style={styles.modalButtonText}>Chuyến của tôi</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        </View>
+      </Modal>
     </>
   );
 }
+
+const styles = StyleSheet.create({
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(2, 6, 23, 0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 420,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 16,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+  },
+  modalBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: '#DBEAFE',
+    color: '#1D4ED8',
+    fontSize: 11,
+    fontWeight: '800',
+    marginBottom: 8,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  modalMessage: {
+    marginTop: 8,
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#334155',
+  },
+  modalActionRow: {
+    marginTop: 14,
+    flexDirection: 'row',
+    gap: 8,
+  },
+  modalGhostButton: {
+    flex: 1,
+    height: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    backgroundColor: '#EFF6FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalGhostButtonText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1D4ED8',
+  },
+  modalButton: {
+    flex: 1,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#2563EB',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalButtonText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+});

@@ -4,12 +4,14 @@ import {
   ScrollView, ActivityIndicator, RefreshControl,
   Animated, Easing,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../../config/config';
 import {
   getDriverTrips,
   getDriverStats,
   peekDriverTripsSnapshot,
   peekDriverStatsSnapshot,
+  onRealtimeNotificationFeedChange,
 } from '../../services/api';
 import DriverBottomNav, { DRIVER_BOTTOM_NAV_INSET } from '../../components/DriverBottomNav';
 import SkeletonShimmer from '../../components/SkeletonShimmer';
@@ -20,12 +22,12 @@ import {
 } from '../../services/driverProfileGuard';
 import ProfileApprovalModal from '../../components/ProfileApprovalModal';
 
-// Orange-red theme (matching web UI)
+// Green theme aligned with customer UI
 const THEME = {
-  gradientStart: '#E65100',
-  gradientEnd:   '#C62828',
-  accent:        '#FF6F00',
-  cardBorder:    '#FFF3E0',
+  gradientStart: '#00B14F',
+  gradientEnd:   '#008A3E',
+  accent:        '#00A63E',
+  cardBorder:    '#DCFCE7',
 };
 
 const STATUS_CONFIG = {
@@ -37,16 +39,10 @@ const STATUS_CONFIG = {
   in_progress: { label: 'Đang diễn ra',  color: '#1565C0', bg: '#E3F2FD' },
 };
 
-const QUICK_ACTIONS = [
-  { icon: '✨', label: 'Tạo\nchuyến xe',  bg: '#FFF3E0', iconColor: '#E65100', screen: 'CreateTrip' },
-  { icon: '📋', label: 'Tất cả\nchuyến',  bg: '#E3F2FD', iconColor: '#1565C0', screen: 'AllTrips' },
-  { icon: '💬', label: 'Tin nhắn\nchat',  bg: '#EDE9FE', iconColor: '#6D28D9', screen: 'DriverMessages' },
-  { icon: '🪪', label: 'Hồ sơ\ntài xế',   bg: '#E8F5E9', iconColor: '#2E7D32', screen: 'DriverProfile' },
-];
-
 const DriverHomeScreen = ({ user, onLogout, navigation }) => {
   const initialTripsRef = useRef(peekDriverTripsSnapshot());
   const initialStatsRef = useRef(peekDriverStatsSnapshot());
+  const lastRealtimeSyncedNotificationIdRef = useRef('');
 
   const [trips, setTrips]   = useState(initialTripsRef.current);
   const [stats, setStats]   = useState(initialStatsRef.current);
@@ -135,6 +131,37 @@ const DriverHomeScreen = ({ user, onLogout, navigation }) => {
     loadData();
   }, []);
 
+  useEffect(() => {
+    const unsubscribe = onRealtimeNotificationFeedChange((next) => {
+      const latest = Array.isArray(next) && next.length > 0 ? next[0] : null;
+      const latestId = String(latest?.id || '').trim();
+      if (!latestId || latestId === lastRealtimeSyncedNotificationIdRef.current) {
+        return;
+      }
+
+      lastRealtimeSyncedNotificationIdRef.current = latestId;
+      const type = String(latest?.type || '').toUpperCase();
+      const signal = `${String(latest?.title || '').toLowerCase()} ${String(latest?.message || '').toLowerCase()}`;
+
+      const shouldSyncDriverData = type.includes('BOOKING')
+        || type.includes('TRIP')
+        || type.includes('PAYMENT')
+        || signal.includes('đặt chỗ')
+        || signal.includes('chuyến')
+        || signal.includes('thanh toán')
+        || signal.includes('hủy');
+
+      if (!shouldSyncDriverData) {
+        return;
+      }
+
+      setRefreshing(true);
+      loadData(true);
+    });
+
+    return unsubscribe;
+  }, []);
+
   const formatCurrency = (n) =>
     new Intl.NumberFormat('vi-VN').format(n) + '\u20ab';
 
@@ -167,22 +194,26 @@ const DriverHomeScreen = ({ user, onLogout, navigation }) => {
         </View>
       )}
 
-      {/* ── Header (orange-red gradient) ── */}
+      {/* ── Header ── */}
       <Animated.View style={[styles.header, { opacity: headerAnim, transform: [{ translateY: headerTranslate }] }]}>
         <View style={styles.headerPattern} />
         <View style={styles.headerRow}>
           <View>
             <View style={styles.sparkleRow}>
-              <Text style={styles.sparkleIcon}>✨</Text>
+              <Ionicons name="sparkles-outline" size={14} color="rgba(255,255,255,0.9)" style={styles.sparkleIcon} />
               <Text style={styles.sparkleText}>Tài xế RideUp</Text>
             </View>
             <Text style={styles.userName}>{user?.fullName || 'Tài xế'}</Text>
             <View style={styles.ratingRow}>
-              <Text style={styles.ratingText}>⭐ {user?.rating ?? stats?.rating ?? '—'}</Text>
+              <Ionicons name="star" size={14} color="#FDE047" style={styles.ratingIcon} />
+              <Text style={styles.ratingText}>{user?.rating ?? stats?.rating ?? '—'}</Text>
               <Text style={styles.totalRidesText}> · {user?.totalRides ?? stats?.totalReviews ?? 0} chuyến</Text>
             </View>
             {user?.vehicleModel && (
-              <Text style={styles.vehicleText}>🚗 {user.vehicleModel} · {user.vehiclePlate}</Text>
+              <View style={styles.vehicleRow}>
+                <Ionicons name="car-sport-outline" size={13} color="rgba(255,255,255,0.85)" />
+                <Text style={styles.vehicleText}>{user.vehicleModel} · {user.vehiclePlate}</Text>
+              </View>
             )}
           </View>
           <TouchableOpacity style={styles.logoutBtn} onPress={onLogout}>
@@ -194,11 +225,11 @@ const DriverHomeScreen = ({ user, onLogout, navigation }) => {
       {/* ── Stats card (lifted) ── */}
       {stats ? (
         <Animated.View style={[styles.statsCard, { opacity: statsAnim, transform: [{ scale: statsScale }] }]}>
-          <StatMini icon="📋" label="Chuyến tháng"  value={stats.thisMonth.totalRides} />
+          <StatMini iconName="calendar-outline" label="Chuyến tháng"  value={stats.thisMonth.totalRides} />
           <View style={styles.statDivider} />
-          <StatMini icon="✅" label="Hoàn thành"    value={stats.thisMonth.completedRides} />
+          <StatMini iconName="checkmark-circle-outline" label="Hoàn thành"    value={stats.thisMonth.completedRides} />
           <View style={styles.statDivider} />
-          <StatMini icon="💰" label="Doanh thu"     value={formatCurrency(stats.thisMonth.revenue)} small />
+          <StatMini iconName="cash-outline" label="Doanh thu"     value={formatCurrency(stats.thisMonth.revenue)} small />
         </Animated.View>
       ) : isInitialLoading ? (
         <View style={styles.statsCardSkeleton}>
@@ -210,49 +241,26 @@ const DriverHomeScreen = ({ user, onLogout, navigation }) => {
         </View>
       ) : null}
 
-      {/* ── Revenue preview (orange card) ── */}
+      {/* ── Revenue preview ── */}
       {stats && (
         <Animated.View style={[styles.revenueCard, { opacity: statsAnim }]}>
           <View style={styles.revenueLeft}>
             <Text style={styles.revenueLabel}>Doanh thu dự kiến tháng này</Text>
             <Text style={styles.revenueValue}>{formatCurrency(stats.thisMonth.revenue)}</Text>
           </View>
-          <Text style={styles.revenueTrendIcon}>📈</Text>
+          <Ionicons name="trending-up-outline" size={34} color="#FFFFFF" />
         </Animated.View>
       )}
 
-      {/* ── Quick Actions ── */}
-      <Animated.View style={[styles.section, { opacity: listAnim }]}>
-        <Text style={styles.sectionTitle}>⚡ Chức năng</Text>
-        {!!loadError && <Text style={styles.inlineError}>{loadError}</Text>}
-        <View style={styles.actionsRow}>
-          {QUICK_ACTIONS.map((a) => (
-            <TouchableOpacity
-              key={a.screen}
-              style={[styles.actionBtn, { backgroundColor: a.bg }]}
-              activeOpacity={0.75}
-              onPress={() => {
-                if (a.screen === 'CreateTrip') {
-                  handleCreateTripPress();
-                  return;
-                }
-                if (a.screen === 'AllTrips') {
-                  handleAllTripsPress();
-                  return;
-                }
-                navigation?.navigate(a.screen);
-              }}
-            >
-              <Text style={[styles.actionIcon, { color: a.iconColor }]}>{a.icon}</Text>
-              <Text style={styles.actionLabel}>{a.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </Animated.View>
+      {!!loadError && (
+        <Animated.View style={[styles.section, { opacity: listAnim }]}>
+          <Text style={styles.inlineError}>{loadError}</Text>
+        </Animated.View>
+      )}
 
       {/* ── Chuyến hôm nay ── */}
       <Animated.View style={[styles.section, { opacity: listAnim, transform: [{ translateY: listTranslate }] }]}>
-        <Text style={styles.sectionTitle}>📅 Hôm nay ({todayTrips.length})</Text>
+        <Text style={styles.sectionTitle}>Hôm nay ({todayTrips.length})</Text>
         {isInitialLoading ? (
           <>
             <TripCardSkeleton />
@@ -261,7 +269,7 @@ const DriverHomeScreen = ({ user, onLogout, navigation }) => {
         ) : todayTrips.length === 0 ? (
           <EmptyCard
             text="Không có chuyến hôm nay"
-            btnText="✨ Tạo chuyến xe mới"
+            btnText="Tạo chuyến xe mới"
             onPress={handleCreateTripPress}
           />
         ) : (
@@ -275,7 +283,7 @@ const DriverHomeScreen = ({ user, onLogout, navigation }) => {
       {upcomingTrips.length > 0 && (
         <Animated.View style={[styles.section, { opacity: listAnim }]}>
           <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionTitle}>🗓️ Sắp tới ({upcomingTrips.length})</Text>
+            <Text style={styles.sectionTitle}>Sắp tới ({upcomingTrips.length})</Text>
             <TouchableOpacity onPress={handleAllTripsPress}>
               <Text style={styles.seeAllText}>Xem tất cả →</Text>
             </TouchableOpacity>
@@ -302,9 +310,9 @@ const DriverHomeScreen = ({ user, onLogout, navigation }) => {
 
 // ─── Sub-components ─────────────────────────────────────────
 
-const StatMini = ({ icon, label, value, small }) => (
+const StatMini = ({ iconName, label, value, small }) => (
   <View style={styles.statMini}>
-    <Text style={styles.statMiniIcon}>{icon}</Text>
+    <Ionicons name={iconName} size={18} color="#00A63E" />
     <Text style={[styles.statMiniValue, small && { fontSize: 11 }]}>{value}</Text>
     <Text style={styles.statMiniLabel}>{label}</Text>
   </View>
@@ -324,11 +332,17 @@ const TripCard = ({ trip, formatCurrency }) => {
         </View>
         <Text style={styles.tripFare}>{formatCurrency(trip.fixedFare)}/người</Text>
       </View>
-      <Text style={styles.tripRoute}>📍 {routeLabel}</Text>
+      <View style={styles.tripMetaRow}>
+        <Ionicons name="location-outline" size={14} color="#64748B" />
+        <Text style={styles.tripRoute}>{routeLabel}</Text>
+      </View>
       <View style={styles.tripFooter}>
-        <Text style={styles.tripTime}>🕑 {trip.departureDate} · {trip.departureTime}</Text>
+        <View style={styles.tripMetaRow}>
+          <Ionicons name="time-outline" size={13} color="#64748B" />
+          <Text style={styles.tripTime}>{trip.departureDate} · {trip.departureTime}</Text>
+        </View>
         <View style={styles.seatBadge}>
-          <Text style={styles.seatText}>💺 {filled}/{trip.totalSeats} khách</Text>
+          <Text style={styles.seatText}>{filled}/{trip.totalSeats} khách</Text>
         </View>
       </View>
       {/* seat fill bar */}
@@ -369,11 +383,11 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 12,
     paddingVertical: 6,
-    backgroundColor: '#FFF7ED',
+    backgroundColor: '#ECFDF3',
     borderBottomWidth: 1,
-    borderBottomColor: '#FED7AA',
+    borderBottomColor: '#BBF7D0',
   },
-  syncHintText: { fontSize: 12, color: '#9A3412', fontWeight: '600' },
+  syncHintText: { fontSize: 12, color: '#166534', fontWeight: '600' },
 
   // Header
   header: {
@@ -387,13 +401,15 @@ const styles = StyleSheet.create({
   },
   headerRow:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   sparkleRow:     { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
-  sparkleIcon:    { fontSize: 14, marginRight: 6 },
+  sparkleIcon:    { marginRight: 6 },
   sparkleText:    { color: 'rgba(255,255,255,0.85)', fontSize: 13, fontWeight: '600' },
   userName:       { color: COLORS.white, fontSize: 24, fontWeight: '800', marginTop: 2 },
   ratingRow:      { flexDirection: 'row', alignItems: 'center', marginTop: 6 },
+  ratingIcon:     { marginRight: 4 },
   ratingText:     { color: COLORS.white, fontSize: 14, fontWeight: '600' },
   totalRidesText: { color: 'rgba(255,255,255,0.7)', fontSize: 13 },
-  vehicleText:    { color: 'rgba(255,255,255,0.8)', fontSize: 12, marginTop: 4 },
+  vehicleRow:     { flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 4 },
+  vehicleText:    { color: 'rgba(255,255,255,0.8)', fontSize: 12 },
   logoutBtn: {
     backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 10,
     paddingHorizontal: 12, paddingVertical: 8, marginTop: 4,
@@ -417,7 +433,6 @@ const styles = StyleSheet.create({
   skeletonDivider: { width: 10 },
   statMini:      { flex: 1, alignItems: 'center' },
   statDivider:   { width: 1, backgroundColor: COLORS.border },
-  statMiniIcon:  { fontSize: 18 },
   statMiniValue: { fontSize: 15, fontWeight: '800', color: COLORS.text, marginTop: 4 },
   statMiniLabel: { fontSize: 11, color: COLORS.textLight, marginTop: 2, textAlign: 'center' },
 
@@ -432,24 +447,13 @@ const styles = StyleSheet.create({
   revenueLeft:      { flex: 1 },
   revenueLabel:     { color: 'rgba(255,255,255,0.8)', fontSize: 12, marginBottom: 4 },
   revenueValue:     { color: COLORS.white, fontSize: 22, fontWeight: '800' },
-  revenueTrendIcon: { fontSize: 36 },
 
   // Section
   section:          { paddingHorizontal: 16, marginTop: 20 },
   sectionHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   sectionTitle:     { fontSize: 16, fontWeight: '700', color: COLORS.text, marginBottom: 12 },
   seeAllText:       { fontSize: 13, color: THEME.gradientStart, fontWeight: '600', marginBottom: 12 },
-
-  // Quick Actions
-  actionsRow: { flexDirection: 'row', gap: 10, flexWrap: 'wrap' },
   inlineError: { color: '#B71C1C', fontSize: 12, marginBottom: 8 },
-  actionBtn: {
-    width: '48%', borderRadius: 14, paddingVertical: 14,
-    alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2,
-  },
-  actionIcon:  { fontSize: 22 },
-  actionLabel: { fontSize: 11, fontWeight: '600', color: COLORS.text, marginTop: 6, textAlign: 'center', lineHeight: 16 },
 
   // Trip card
   tripCard: {
@@ -462,9 +466,10 @@ const styles = StyleSheet.create({
   statusText:      { fontSize: 12, fontWeight: '700' },
   tripFare:        { fontSize: 14, fontWeight: '700', color: THEME.accent },
   tripRoute:       { fontSize: 13, color: COLORS.text, marginBottom: 3, lineHeight: 20 },
+  tripMetaRow:     { flexDirection: 'row', alignItems: 'center', gap: 5 },
   tripFooter:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, marginBottom: 8 },
   tripTime:        { fontSize: 12, color: COLORS.textLight },
-  seatBadge:       { backgroundColor: '#FFF3E0', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
+  seatBadge:       { backgroundColor: '#ECFDF3', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
   seatText:        { fontSize: 12, color: THEME.gradientStart, fontWeight: '600' },
   seatBarBg:       { height: 4, backgroundColor: COLORS.border, borderRadius: 2 },
   seatBarFill:     { height: 4, backgroundColor: THEME.gradientStart, borderRadius: 2 },

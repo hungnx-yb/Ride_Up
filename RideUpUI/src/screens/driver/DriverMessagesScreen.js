@@ -24,6 +24,7 @@ import {
   markChatThreadRead,
   sendChatMessage,
   uploadFile,
+  updateChatUnreadThreadsCountFromThreads,
 } from '../../services/api';
 
 const normalizeDriverMessage = (msg) => {
@@ -91,6 +92,7 @@ const DriverMessagesScreen = ({ navigation }) => {
       if (isRefresh) setRefreshing(true);
       const data = await getMyChatThreads();
       setThreads(Array.isArray(data) ? data : []);
+      updateChatUnreadThreadsCountFromThreads(data);
       setLoadError('');
     } catch (e) {
       setLoadError(e?.message || 'Không tải được danh sách chat');
@@ -119,6 +121,13 @@ const DriverMessagesScreen = ({ navigation }) => {
       setChatDraft('');
       setChatPendingImage(null);
       await markChatThreadRead(thread.id).catch(() => {});
+      setThreads((prev) => {
+        const next = (Array.isArray(prev) ? prev : []).map((item) => (
+          item?.id === thread.id ? { ...item, myUnreadCount: 0 } : item
+        ));
+        updateChatUnreadThreadsCountFromThreads(next);
+        return next;
+      });
       startRealtime(thread.id);
       loadThreads(true);
     } catch (e) {
@@ -258,13 +267,6 @@ const DriverMessagesScreen = ({ navigation }) => {
         <Text style={styles.title}>Tin nhắn tài xế</Text>
       </View>
 
-      {(loading || refreshing) && (
-        <View style={styles.syncHintWrap}>
-          <ActivityIndicator size="small" color="#C2410C" />
-          <Text style={styles.syncHintText}>Đang cập nhật danh sách chat...</Text>
-        </View>
-      )}
-
       {!!loadError && <Text style={styles.inlineError}>{loadError}</Text>}
 
       <FlatList
@@ -298,7 +300,7 @@ const DriverMessagesScreen = ({ navigation }) => {
 
             {chatLoading ? (
               <View style={styles.chatLoadingWrap}>
-                <ActivityIndicator size="small" color="#E65100" />
+                <ActivityIndicator size="small" color="#00B14F" />
                 <Text style={styles.chatLoadingText}>Đang tải tin nhắn...</Text>
               </View>
             ) : (
@@ -384,7 +386,7 @@ const DriverMessagesScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#F6F8FA' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  header: { paddingTop: 56, paddingHorizontal: 16, paddingBottom: 10, backgroundColor: '#E65100' },
+  header: { paddingTop: 56, paddingHorizontal: 16, paddingBottom: 10, backgroundColor: '#00B14F' },
   title: { color: '#FFFFFF', fontSize: 20, fontWeight: '800' },
   subTitle: { color: 'rgba(255,255,255,0.9)', marginTop: 4, fontSize: 12 },
   syncHintWrap: {
@@ -436,7 +438,7 @@ const styles = StyleSheet.create({
   chatMessagesContent: { padding: 10, gap: 8 },
   chatEmptyText: { color: '#6B7280', fontSize: 12, textAlign: 'center', marginVertical: 10 },
   chatBubble: { maxWidth: '88%', borderRadius: 10, paddingVertical: 7, paddingHorizontal: 10 },
-  chatBubbleMine: { alignSelf: 'flex-end', backgroundColor: '#E65100' },
+  chatBubbleMine: { alignSelf: 'flex-end', backgroundColor: '#00B14F' },
   chatBubbleOther: { alignSelf: 'flex-start', backgroundColor: '#E5E7EB' },
   chatBubbleText: { color: '#111827', fontSize: 13 },
   chatBubbleTextMine: { color: '#FFFFFF' },
@@ -457,7 +459,7 @@ const styles = StyleSheet.create({
     color: '#111827',
     backgroundColor: '#FFFFFF',
   },
-  chatSendBtn: { backgroundColor: '#E65100', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, alignItems: 'center', justifyContent: 'center' },
+  chatSendBtn: { backgroundColor: '#00B14F', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, alignItems: 'center', justifyContent: 'center' },
   chatSendBtnDisabled: { backgroundColor: '#D1D5DB' },
   chatLockedHint: {
     marginTop: 10,

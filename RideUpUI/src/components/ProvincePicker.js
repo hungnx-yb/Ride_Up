@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { fetchProvinces, fetchProvincesFromDb, filterProvinces } from '../services/locationService';
 
-const THEME_COLOR = '#E65100';
+const THEME_COLOR = '#00B14F';
 
 /**
  * Modal chọn tỉnh / thành phố — data từ Overpass API (có tọa độ).

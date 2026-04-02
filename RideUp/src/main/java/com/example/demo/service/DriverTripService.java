@@ -39,11 +39,13 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -59,6 +61,7 @@ public class DriverTripService {
     WardRepository wardRepository;
     CustomerBookingService customerBookingService;
     ChatService chatService;
+    NotificationRealtimePublisher notificationRealtimePublisher;
 
     DateTimeFormatter isoDate = DateTimeFormatter.ISO_LOCAL_DATE;
     DateTimeFormatter viDate = DateTimeFormatter.ofPattern("dd/MM/yyyy");
@@ -186,6 +189,14 @@ public class DriverTripService {
         newTrip.setDropoffPoints(dropoffPoints);
 
         Trip saved = tripRepository.save(newTrip);
+        String driverUserId = driverProfile.getUser() != null ? driverProfile.getUser().getId() : null;
+        notificationRealtimePublisher.notifyUser(
+            driverUserId,
+            "DRIVER_TRIP_CREATED",
+            "Tạo chuyến thành công",
+            "Bạn đã tạo thành công chuyến " + buildTripRouteLabel(saved) + ".",
+            saved.getId()
+        );
         DriverTripResponse response = toTripResponse(saved, List.of(template));
         response.setRouteId(StringUtils.hasText(template.getId()) ? template.getId() : saved.getId());
         return response;
@@ -214,6 +225,24 @@ public class DriverTripService {
 
         Trip saved = tripRepository.save(trip);
         chatService.closeThreadsByTripId(saved.getId(), "Trip was cancelled by driver");
+
+        String driverUserId = driverProfile.getUser() != null ? driverProfile.getUser().getId() : null;
+        notificationRealtimePublisher.notifyUser(
+            driverUserId,
+            "DRIVER_TRIP_CANCELLED",
+            "Hủy chuyến thành công",
+            "Bạn đã hủy chuyến " + buildTripRouteLabel(saved) + ".",
+            saved.getId()
+        );
+        for (String customerUserId : collectAffectedCustomerUserIds(saved)) {
+            notificationRealtimePublisher.notifyUser(
+                customerUserId,
+                "TRIP_CANCELLED_BY_DRIVER",
+                "Chuyến xe đã bị hủy",
+                "Tài xế đã hủy chuyến " + buildTripRouteLabel(saved) + ".",
+                saved.getId()
+            );
+        }
 
         List<Trip> routeTemplates = tripRepository.findByDriverIdAndDepartureTimeIsNullOrderByUpdatedAtDesc(driverProfile.getId());
         return toTripResponse(saved, routeTemplates);
@@ -268,6 +297,24 @@ public class DriverTripService {
 
         Trip saved = tripRepository.save(trip);
         chatService.closeThreadsByTripId(saved.getId(), "Trip has been completed");
+
+        String driverUserId = driverProfile.getUser() != null ? driverProfile.getUser().getId() : null;
+        notificationRealtimePublisher.notifyUser(
+            driverUserId,
+            "DRIVER_TRIP_COMPLETED",
+            "Chuyến xe đã hoàn thành",
+            "Bạn đã hoàn thành chuyến " + buildTripRouteLabel(saved) + ".",
+            saved.getId()
+        );
+        for (String customerUserId : collectAffectedCustomerUserIds(saved)) {
+            notificationRealtimePublisher.notifyUser(
+                customerUserId,
+                "TRIP_COMPLETED",
+                "Chuyến xe đã hoàn thành",
+                "Chuyến " + buildTripRouteLabel(saved) + " đã kết thúc.",
+                saved.getId()
+            );
+        }
         List<Trip> routeTemplates = tripRepository.findByDriverIdAndDepartureTimeIsNullOrderByUpdatedAtDesc(driverProfile.getId());
         return toTripResponse(saved, routeTemplates);
     }
@@ -302,6 +349,64 @@ public class DriverTripService {
                 }
             }
         }
+    }
+
+    private Set<String> collectAffectedCustomerUserIds(Trip trip) {
+        if (trip == null || trip.getBookings() == null || trip.getBookings().isEmpty()) {
+            return Set.of();
+        }
+
+        Set<String> userIds = new HashSet<>();
+        for (Booking booking : trip.getBookings()) {
+            if (booking == null || booking.getCustomer() == null || !StringUtils.hasText(booking.getCustomer().getId())) {
+                continue;
+            }
+            userIds.add(booking.getCustomer().getId());
+        }
+        return userIds;
+    }
+
+    private String buildTripRouteLabel(Trip trip) {
+        if (trip == null) {
+            return "--";
+        }
+
+        String from = extractProvinceNameFromPickupPoints(trip.getPickupPoints());
+        String to = extractProvinceNameFromDropoffPoints(trip.getDropoffPoints());
+        if (!StringUtils.hasText(from) && !StringUtils.hasText(to)) {
+            return trip.getId();
+        }
+        if (!StringUtils.hasText(from)) {
+            return "-- - " + to;
+        }
+        if (!StringUtils.hasText(to)) {
+            return from + " - --";
+        }
+        return from + " - " + to;
+    }
+
+    private String extractProvinceNameFromPickupPoints(List<TripPickupPoint> points) {
+        if (points == null || points.isEmpty()) {
+            return null;
+        }
+        return points.stream()
+                .sorted(Comparator.comparingInt(p -> p.getSortOrder() == null ? 0 : p.getSortOrder()))
+                .map(p -> p.getWard() != null && p.getWard().getProvince() != null ? p.getWard().getProvince().getName() : null)
+                .filter(StringUtils::hasText)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private String extractProvinceNameFromDropoffPoints(List<TripDropoffPoint> points) {
+        if (points == null || points.isEmpty()) {
+            return null;
+        }
+        return points.stream()
+                .sorted(Comparator.comparingInt(p -> p.getSortOrder() == null ? 0 : p.getSortOrder()))
+                .map(p -> p.getWard() != null && p.getWard().getProvince() != null ? p.getWard().getProvince().getName() : null)
+                .filter(StringUtils::hasText)
+                .findFirst()
+                .orElse(null);
     }
 
     private void markBookingsInProgress(Trip trip, LocalDateTime startedAt) {

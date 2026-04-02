@@ -27,11 +27,22 @@ let _refreshToken = null;
 let _isHandlingAuthExpiry = false;
 let _refreshInFlight = null;
 const _authExpiredListeners = new Set();
+let _notificationFeed = [];
+let _notificationFeedOwnerUserId = null;
+const _notificationFeedListeners = new Set();
+let _chatUnreadThreadsCount = 0;
+const _chatUnreadThreadsListeners = new Set();
 
 export const STORAGE_KEYS = {
   ACCESS_TOKEN: '@rideup_access_token',
   REFRESH_TOKEN: '@rideup_refresh_token',
   USER: '@rideup_user',
+  NOTIFICATION_FEED: '@rideup_notification_feed',
+};
+
+const _notificationFeedStorageKeyForUser = (userId) => {
+  const normalized = String(userId || '').trim();
+  return normalized ? `${STORAGE_KEYS.NOTIFICATION_FEED}:${normalized}` : STORAGE_KEYS.NOTIFICATION_FEED;
 };
 
 const API_CACHE_TTL = {
@@ -66,6 +77,119 @@ const _rememberDriverStatsSnapshot = (data) => {
 
 export const peekDriverTripsSnapshot = () => (Array.isArray(_driverTripsSnapshot) ? _driverTripsSnapshot : []);
 export const peekDriverStatsSnapshot = () => (_driverStatsSnapshot && typeof _driverStatsSnapshot === 'object' ? _driverStatsSnapshot : null);
+
+export const getRealtimeNotificationFeed = () => (Array.isArray(_notificationFeed) ? [..._notificationFeed] : []);
+
+const _emitRealtimeNotificationFeedChange = () => {
+  _notificationFeedListeners.forEach((listener) => {
+    try {
+      listener(getRealtimeNotificationFeed());
+    } catch {
+      // Ignore listener errors to avoid breaking notification flow.
+    }
+  });
+};
+
+const _persistRealtimeNotificationFeed = async () => {
+  try {
+    const key = _notificationFeedStorageKeyForUser(_notificationFeedOwnerUserId);
+    await AsyncStorage.setItem(key, JSON.stringify(_notificationFeed));
+  } catch {
+    // Ignore storage failures to avoid blocking app flow.
+  }
+};
+
+const _restoreRealtimeNotificationFeedForUser = async (userId) => {
+  try {
+    const scopedKey = _notificationFeedStorageKeyForUser(userId);
+    const [scopedValue, legacyValue] = await Promise.all([
+      AsyncStorage.getItem(scopedKey),
+      AsyncStorage.getItem(STORAGE_KEYS.NOTIFICATION_FEED),
+    ]);
+
+    const source = scopedValue || legacyValue;
+    if (!source) {
+      _notificationFeed = [];
+      _emitRealtimeNotificationFeedChange();
+      return;
+    }
+
+    const parsed = JSON.parse(source);
+    _notificationFeed = Array.isArray(parsed) ? parsed.slice(0, 150) : [];
+    _emitRealtimeNotificationFeedChange();
+
+    // One-time migration from old shared key to scoped key.
+    if (!scopedValue && legacyValue && scopedKey !== STORAGE_KEYS.NOTIFICATION_FEED) {
+      await AsyncStorage.setItem(scopedKey, JSON.stringify(_notificationFeed));
+    }
+  } catch {
+    _notificationFeed = [];
+    _emitRealtimeNotificationFeedChange();
+  }
+};
+
+export const getChatUnreadThreadsCount = () => Number(_chatUnreadThreadsCount || 0);
+
+export const onChatUnreadThreadsCountChange = (listener) => {
+  if (typeof listener !== 'function') {
+    return () => { };
+  }
+
+  _chatUnreadThreadsListeners.add(listener);
+  return () => {
+    _chatUnreadThreadsListeners.delete(listener);
+  };
+};
+
+export const updateChatUnreadThreadsCountFromThreads = (threads) => {
+  const count = (Array.isArray(threads) ? threads : []).reduce(
+    (sum, item) => sum + (Number(item?.myUnreadCount || 0) > 0 ? 1 : 0),
+    0
+  );
+  _chatUnreadThreadsCount = count;
+  _chatUnreadThreadsListeners.forEach((listener) => {
+    try {
+      listener(_chatUnreadThreadsCount);
+    } catch {
+      // Ignore listener errors to avoid breaking badge flow.
+    }
+  });
+};
+
+export const onRealtimeNotificationFeedChange = (listener) => {
+  if (typeof listener !== 'function') {
+    return () => { };
+  }
+
+  _notificationFeedListeners.add(listener);
+  return () => {
+    _notificationFeedListeners.delete(listener);
+  };
+};
+
+export const appendRealtimeNotification = (payload) => {
+  const notification = {
+    id: String(payload?.id || `${payload?.type || 'EVENT'}:${payload?.referenceId || Date.now()}`),
+    type: payload?.type || 'EVENT',
+    title: payload?.title || 'Thông báo RideUp',
+    message: payload?.message || 'Bạn có cập nhật mới.',
+    referenceId: payload?.referenceId || null,
+    createdAt: payload?.createdAt || new Date().toISOString(),
+    read: false,
+  };
+
+  _notificationFeed = [notification, ..._notificationFeed.filter((item) => item?.id !== notification.id)].slice(0, 150);
+  _emitRealtimeNotificationFeedChange();
+  _persistRealtimeNotificationFeed();
+
+  return notification;
+};
+
+export const markAllRealtimeNotificationsRead = () => {
+  _notificationFeed = _notificationFeed.map((item) => ({ ...item, read: true }));
+  _emitRealtimeNotificationFeedChange();
+  _persistRealtimeNotificationFeed();
+};
 
 const _notifyAuthExpired = (reason) => {
   _authExpiredListeners.forEach((listener) => {
@@ -446,6 +570,55 @@ export const createChatRealtimeClient = ({ threadId, onMessage, onConnect, onErr
   };
 };
 
+export const createUserNotificationRealtimeClient = ({ userId, onNotification, onConnect, onError }) => {
+  if (!userId || USE_MOCK_DATA) {
+    return {
+      disconnect: () => { },
+    };
+  }
+
+  const wsUrl = _buildChatWebSocketUrl();
+  const client = new Client({
+    webSocketFactory: () => new WebSocket(wsUrl),
+    reconnectDelay: 3000,
+    heartbeatIncoming: 10000,
+    heartbeatOutgoing: 10000,
+    debug: () => { },
+  });
+
+  client.onConnect = () => {
+    client.subscribe(`/topic/notifications.user.${userId}`, (frame) => {
+      try {
+        const payload = JSON.parse(frame.body);
+        onNotification?.(payload);
+      } catch (error) {
+        onError?.(error);
+      }
+    });
+    onConnect?.();
+  };
+
+  client.onStompError = (frame) => {
+    onError?.(new Error(frame?.body || 'STOMP broker error'));
+  };
+
+  client.onWebSocketError = (event) => {
+    onError?.(new Error(event?.message || 'WebSocket connection error'));
+  };
+
+  client.activate();
+
+  return {
+    disconnect: () => {
+      try {
+        client.deactivate();
+      } catch {
+        // Ignore disconnect errors.
+      }
+    },
+  };
+};
+
 /** Gọi khi khởi động app để khôi phục token đã lưu */
 export const loadStoredAuth = async () => {
   try {
@@ -459,7 +632,12 @@ export const loadStoredAuth = async () => {
       _refreshToken = refresh;
       apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
     }
-    return userStr ? JSON.parse(userStr) : null;
+
+    const storedUser = userStr ? JSON.parse(userStr) : null;
+    _notificationFeedOwnerUserId = storedUser?.id || null;
+    await _restoreRealtimeNotificationFeedForUser(_notificationFeedOwnerUserId);
+
+    return storedUser;
   } catch {
     return null;
   }
@@ -469,20 +647,26 @@ export const loadStoredAuth = async () => {
 const _persistAuth = async (accessToken, refreshToken, user) => {
   _accessToken = accessToken;
   _refreshToken = refreshToken;
+  _notificationFeedOwnerUserId = user?.id || null;
   apiClient.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
   await Promise.all([
     AsyncStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, accessToken),
     AsyncStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, refreshToken),
     AsyncStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user)),
   ]);
+  await _restoreRealtimeNotificationFeedForUser(_notificationFeedOwnerUserId);
 };
 
 /** Xoá auth khỏi bộ nhớ và AsyncStorage */
 export const clearStoredAuth = async () => {
   _accessToken = null;
   _refreshToken = null;
+  _notificationFeedOwnerUserId = null;
   delete apiClient.defaults.headers.common['Authorization'];
   _apiCache.clear();
+  _notificationFeed = [];
+  _emitRealtimeNotificationFeedChange();
+  _chatUnreadThreadsCount = 0;
   await AsyncStorage.multiRemove([
     STORAGE_KEYS.ACCESS_TOKEN,
     STORAGE_KEYS.REFRESH_TOKEN,
@@ -1218,13 +1402,16 @@ export const openChatThread = async (bookingId) => {
 export const getMyChatThreads = async () => {
   if (USE_MOCK_DATA) {
     await mockApiDelay(400);
+    updateChatUnreadThreadsCountFromThreads([]);
     return [];
   }
   return getCached('CHAT_THREADS:ME', API_CACHE_TTL.CHAT_THREADS, async () => {
     const res = await apiClient.get('/chat/threads', {
       timeout: CHAT_REQUEST_TIMEOUT,
     });
-    return res.data?.result ?? res.data;
+    const rows = res.data?.result ?? res.data;
+    updateChatUnreadThreadsCountFromThreads(rows);
+    return rows;
   });
 };
 
