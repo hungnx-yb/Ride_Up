@@ -1,6 +1,7 @@
 package com.example.demo.repository;
 
 import com.example.demo.entity.Trip;
+import com.example.demo.enums.TripStatus;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jakarta.persistence.TypedQuery;
@@ -23,28 +24,31 @@ public class TripRepositoryImpl implements TripRepositoryCustom {
             String toProvinceId,
             String fromWardId,
             String toWardId,
-            LocalDate departureDate) {
+            LocalDate departureDate,
+            TripStatus status,
+            int page,
+            int size) {
         StringBuilder jpql = new StringBuilder(
-                "SELECT DISTINCT t FROM Trip t " +
-                        "JOIN t.pickupPoints pp " +
-                        "JOIN t.dropoffPoints dp " +
+                "SELECT t FROM Trip t " +
                         "JOIN FETCH t.driver d " +
                         "JOIN FETCH d.user du " +
                         "LEFT JOIN FETCH d.vehicle dv " +
-                        "WHERE t.departureTime IS NOT NULL ");
+                        "WHERE t.status = :status "
 
-        if (StringUtils.hasText(fromProvinceId)) {
-            jpql.append("AND pp.ward.province.id = :fromProvinceId ");
-        }
-        if (StringUtils.hasText(toProvinceId)) {
-            jpql.append("AND dp.ward.province.id = :toProvinceId ");
-        }
+        );
 
         if (StringUtils.hasText(fromWardId)) {
-            jpql.append("AND pp.ward.id = :fromWardId ");
+            jpql.append(
+                    "AND EXISTS (SELECT 1 FROM TripPickupPoint pp WHERE pp.trip = t AND pp.ward.id = :fromWardId) ");
+        } else if (StringUtils.hasText(fromProvinceId)) {
+            jpql.append(
+                    "AND EXISTS (SELECT 1 FROM TripPickupPoint pp WHERE pp.trip = t AND pp.ward.province.id = :fromProvinceId) ");
         }
         if (StringUtils.hasText(toWardId)) {
-            jpql.append("AND dp.ward.id = :toWardId ");
+            jpql.append("AND EXISTS (SELECT 1 FROM TripDropoffPoint dp WHERE dp.trip = t AND dp.ward.id = :toWardId) ");
+        } else if (StringUtils.hasText(toProvinceId)) {
+            jpql.append(
+                    "AND EXISTS (SELECT 1 FROM TripDropoffPoint dp WHERE dp.trip = t AND dp.ward.province.id = :toProvinceId) ");
         }
         if (departureDate != null) {
             jpql.append("AND t.departureTime >= :fromDateTime AND t.departureTime < :toDateTime ");
@@ -53,6 +57,7 @@ public class TripRepositoryImpl implements TripRepositoryCustom {
         jpql.append("ORDER BY t.departureTime ASC");
 
         TypedQuery<Trip> query = entityManager.createQuery(jpql.toString(), Trip.class);
+        query.setParameter("status", status);
 
         if (StringUtils.hasText(fromProvinceId)) {
             query.setParameter("fromProvinceId", fromProvinceId.trim());
@@ -60,7 +65,6 @@ public class TripRepositoryImpl implements TripRepositoryCustom {
         if (StringUtils.hasText(toProvinceId)) {
             query.setParameter("toProvinceId", toProvinceId.trim());
         }
-
         if (StringUtils.hasText(fromWardId)) {
             query.setParameter("fromWardId", fromWardId.trim());
         }
@@ -73,6 +77,11 @@ public class TripRepositoryImpl implements TripRepositoryCustom {
             query.setParameter("fromDateTime", fromDateTime);
             query.setParameter("toDateTime", toDateTime);
         }
+
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.max(size, 1);
+        query.setFirstResult(safePage * safeSize);
+        query.setMaxResults(safeSize);
 
         return query.getResultList();
     }

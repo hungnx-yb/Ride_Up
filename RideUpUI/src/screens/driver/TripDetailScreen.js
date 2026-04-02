@@ -16,7 +16,8 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../../config/config';
-import DriverBottomNav from '../../components/DriverBottomNav';
+import DriverBottomNav, { DRIVER_BOTTOM_NAV_INSET } from '../../components/DriverBottomNav';
+import SkeletonShimmer from '../../components/SkeletonShimmer';
 import {
   createChatRealtimeClient,
   getChatMessages,
@@ -131,6 +132,31 @@ const BookingCard = ({ booking, canChat, onOpenChat }) => (
     <DetailRow label="Lý do hủy" value={booking.cancellationReason} />
     <DetailRow label="Hoàn thành" value={booking.completedAt} />
   </View>
+);
+
+const TripDetailLoadingSkeleton = () => (
+  <>
+    <View style={styles.headerSkeleton}>
+      <SkeletonShimmer style={styles.backBtnSkeleton} />
+      <SkeletonShimmer style={styles.headerTitleSkeleton} />
+    </View>
+
+    <View style={styles.statRow}>
+      <SkeletonShimmer style={styles.statSkeletonCard} />
+      <SkeletonShimmer style={styles.statSkeletonCard} />
+      <SkeletonShimmer style={styles.statSkeletonCard} />
+    </View>
+
+    {[0, 1, 2, 3].map((idx) => (
+      <View key={`trip-detail-skeleton-${idx}`} style={styles.card}>
+        <SkeletonShimmer style={styles.cardTitleSkeleton} />
+        <SkeletonShimmer style={styles.detailRowSkeleton} />
+        <SkeletonShimmer style={styles.detailRowSkeleton} />
+        <SkeletonShimmer style={styles.detailRowSkeleton} />
+        <SkeletonShimmer style={styles.detailRowSkeletonShort} />
+      </View>
+    ))}
+  </>
 );
 
 const TripDetailScreen = ({ navigation, route }) => {
@@ -326,7 +352,7 @@ const TripDetailScreen = ({ navigation, route }) => {
       } else {
         const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (!permission?.granted) {
-          Alert.alert('Quyen bi tu choi', 'Vui long cap quyen thu vien anh de gui hinh.');
+          Alert.alert('Quyền bị từ chối', 'Vui lòng cấp quyền thư viện ảnh để gửi hình.');
           return;
         }
 
@@ -347,7 +373,7 @@ const TripDetailScreen = ({ navigation, route }) => {
         });
       }
     } catch (e) {
-      Alert.alert('Loi', e?.message || 'Chon anh that bai');
+      Alert.alert('Lỗi', e?.message || 'Chọn ảnh thất bại');
     }
   }, [appendUniqueMessage, chatDraft, chatSending, chatThread?.id, chatUploadingImage]);
 
@@ -369,8 +395,16 @@ const TripDetailScreen = ({ navigation, route }) => {
 
   if (loading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator color="#E65100" size="large" />
+      <View style={styles.screen}>
+        <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+          <TripDetailLoadingSkeleton />
+          <View style={styles.bottomSpacer} />
+        </ScrollView>
+        <View style={styles.loadingSyncBadge}>
+          <ActivityIndicator size="small" color="#E65100" />
+          <Text style={styles.loadingSyncText}>Đang tải chi tiết chuyến đi...</Text>
+        </View>
+        <DriverBottomNav navigation={navigation} activeKey="trips" />
       </View>
     );
   }
@@ -437,7 +471,7 @@ const TripDetailScreen = ({ navigation, route }) => {
         )}
       </SectionCard>
 
-        <View style={{ height: 110 }} />
+        <View style={styles.bottomSpacer} />
       </ScrollView>
 
       <Modal visible={chatVisible} transparent animationType="fade" onRequestClose={closeChatModal}>
@@ -512,7 +546,7 @@ const TripDetailScreen = ({ navigation, route }) => {
                 <TouchableOpacity style={styles.chatPendingRemoveBtn} onPress={() => setChatPendingImage(null)}>
                   <Text style={styles.chatPendingRemoveText}>x</Text>
                 </TouchableOpacity>
-                <Text style={styles.chatPendingHint}>Da chon anh. Bam Gui de gui anh.</Text>
+                <Text style={styles.chatPendingHint}>Đã chọn ảnh. Bấm Gửi để gửi ảnh.</Text>
               </View>
             )}
 
@@ -533,8 +567,70 @@ const TripDetailScreen = ({ navigation, route }) => {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#F6F8FA' },
   container: { flex: 1, backgroundColor: '#F6F8FA' },
-  content: { paddingBottom: 24 },
+  content: { paddingBottom: 12 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loadingSyncBadge: {
+    position: 'absolute',
+    right: 14,
+    bottom: DRIVER_BOTTOM_NAV_INSET + 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    borderWidth: 1,
+    borderColor: '#FCD9C5',
+  },
+  loadingSyncText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#C2410C',
+  },
+  headerSkeleton: {
+    backgroundColor: '#E65100',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: 52,
+    paddingBottom: 14,
+    paddingHorizontal: 14,
+    gap: 10,
+  },
+  backBtnSkeleton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.26)',
+  },
+  headerTitleSkeleton: {
+    width: 190,
+    height: 22,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.30)',
+  },
+  statSkeletonCard: {
+    flex: 1,
+    height: 66,
+    borderRadius: 12,
+  },
+  cardTitleSkeleton: {
+    width: 172,
+    height: 16,
+    borderRadius: 8,
+    marginBottom: 10,
+  },
+  detailRowSkeleton: {
+    width: '100%',
+    height: 16,
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  detailRowSkeletonShort: {
+    width: '66%',
+    height: 16,
+    borderRadius: 8,
+  },
   header: {
     backgroundColor: '#E65100',
     flexDirection: 'row',
@@ -831,6 +927,9 @@ const styles = StyleSheet.create({
     color: '#111827',
     fontSize: 12,
     fontWeight: '700',
+  },
+  bottomSpacer: {
+    height: DRIVER_BOTTOM_NAV_INSET,
   },
 });
 

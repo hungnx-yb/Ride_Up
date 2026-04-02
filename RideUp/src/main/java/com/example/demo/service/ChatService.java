@@ -30,9 +30,12 @@ import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
@@ -105,32 +108,34 @@ public class ChatService {
         User currentUser = userService.getCurrentUser();
         String userId = currentUser.getId();
 
-        List<ChatThreadDocument> customerThreads = chatThreadRepository
-            .findByCustomerUserIdAndStatusOrderByLastMessageAtDesc(userId, ChatThreadStatus.ACTIVE);
-        List<ChatThreadDocument> customerClosedThreads = chatThreadRepository
-            .findByCustomerUserIdAndStatusOrderByLastMessageAtDesc(userId, ChatThreadStatus.CLOSED);
+        List<ChatThreadDocument> threads = chatThreadRepository.findByParticipantAndStatuses(
+            userId,
+            List.of(ChatThreadStatus.ACTIVE, ChatThreadStatus.CLOSED)
+        );
 
-        List<ChatThreadDocument> driverThreads = chatThreadRepository
-            .findByDriverUserIdAndStatusOrderByLastMessageAtDesc(userId, ChatThreadStatus.ACTIVE);
-        List<ChatThreadDocument> driverClosedThreads = chatThreadRepository
-            .findByDriverUserIdAndStatusOrderByLastMessageAtDesc(userId, ChatThreadStatus.CLOSED);
+        if (threads.isEmpty()) {
+            return List.of();
+        }
 
-        List<ChatThreadDocument> threads = new java.util.ArrayList<>();
-        threads.addAll(customerThreads);
-        threads.addAll(customerClosedThreads);
-        threads.addAll(driverThreads);
-        threads.addAll(driverClosedThreads);
+        // Defensive de-duplication in case historical records or migrations create duplicates.
+        List<ChatThreadDocument> uniqueThreads = new ArrayList<>(threads.stream()
+            .collect(Collectors.toMap(ChatThreadDocument::getId, t -> t, (a, b) -> a, java.util.LinkedHashMap::new))
+            .values());
 
-        return threads.stream()
-            .collect(Collectors.toMap(ChatThreadDocument::getId, t -> t, (a, b) -> a))
-            .values().stream()
-                .sorted(Comparator.comparing(ChatThreadDocument::getLastMessageAt, Comparator.nullsLast(Comparator.reverseOrder())))
-                .map(thread -> toThreadResponse(
-                    thread,
-                    userId,
-                    bookingRepository.findById(thread.getBookingId()).orElse(null)
-                ))
-                .collect(Collectors.toList());
+        List<String> bookingIds = uniqueThreads.stream()
+            .map(ChatThreadDocument::getBookingId)
+            .filter(StringUtils::hasText)
+            .distinct()
+            .collect(Collectors.toList());
+
+        final Map<String, Booking> bookingById = bookingIds.isEmpty()
+            ? Map.of()
+            : bookingRepository.findAllForChatByIdIn(bookingIds).stream()
+                .collect(Collectors.toMap(Booking::getId, b -> b, (a, b) -> a, HashMap::new));
+
+        return uniqueThreads.stream()
+            .map(thread -> toThreadResponse(thread, userId, bookingById.get(thread.getBookingId())))
+            .collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)
@@ -381,20 +386,25 @@ public class ChatService {
         }
 
         Trip trip = booking.getTrip();
-        String routeName = buildRouteName(trip);
+        String routeName = buildRouteName(booking, trip);
         String departureLabel = buildDepartureLabel(trip);
         String counterpartName = buildCounterpartName(booking, currentUserId);
 
         return routeName + " - " + departureLabel + " - " + counterpartName;
     }
 
-    private String buildRouteName(Trip trip) {
+    private String buildRouteName(Booking booking, Trip trip) {
+        String from = extractProvinceNameFromBookingPickup(booking);
+        String to = extractProvinceNameFromBookingDropoff(booking);
+
+        if (!StringUtils.hasText(from) && !StringUtils.hasText(to)) {
+            from = extractProvinceNameFromPickup(trip);
+            to = extractProvinceNameFromDropoff(trip);
+        }
+
         if (trip == null) {
             return "Tuyen xe";
         }
-
-        String from = extractProvinceNameFromPickup(trip);
-        String to = extractProvinceNameFromDropoff(trip);
 
         if (!StringUtils.hasText(from) && !StringUtils.hasText(to)) {
             return "Tuyen xe";
@@ -406,6 +416,24 @@ public class ChatService {
             return from + " - --";
         }
         return from + " - " + to;
+    }
+
+    private String extractProvinceNameFromBookingPickup(Booking booking) {
+        if (booking == null || booking.getPickupPoint() == null
+                || booking.getPickupPoint().getWard() == null
+                || booking.getPickupPoint().getWard().getProvince() == null) {
+            return null;
+        }
+        return booking.getPickupPoint().getWard().getProvince().getName();
+    }
+
+    private String extractProvinceNameFromBookingDropoff(Booking booking) {
+        if (booking == null || booking.getDropoffPoint() == null
+                || booking.getDropoffPoint().getWard() == null
+                || booking.getDropoffPoint().getWard().getProvince() == null) {
+            return null;
+        }
+        return booking.getDropoffPoint().getWard().getProvince().getName();
     }
 
     private String extractProvinceNameFromPickup(Trip trip) {

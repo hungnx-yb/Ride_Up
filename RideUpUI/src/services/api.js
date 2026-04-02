@@ -1,7 +1,7 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Client } from '@stomp/stompjs';
-import { API_CONFIG } from '../config/config';
+import { API_CONFIG, STORAGE_CONFIG } from '../config/config';
 import {
   MOCK_ACCOUNTS,
   MOCK_DRIVER_RIDES,
@@ -37,9 +37,32 @@ const API_CACHE_TTL = {
   ADMIN_STATS: 15000,
   LOCATION_STATS: 10000,
   USERS: 20000,
+  DRIVER_TRIPS: 60000,
+  DRIVER_STATS: 60000,
+  DRIVER_PROFILE: 45000,
+  CHAT_THREADS: 8000,
 };
 
 const _apiCache = new Map();
+const DRIVER_TRIPS_CACHE_KEY = 'DRIVER_TRIPS:LIST';
+const DRIVER_STATS_CACHE_KEY = 'DRIVER_STATS:ME';
+let _driverTripsSnapshot = [];
+let _driverStatsSnapshot = null;
+
+const _rememberDriverTripsSnapshot = (data) => {
+  if (Array.isArray(data)) {
+    _driverTripsSnapshot = data;
+  }
+};
+
+const _rememberDriverStatsSnapshot = (data) => {
+  if (data && typeof data === 'object') {
+    _driverStatsSnapshot = data;
+  }
+};
+
+export const peekDriverTripsSnapshot = () => (Array.isArray(_driverTripsSnapshot) ? _driverTripsSnapshot : []);
+export const peekDriverStatsSnapshot = () => (_driverStatsSnapshot && typeof _driverStatsSnapshot === 'object' ? _driverStatsSnapshot : null);
 
 const _notifyAuthExpired = (reason) => {
   _authExpiredListeners.forEach((listener) => {
@@ -84,7 +107,17 @@ export const onAuthExpired = (listener) => {
 const apiClient = axios.create({
   baseURL: API_CONFIG.BASE_URL,
   timeout: API_CONFIG.TIMEOUT,
-  headers: { 'Content-Type': 'application/json' },
+  headers: { Accept: 'application/json' },
+});
+
+apiClient.interceptors.request.use((config) => {
+  if (typeof FormData !== 'undefined' && config?.data instanceof FormData) {
+    if (config.headers) {
+      delete config.headers['Content-Type'];
+      delete config.headers['content-type'];
+    }
+  }
+  return config;
 });
 
 if (__DEV__) {
@@ -153,6 +186,36 @@ apiClient.interceptors.response.use(
 // Helper: lấy .result từ ApiResponse wrapper
 const unwrap = (res) => res.data?.result;
 
+const appendMultipartFile = async (formData, fieldName, { uri, name, type, file } = {}) => {
+  const fallbackName = name || `upload_${Date.now()}.jpg`;
+  const fallbackType = type || 'image/jpeg';
+
+  if (typeof Blob !== 'undefined' && file instanceof Blob) {
+    formData.append(fieldName, file, fallbackName);
+    return;
+  }
+
+  const isWeb = typeof window !== 'undefined' && typeof document !== 'undefined';
+  if (isWeb) {
+    if (!uri) {
+      throw new Error('Khong tim thay tep de tai len');
+    }
+    const response = await fetch(uri);
+    const rawBlob = await response.blob();
+    const blob = rawBlob.type === fallbackType
+      ? rawBlob
+      : rawBlob.slice(0, rawBlob.size, fallbackType);
+    formData.append(fieldName, blob, fallbackName);
+    return;
+  }
+
+  formData.append(fieldName, {
+    uri,
+    name: fallbackName,
+    type: fallbackType,
+  });
+};
+
 const getCached = async (key, ttlMs, fetcher) => {
   const now = Date.now();
   const current = _apiCache.get(key);
@@ -199,6 +262,35 @@ const invalidateCacheByPrefix = (prefix) => {
       _apiCache.delete(key);
     }
   }
+};
+
+export const resolveStoragePublicUrl = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) {
+    return '';
+  }
+  if (/^https?:\/\//i.test(raw) || raw.startsWith('data:') || raw.startsWith('blob:')) {
+    return raw;
+  }
+
+  const base = String(STORAGE_CONFIG.SUPABASE_URL || '').trim().replace(/\/+$/, '');
+  const bucket = String(STORAGE_CONFIG.SUPABASE_BUCKET || '').trim();
+  if (!base || !bucket) {
+    return raw;
+  }
+
+  const objectPath = raw.replace(/^\/+/, '');
+  const encodedPath = objectPath
+    .split('/')
+    .filter(Boolean)
+    .map((segment) => encodeURIComponent(segment))
+    .join('/');
+
+  if (!encodedPath) {
+    return '';
+  }
+
+  return `${base}/storage/v1/object/public/${bucket}/${encodedPath}`;
 };
 
 const _buildChatWebSocketUrl = () => {
@@ -291,6 +383,7 @@ export const clearStoredAuth = async () => {
   _accessToken = null;
   _refreshToken = null;
   delete apiClient.defaults.headers.common['Authorization'];
+  _apiCache.clear();
   await AsyncStorage.multiRemove([
     STORAGE_KEYS.ACCESS_TOKEN,
     STORAGE_KEYS.REFRESH_TOKEN,
@@ -369,6 +462,28 @@ export const updateMyInfo = async (payload) => {
   return unwrap(res);
 };
 
+export const updateMyAvatar = async ({ uri, name, type }) => {
+  if (!uri) {
+    throw new Error('Khong tim thay anh avatar de tai len');
+  }
+
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(500);
+    return { avatarUrl: uri || null };
+  }
+
+  const formData = new FormData();
+  await appendMultipartFile(formData, 'file', {
+    uri,
+    name: name || `customer-avatar-${Date.now()}.jpg`,
+    type: type || 'image/jpeg',
+  });
+
+  const res = await apiClient.put('/users/me/avatar', formData);
+
+  return unwrap(res);
+};
+
 export const requestChangePasswordOtp = async (currentPassword) => {
   const res = await apiClient.post('/auth/request-otp', {
     password: currentPassword,
@@ -382,6 +497,55 @@ export const changeMyPassword = async ({ otp, newPassword }) => {
     newPassword,
   });
   return unwrap(res);
+};
+
+export const getMyPaymentSummary = async () => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(400);
+    return {
+      defaultPaymentMethod: 'CASH',
+      defaultPaymentMethodLabel: 'Tien mat',
+      totalTrips: 0,
+      completedTrips: 0,
+      totalSpent: 0,
+      unpaidBookings: 0,
+      hasBankTransferHistory: false,
+      hasCashHistory: true,
+    };
+  }
+  const res = await apiClient.get('/users/me/quick/payment-summary');
+  return unwrap(res) || {};
+};
+
+export const getMySecuritySummary = async () => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(350);
+    return {
+      emailVerified: true,
+      hasPhoneNumber: true,
+      hasAvatar: false,
+      profileCompletion: 80,
+      recommendations: ['Them anh dai dien de tang do tin cay.'],
+    };
+  }
+  const res = await apiClient.get('/users/me/quick/security-summary');
+  return unwrap(res) || {};
+};
+
+export const getMyOffers = async () => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(350);
+    return [
+      {
+        code: 'WELCOME10',
+        title: 'Giam 10% chuyen ke tiep',
+        description: 'Ap dung cho chuyen dau thang, toi da 30.000d.',
+        active: true,
+      },
+    ];
+  }
+  const res = await apiClient.get('/users/me/quick/offers');
+  return unwrap(res) || [];
 };
 
 // ==============================
@@ -485,13 +649,25 @@ export const deleteRoute = async (routeId) => {
 // ==============================
 
 /** Lấy danh sách chuyến (trips) của tài xế */
-export const getDriverTrips = async () => {
+export const getDriverTrips = async (options = {}) => {
+  const force = options?.force === true;
   if (USE_MOCK_DATA) {
     await mockApiDelay();
+    _rememberDriverTripsSnapshot(MOCK_DRIVER_TRIPS);
     return MOCK_DRIVER_TRIPS;
   }
-  const res = await apiClient.get('/driver/trips');
-  return res.data;
+
+  if (force) {
+    _apiCache.delete(DRIVER_TRIPS_CACHE_KEY);
+  }
+
+  const trips = await getCached(DRIVER_TRIPS_CACHE_KEY, API_CACHE_TTL.DRIVER_TRIPS, async () => {
+    const res = await apiClient.get('/driver/trips');
+    return res.data;
+  });
+
+  _rememberDriverTripsSnapshot(trips);
+  return trips;
 };
 
 export const getDriverTripDetail = async (tripId) => {
@@ -551,13 +727,25 @@ export const getDriverRides = async () => {
 };
 
 /** Lấy thống kê tài xế */
-export const getDriverStats = async () => {
+export const getDriverStats = async (options = {}) => {
+  const force = options?.force === true;
   if (USE_MOCK_DATA) {
     await mockApiDelay(500);
+    _rememberDriverStatsSnapshot(MOCK_DRIVER_STATS);
     return MOCK_DRIVER_STATS;
   }
-  const res = await apiClient.get('/driver/stats');
-  return res.data;
+
+  if (force) {
+    _apiCache.delete(DRIVER_STATS_CACHE_KEY);
+  }
+
+  const stats = await getCached(DRIVER_STATS_CACHE_KEY, API_CACHE_TTL.DRIVER_STATS, async () => {
+    const res = await apiClient.get('/driver/stats');
+    return res.data;
+  });
+
+  _rememberDriverStatsSnapshot(stats);
+  return stats;
 };
 
 /** Lấy hồ sơ tài xế hiện tại */
@@ -584,8 +772,10 @@ export const getDriverProfile = async () => {
       vehicleVerified: false,
     };
   }
-  const res = await apiClient.get('/driver/profile');
-  return res.data;
+  return getCached('DRIVER_PROFILE:ME', API_CACHE_TTL.DRIVER_PROFILE, async () => {
+    const res = await apiClient.get('/driver/profile');
+    return res.data;
+  });
 };
 
 /** Cập nhật hồ sơ tài xế */
@@ -595,31 +785,53 @@ export const updateDriverProfile = async (payload) => {
     return { ...payload, updatedAt: new Date().toISOString() };
   }
   const res = await apiClient.put('/driver/profile', payload);
+  invalidateCacheByPrefix('DRIVER_PROFILE:');
   return res.data;
 };
 
 export const submitDriverProfile = async (payload) => {
   const res = await apiClient.post('/driver/profile/submit', payload || {});
+  invalidateCacheByPrefix('DRIVER_PROFILE:');
   return res.data;
 };
 
-export const uploadFile = async ({ uri, name, type }) => {
-  if (!uri) {
+export const uploadFile = async ({ uri, name, type, file }) => {
+  if (!uri && !file) {
     throw new Error('Khong tim thay tep de tai len');
   }
 
   const formData = new FormData();
-  formData.append('file', {
+  const fallbackName = name || `upload_${Date.now()}.jpg`;
+  const fallbackType = type || 'image/jpeg';
+  const isWebRuntime = typeof window !== 'undefined' && typeof document !== 'undefined';
+
+  if (isWebRuntime) {
+    if (file instanceof File || file instanceof Blob) {
+      const blobType = file.type || fallbackType;
+      const blobName = file.name || fallbackName;
+      formData.append('file', file, blobName);
+      if (!type) {
+        type = blobType;
+      }
+    } else if (uri) {
+      const response = await fetch(uri);
+      const blob = await response.blob();
+      formData.append('file', blob, fallbackName);
+    }
+  } else {
+    formData.append('file', {
+      uri,
+      name: fallbackName,
+      type: fallbackType,
+    });
+  }
+  await appendMultipartFile(formData, 'file', {
     uri,
     name: name || `upload_${Date.now()}.jpg`,
     type: type || 'image/jpeg',
   });
 
-  const res = await apiClient.post('/file/upload', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data',
-    },
-  });
+  const res = await apiClient.post('/file/upload', formData);
 
   return res.data?.result || res.data;
 };
@@ -634,6 +846,7 @@ export const createTrip = async (tripData) => {
     return { ...tripData, id: 'trip_' + Date.now(), availableSeats: tripData.totalSeats };
   }
   const res = await apiClient.post('/driver/trips', tripData);
+  invalidateCacheByPrefix('DRIVER_TRIPS:');
   return res.data;
 };
 
@@ -645,6 +858,7 @@ export const cancelDriverTrip = async (tripId, cancellationReason = null) => {
   }
   const payload = cancellationReason ? { cancellationReason } : {};
   const res = await apiClient.put(`/driver/trips/${tripId}/cancel`, payload);
+  invalidateCacheByPrefix('DRIVER_TRIPS:');
   return res.data;
 };
 
@@ -654,6 +868,7 @@ export const startDriverTrip = async (tripId) => {
     return { id: tripId, status: 'ongoing' };
   }
   const res = await apiClient.put(`/driver/trips/${tripId}/start`);
+  invalidateCacheByPrefix('DRIVER_TRIPS:');
   return res.data;
 };
 
@@ -663,6 +878,7 @@ export const completeDriverTrip = async (tripId) => {
     return { id: tripId, status: 'completed' };
   }
   const res = await apiClient.put(`/driver/trips/${tripId}/complete`);
+  invalidateCacheByPrefix('DRIVER_TRIPS:');
   return res.data;
 };
 
@@ -694,12 +910,21 @@ export const updateRideStatus = async (rideId, status) => {
 // ==============================
 
 /** Tìm kiếm chuyến xe */
-export const searchRides = async ({ from, to, date }) => {
+export const searchRides = async ({ from, to, date, status = 'OPEN', page = 0, size = 20 }) => {
   if (USE_MOCK_DATA) {
     await mockApiDelay(1000);
     return MOCK_AVAILABLE_RIDES;
   }
-  const res = await apiClient.get('/rides/search', { params: { fromProvinceId: from, toProvinceId: to, departureDate: date } });
+  const res = await apiClient.get('/rides/search', {
+    params: {
+      fromProvinceId: from,
+      toProvinceId: to,
+      departureDate: date,
+      status,
+      page,
+      size,
+    },
+  });
   return res.data?.result ?? res.data;
 };
 
@@ -710,6 +935,9 @@ export const searchRidesAdvanced = async ({
   fromWardId,
   toWardId,
   departureDate,
+  status = 'OPEN',
+  page = 0,
+  size = 20,
 }) => {
   if (USE_MOCK_DATA) {
     await mockApiDelay(1000);
@@ -722,6 +950,9 @@ export const searchRidesAdvanced = async ({
       fromWardId,
       toWardId,
       departureDate,
+      status,
+      page,
+      size,
     },
   });
   return res.data?.result ?? res.data;
@@ -827,7 +1058,7 @@ export const rateRide = async (bookingId, rating, comment) => {
 };
 
 /** Chat hỗ trợ CSKH (FAQ + tra cứu booking/thanh toán) */
-export const supportChat = async (message) => {
+export const supportChat = async (message, history = []) => {
   if (USE_MOCK_DATA) {
     await mockApiDelay(500);
     return {
@@ -836,7 +1067,14 @@ export const supportChat = async (message) => {
       suggestions: ['Kiểm tra booking gần nhất', 'Tôi muốn hủy chuyến'],
     };
   }
-  const res = await apiClient.post('/support/chat', { message });
+  const cleanedHistory = Array.isArray(history)
+    ? history
+      .filter((h) => h && h.role && h.text)
+      .slice(-5)
+      .map((h) => ({ role: h.role, text: h.text }))
+    : [];
+
+  const res = await apiClient.post('/support/chat', { message, history: cleanedHistory });
   return res.data?.result ?? res.data;
 };
 
@@ -868,8 +1106,10 @@ export const getMyChatThreads = async () => {
     await mockApiDelay(400);
     return [];
   }
-  const res = await apiClient.get('/chat/threads');
-  return res.data?.result ?? res.data;
+  return getCached('CHAT_THREADS:ME', API_CACHE_TTL.CHAT_THREADS, async () => {
+    const res = await apiClient.get('/chat/threads');
+    return res.data?.result ?? res.data;
+  });
 };
 
 /** Lấy tin nhắn của một phòng chat */
@@ -898,6 +1138,7 @@ export const sendChatMessage = async (threadId, content) => {
     };
   }
   const res = await apiClient.post(`/chat/threads/${threadId}/messages`, { content });
+  invalidateCacheByPrefix('CHAT_THREADS:');
   return res.data?.result ?? res.data;
 };
 
@@ -908,7 +1149,23 @@ export const markChatThreadRead = async (threadId) => {
     return { id: threadId, myUnreadCount: 0 };
   }
   const res = await apiClient.post(`/chat/threads/${threadId}/read`);
+  invalidateCacheByPrefix('CHAT_THREADS:');
   return res.data?.result ?? res.data;
+};
+
+export const prefetchDriverBootstrapData = async (options = {}) => {
+  if (USE_MOCK_DATA) {
+    return;
+  }
+
+  const force = options?.force === true;
+
+  await Promise.allSettled([
+    getDriverTrips({ force }),
+    getDriverStats({ force }),
+    getDriverProfile(),
+    getMyChatThreads(),
+  ]);
 };
 
 // ── Admin: đồng bộ dữ liệu địa lý ──────────────────────────────────────

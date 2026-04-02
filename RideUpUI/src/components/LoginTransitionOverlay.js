@@ -222,7 +222,7 @@ const LoginTransitionOverlay = ({ visible, userName }) => {
         ]}
       >
         <Text style={styles.brand}>RideUp</Text>
-        <Text style={styles.subtitle}>Dang ket noi hanh trinh cho {userName || 'ban'}</Text>
+        <Text style={styles.subtitle}>Đang kết nối hành trình cho {userName || 'ban'}</Text>
 
         <View style={styles.orbitWrap}>
           <Animated.View

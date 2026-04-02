@@ -1,6 +1,8 @@
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
+export const DRIVER_BOTTOM_NAV_INSET = 116;
+
 const ITEMS = [
   { key: 'home', label: 'Trang chủ', icon: '🏠', screen: 'DriverHome' },
   { key: 'create', label: 'Tạo chuyến', icon: '➕', screen: 'CreateTrip' },
