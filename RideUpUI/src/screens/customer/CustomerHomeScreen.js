@@ -17,6 +17,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { COLORS } from '../../config/config';
 import {
@@ -215,6 +216,7 @@ const CustomerHomeScreen = ({ user, onLogout, navigation, route }) => {
   const [profileSubmitting, setProfileSubmitting] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+  const [showPersonalDobPicker, setShowPersonalDobPicker] = useState(false);
   const [otpSending, setOtpSending] = useState(false);
   const [passwordSubmitting, setPasswordSubmitting] = useState(false);
   const [personalForm, setPersonalForm] = useState({
@@ -1438,7 +1440,53 @@ const CustomerHomeScreen = ({ user, onLogout, navigation, route }) => {
   const openPersonalInfo = () => {
     setAccountAvatarFailed(false);
     initPersonalForm();
+    setShowPersonalDobPicker(false);
     setShowPersonalInfo(true);
+  };
+
+  const openPersonalDobPicker = () => {
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const input = document.createElement('input');
+      input.type = 'date';
+      input.value = String(personalForm?.dateOfBirth || '').trim();
+      input.style.position = 'fixed';
+      input.style.left = '-9999px';
+      input.style.top = '0';
+      input.style.opacity = '0';
+      document.body.appendChild(input);
+
+      const cleanup = () => {
+        if (document.body.contains(input)) {
+          document.body.removeChild(input);
+        }
+      };
+
+      input.onchange = () => {
+        const value = String(input.value || '').trim();
+        onChangePersonalField('dateOfBirth', value);
+        cleanup();
+      };
+
+      input.onblur = () => {
+        setTimeout(cleanup, 0);
+      };
+
+      if (typeof input.showPicker === 'function') {
+        input.showPicker();
+      } else {
+        input.focus();
+        input.click();
+      }
+      return;
+    }
+
+    setShowPersonalDobPicker(true);
+  };
+
+  const handlePersonalDobChange = (_event, selectedDate) => {
+    setShowPersonalDobPicker(false);
+    if (!selectedDate) return;
+    onChangePersonalField('dateOfBirth', toIsoDate(selectedDate));
   };
 
   const onChangePersonalField = (field, value) => {
@@ -1997,6 +2045,13 @@ const CustomerHomeScreen = ({ user, onLogout, navigation, route }) => {
   const formatSearchDateLabel = (value) => {
     const raw = String(value || '').trim();
     if (!raw) return 'Chọn ngày khởi hành';
+    const parsed = parseIsoDate(raw);
+    return `${String(parsed.getDate()).padStart(2, '0')}/${String(parsed.getMonth() + 1).padStart(2, '0')}/${parsed.getFullYear()}`;
+  };
+
+  const formatPersonalDobLabel = (value) => {
+    const raw = String(value || '').trim();
+    if (!raw) return 'Chọn ngày sinh';
     const parsed = parseIsoDate(raw);
     return `${String(parsed.getDate()).padStart(2, '0')}/${String(parsed.getMonth() + 1).padStart(2, '0')}/${parsed.getFullYear()}`;
   };
@@ -2885,7 +2940,6 @@ const CustomerHomeScreen = ({ user, onLogout, navigation, route }) => {
                   value={personalForm.phoneNumber}
                   onChangeText={(value) => onChangePersonalField('phoneNumber', value)}
                   placeholder="Nhập số điện thoại"
-                  keyboardType="phone-pad"
                 />
               </View>
               <View style={styles.profileInfoRow}>
@@ -2894,13 +2948,20 @@ const CustomerHomeScreen = ({ user, onLogout, navigation, route }) => {
               </View>
               <View style={styles.profileInfoRow}>
                 <Text style={styles.profileInfoLabel}>Ngày sinh</Text>
-                <TextInput
-                  style={styles.profileInfoInput}
-                  value={personalForm.dateOfBirth}
-                  onChangeText={(value) => onChangePersonalField('dateOfBirth', value)}
-                  placeholder="YYYY-MM-DD"
-                />
+                <TouchableOpacity style={styles.profileInfoInput} onPress={openPersonalDobPicker} activeOpacity={0.9}>
+                  <Text style={[styles.profileInfoValue, !personalForm.dateOfBirth && styles.dateInputPlaceholder]}>
+                    {formatPersonalDobLabel(personalForm.dateOfBirth)}
+                  </Text>
+                </TouchableOpacity>
               </View>
+              {showPersonalDobPicker ? (
+                <DateTimePicker
+                  value={parseIsoDate(personalForm.dateOfBirth)}
+                  mode="date"
+                  display="default"
+                  onChange={handlePersonalDobChange}
+                />
+              ) : null}
               <View style={styles.profileInfoRow}>
                 <Text style={styles.profileInfoLabel}>Giới tính</Text>
                 <View style={styles.genderChipRow}>
