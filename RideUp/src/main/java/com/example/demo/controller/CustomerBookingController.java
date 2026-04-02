@@ -3,6 +3,7 @@ package com.example.demo.controller;
 import com.example.demo.dto.request.CreateBookingRequest;
 import com.example.demo.dto.request.CreateBookingReviewRequest;
 import com.example.demo.dto.request.ConfirmPaymentRequest;
+import com.example.demo.dto.request.CancelBookingRequest;
 import com.example.demo.dto.request.RideSearchFromTextRequest;
 import com.example.demo.dto.response.BookingReviewResponse;
 import com.example.demo.dto.response.CustomerBookingResponse;
@@ -80,6 +81,14 @@ public class CustomerBookingController {
     public CustomerBookingResponse confirmBookingPayment(@PathVariable String bookingId,
                                                          @RequestBody(required = false) ConfirmPaymentRequest request) {
         return customerBookingService.confirmBookingPayment(bookingId, request);
+    }
+
+    @PostMapping("/customer/bookings/{bookingId}/cancel")
+    @PreAuthorize("isAuthenticated()")
+    public CustomerBookingResponse cancelBooking(@PathVariable String bookingId,
+                                                 @RequestBody(required = false) CancelBookingRequest request,
+                                                 HttpServletRequest httpServletRequest) {
+        return customerBookingService.cancelMyBooking(bookingId, request, getClientIp(httpServletRequest));
     }
 
     @PostMapping("/customer/bookings/{bookingId}/rate")

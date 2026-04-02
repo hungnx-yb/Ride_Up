@@ -24,6 +24,17 @@ public interface TripRepository extends JpaRepository<Trip, String>, TripReposit
 
     Optional<Trip> findByIdAndDriverIdAndDepartureTimeIsNotNull(String id, String driverId);
 
+        @Query("""
+                        SELECT DISTINCT t FROM Trip t
+                        LEFT JOIN FETCH t.bookings b
+                        LEFT JOIN FETCH b.payment p
+                        WHERE t.id = :tripId
+                            AND t.driver.id = :driverId
+                            AND t.departureTime IS NOT NULL
+                        """)
+        Optional<Trip> findByIdAndDriverIdAndDepartureTimeIsNotNullWithBookings(@Param("tripId") String tripId,
+                                                                                                                                                         @Param("driverId") String driverId);
+
     List<Trip> findByDriverIdOrderByCreatedAtDesc(String driverId);
 
     long countByDriverId(String driverId);

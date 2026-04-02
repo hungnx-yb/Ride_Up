@@ -5,6 +5,7 @@ import com.example.demo.dto.request.TripCancellationRequest;
 import com.example.demo.dto.response.DriverTripDetailResponse;
 import com.example.demo.dto.response.DriverTripResponse;
 import com.example.demo.service.DriverTripService;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
@@ -44,9 +45,10 @@ public class DriverTripController {
     @PreAuthorize("isAuthenticated()")
     public DriverTripResponse cancelTrip(
             @PathVariable String tripId,
-            @RequestBody(required = false) TripCancellationRequest request
+            @RequestBody(required = false) TripCancellationRequest request,
+            HttpServletRequest httpServletRequest
     ) {
-        return driverTripService.cancelTrip(tripId, request);
+        return driverTripService.cancelTrip(tripId, request, getClientIp(httpServletRequest));
     }
 
     @PutMapping("/trips/{tripId}/start")
@@ -65,5 +67,22 @@ public class DriverTripController {
     @PreAuthorize("isAuthenticated()")
     public Map<String, Object> getDriverStats() {
         return driverTripService.getDriverStats();
+    }
+
+    private String getClientIp(HttpServletRequest request) {
+        if (request == null) {
+            return "127.0.0.1";
+        }
+        String forwarded = request.getHeader("X-Forwarded-For");
+        if (forwarded != null && !forwarded.isBlank()) {
+            int commaIdx = forwarded.indexOf(',');
+            return (commaIdx > 0 ? forwarded.substring(0, commaIdx) : forwarded).trim();
+        }
+        String realIp = request.getHeader("X-Real-IP");
+        if (realIp != null && !realIp.isBlank()) {
+            return realIp.trim();
+        }
+        String remoteAddr = request.getRemoteAddr();
+        return (remoteAddr == null || remoteAddr.isBlank()) ? "127.0.0.1" : remoteAddr.trim();
     }
 }

@@ -13,6 +13,7 @@ import {
   ImageBackground,
   Linking,
   Alert,
+  Platform,
   useWindowDimensions,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
@@ -25,6 +26,7 @@ import {
   searchRidesFromText,
   bookRide,
   createVnpayPaymentUrl,
+  cancelCustomerBooking,
   rateRide,
   supportChat,
   getWardById,
@@ -170,6 +172,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
   const [ratingSubmitting, setRatingSubmitting] = useState(false);
   const [ratingAvatarFailed, setRatingAvatarFailed] = useState(false);
   const [paymentConfirmSubmitting, setPaymentConfirmSubmitting] = useState(false);
+  const [bookingCancelSubmitting, setBookingCancelSubmitting] = useState(false);
   const [chatThreads, setChatThreads] = useState([]);
   const [chatThread, setChatThread] = useState(null);
   const [chatMessages, setChatMessages] = useState([]);
@@ -247,6 +250,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
   const scrollRef = useRef(null);
 
   const canChatBooking = (booking) => ['pending', 'confirmed', 'in_progress'].includes(String(booking?.status || '').toLowerCase());
+  const isActiveThread = (thread) => String(thread?.status || '').toUpperCase() === 'ACTIVE';
 
   const loadData = async () => {
     try {
@@ -1026,6 +1030,20 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
       && String(booking.paymentStatus || '').toUpperCase() === 'UNPAID';
   };
 
+  const canCancelBooking = (booking) => {
+    if (!booking) return false;
+    const status = String(booking.status || '').toLowerCase();
+    if (status !== 'pending' && status !== 'confirmed') return false;
+
+    const departureTime = booking.departureTime ? new Date(booking.departureTime) : null;
+    if (!departureTime || Number.isNaN(departureTime.getTime())) {
+      return true;
+    }
+
+    const cutoffTime = departureTime.getTime() - (60 * 60 * 1000);
+    return Date.now() < cutoffTime;
+  };
+
   const openVnpayUrl = async (paymentUrl) => {
     if (!paymentUrl) {
       throw new Error('Thiếu link thanh toán VNPAY.');
@@ -1056,6 +1074,45 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
       setErrorText(e.message || 'Mở thanh toán VNPAY thất bại.');
     } finally {
       setPaymentConfirmSubmitting(false);
+    }
+  };
+
+  const submitCancelBooking = async () => {
+    if (!bookingDetail?.id || bookingCancelSubmitting) return;
+
+    let confirmed = false;
+    if (Platform.OS === 'web') {
+      confirmed = typeof window !== 'undefined'
+        ? window.confirm('Bạn có chắc chắn muốn hủy chuyến này không?')
+        : false;
+    } else {
+      confirmed = await new Promise((resolve) => {
+        Alert.alert(
+          'Xác nhận hủy chuyến',
+          'Bạn có chắc chắn muốn hủy chuyến này không?',
+          [
+            { text: 'Giữ lại', style: 'cancel', onPress: () => resolve(false) },
+            { text: 'Hủy chuyến', style: 'destructive', onPress: () => resolve(true) },
+          ],
+          { cancelable: true, onDismiss: () => resolve(false) }
+        );
+      });
+    }
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setBookingCancelSubmitting(true);
+      await cancelCustomerBooking(bookingDetail.id, 'Khách hàng hủy chuyến');
+      setBookingDetail(null);
+      await loadData();
+      setErrorText('Hủy chuyến thành công.');
+    } catch (e) {
+      setErrorText(e.message || 'Không thể hủy chuyến. Vui lòng thử lại.');
+    } finally {
+      setBookingCancelSubmitting(false);
     }
   };
 
@@ -1620,6 +1677,27 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
       setChatUploadingImage(false);
     }
   };
+
+  const sortedChatThreads = useMemo(() => {
+    const rows = Array.isArray(chatThreads) ? [...chatThreads] : [];
+    const toMillis = (value) => {
+      const d = value ? new Date(value) : null;
+      return d && !Number.isNaN(d.getTime()) ? d.getTime() : 0;
+    };
+
+    rows.sort((a, b) => {
+      const aActive = isActiveThread(a);
+      const bActive = isActiveThread(b);
+      if (aActive !== bActive) {
+        return aActive ? -1 : 1;
+      }
+      return toMillis(b?.lastMessageAt) - toMillis(a?.lastMessageAt);
+    });
+
+    return rows;
+  }, [chatThreads]);
+
+  const canComposeInChatModal = useMemo(() => isActiveThread(chatThread), [chatThread]);
 
   const today = new Date();
   const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
@@ -2333,14 +2411,14 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
                   <Text style={styles.inboxBannerText}>Bạn có {inboxItems.filter((i) => i.unread).length} tin nhắn chưa đọc</Text>
                 </View>
 
-                {chatThreads.length === 0 ? (
+                {sortedChatThreads.length === 0 ? (
                   <View style={styles.emptyState}>
                     <Ionicons name="chatbubble-ellipses-outline" size={22} color="#94A3B8" />
                     <Text style={styles.emptyTitle}>Chưa có hội thoại</Text>
                     <Text style={styles.emptyText}>Khi bạn đặt chuyến, cuộc trò chuyện với tài xế sẽ hiển thị ở đây.</Text>
                   </View>
                 ) : (
-                  chatThreads.map((item) => (
+                  sortedChatThreads.map((item) => (
                     <TouchableOpacity key={item.id} style={styles.messageCard} activeOpacity={0.9} onPress={() => openChatByThread(item)}>
                       <View style={styles.messageAvatar}>
                         <Ionicons name="person" size={17} color="#0F172A" />
@@ -2965,12 +3043,31 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
             <Text style={styles.modalSub}>Tổng tiền: {formatCurrency(bookingDetail?.price)}</Text>
             <Text style={styles.modalSub}>Tài xế: {bookingDetail?.driverName} | ⭐ {bookingDetail?.driverRating || 0}</Text>
             <Text style={styles.modalSub}>Thanh toán: {bookingDetail?.paymentMethod === 'VNPAY' ? 'VNPAY' : 'Tiền mặt'}</Text>
-            <Text style={styles.modalSub}>Trạng thái thanh toán: {bookingDetail?.paymentStatus === 'PAID' ? 'Đã thanh toán' : 'Chưa thanh toán'}</Text>
+            <Text style={styles.modalSub}>
+              Trạng thái thanh toán: {
+                bookingDetail?.paymentStatus === 'PAID'
+                  ? 'Đã thanh toán'
+                  : bookingDetail?.paymentStatus === 'REFUNDED'
+                    ? 'Đã hoàn tiền'
+                    : 'Chưa thanh toán'
+              }
+            </Text>
 
             {isAwaitingVnpay(bookingDetail) && (
               <TouchableOpacity style={styles.payNowBtn} onPress={submitVnpayPayment} disabled={paymentConfirmSubmitting}>
                 <Ionicons name="card-outline" size={15} color="#FFFFFF" />
                 <Text style={styles.payNowBtnText}>{paymentConfirmSubmitting ? 'Đang mở...' : 'Thanh toán qua VNPAY'}</Text>
+              </TouchableOpacity>
+            )}
+
+            {canCancelBooking(bookingDetail) && (
+              <TouchableOpacity
+                style={[styles.cancelTripDangerBtn, bookingCancelSubmitting && styles.cancelTripDangerBtnDisabled]}
+                onPress={submitCancelBooking}
+                disabled={bookingCancelSubmitting}
+              >
+                <Ionicons name="close-circle-outline" size={15} color="#FFFFFF" />
+                <Text style={styles.cancelTripDangerBtnText}>{bookingCancelSubmitting ? 'Đang hủy...' : 'Hủy chuyến'}</Text>
               </TouchableOpacity>
             )}
 
@@ -3207,27 +3304,31 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
               </ScrollView>
             )}
 
-            <View style={styles.chatComposerRow}>
-              <TouchableOpacity
-                style={[styles.chatAttachBtn, chatUploadingImage && styles.chatAttachBtnDisabled]}
-                onPress={submitChatImage}
-                disabled={chatUploadingImage || chatSending}
-              >
-                {chatUploadingImage
-                  ? <ActivityIndicator size="small" color="#0F172A" />
-                  : <Ionicons name="image" size={16} color="#0F172A" />}
-              </TouchableOpacity>
-              <TextInput
-                style={styles.chatInput}
-                value={chatDraft}
-                onChangeText={setChatDraft}
-                placeholder="Nhập tin nhắn..."
-                maxLength={2000}
-              />
-              <TouchableOpacity style={styles.chatSendBtn} onPress={submitChatMessage} disabled={chatSending || chatUploadingImage || !chatDraft.trim()}>
-                <Ionicons name="send" size={16} color="#FFFFFF" />
-              </TouchableOpacity>
-            </View>
+            {canComposeInChatModal ? (
+              <View style={styles.chatComposerRow}>
+                <TouchableOpacity
+                  style={[styles.chatAttachBtn, chatUploadingImage && styles.chatAttachBtnDisabled]}
+                  onPress={submitChatImage}
+                  disabled={chatUploadingImage || chatSending}
+                >
+                  {chatUploadingImage
+                    ? <ActivityIndicator size="small" color="#0F172A" />
+                    : <Ionicons name="image" size={16} color="#0F172A" />}
+                </TouchableOpacity>
+                <TextInput
+                  style={styles.chatInput}
+                  value={chatDraft}
+                  onChangeText={setChatDraft}
+                  placeholder="Nhập tin nhắn..."
+                  maxLength={2000}
+                />
+                <TouchableOpacity style={styles.chatSendBtn} onPress={submitChatMessage} disabled={chatSending || chatUploadingImage || !chatDraft.trim()}>
+                  <Ionicons name="send" size={16} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <Text style={styles.chatLockedHint}>Cuộc trò chuyện đã khóa vì chuyến đã kết thúc hoặc bị hủy.</Text>
+            )}
 
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.cancelBtn} onPress={closeChatModal}>
@@ -4534,6 +4635,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#00B14F',
   },
+  chatLockedHint: {
+    marginTop: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    color: '#475569',
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
   successIconWrap: {
     width: 46,
     height: 46,
@@ -4886,6 +5000,24 @@ const styles = StyleSheet.create({
     marginLeft: 6,
   },
   confirmBtnText: { color: '#fff', fontWeight: '700' },
+  cancelTripDangerBtn: {
+    marginTop: 8,
+    borderRadius: 10,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#DC2626',
+  },
+  cancelTripDangerBtnDisabled: {
+    backgroundColor: '#F87171',
+  },
+  cancelTripDangerBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
+  },
 
   footerWrap: {
     position: 'absolute',

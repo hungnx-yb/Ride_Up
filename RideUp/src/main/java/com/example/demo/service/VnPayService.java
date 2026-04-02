@@ -9,8 +9,12 @@ import org.springframework.util.StringUtils;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import java.net.URI;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
@@ -40,6 +44,9 @@ public class VnPayService {
     @Value("${vnpay.pay-url:https://sandbox.vnpayment.vn/paymentv2/vpcpay.html}")
     String payUrl;
 
+    @Value("${vnpay.refund-url:https://sandbox.vnpayment.vn/merchant_webapi/api/transaction}")
+    String refundUrl;
+
     @Value("${vnpay.return-url:}")
     String returnUrl;
 
@@ -51,6 +58,18 @@ public class VnPayService {
 
     @Value("${vnpay.expire-minutes:15}")
     int expireMinutes;
+
+    HttpClient httpClient = HttpClient.newHttpClient();
+
+    public record RefundResult(boolean success, String responseCode, String message) {
+    }
+
+    public record QueryResult(boolean success,
+                              String responseCode,
+                              String message,
+                              String providerTransactionId,
+                              String payDate) {
+    }
 
     public boolean isConfigured() {
         return StringUtils.hasText(tmnCode)
@@ -118,6 +137,168 @@ public class VnPayService {
         return expectedHash.equalsIgnoreCase(providedHash);
     }
 
+    public RefundResult refund(String txnRef,
+                               String providerTransactionId,
+                               BigDecimal amount,
+                               LocalDateTime paidAt,
+                               String ipAddress,
+                               String orderInfo) {
+        if (!isConfigured() || !StringUtils.hasText(refundUrl)) {
+            return new RefundResult(false, "CONFIG", "VNPAY refund is not configured");
+        }
+        if (!StringUtils.hasText(txnRef)
+                || !StringUtils.hasText(providerTransactionId)
+                || amount == null
+                || paidAt == null) {
+            return new RefundResult(false, "INPUT", "Missing required refund parameters");
+        }
+
+        LocalDateTime now = LocalDateTime.now(ZoneId.of("Asia/Ho_Chi_Minh"));
+        String requestId = UUID.randomUUID().toString().replace("-", "").substring(0, 20);
+        String amountText = toVnpAmount(amount);
+        String createDate = now.format(VNP_TIME_FORMAT);
+        String transDate = paidAt.format(VNP_TIME_FORMAT);
+        String createBy = "RideUpSystem";
+        String safeIp = StringUtils.hasText(ipAddress) ? ipAddress : "127.0.0.1";
+        String safeOrderInfo = StringUtils.hasText(orderInfo) ? orderInfo : "RideUp refund";
+
+        String hashData = String.join("|",
+                requestId,
+                "2.1.0",
+                "refund",
+                tmnCode,
+                "02",
+                txnRef,
+                amountText,
+                providerTransactionId,
+                transDate,
+                createBy,
+                createDate,
+                safeIp,
+                safeOrderInfo
+        );
+        String secureHash = hmacSha512(hashSecret, hashData);
+
+        String body = "{" +
+                "\"vnp_RequestId\":\"" + jsonEscape(requestId) + "\"," +
+                "\"vnp_Version\":\"2.1.0\"," +
+                "\"vnp_Command\":\"refund\"," +
+                "\"vnp_TmnCode\":\"" + jsonEscape(tmnCode) + "\"," +
+                "\"vnp_TransactionType\":\"02\"," +
+                "\"vnp_TxnRef\":\"" + jsonEscape(txnRef) + "\"," +
+                "\"vnp_Amount\":\"" + jsonEscape(amountText) + "\"," +
+                "\"vnp_TransactionNo\":\"" + jsonEscape(providerTransactionId) + "\"," +
+                "\"vnp_TransactionDate\":\"" + jsonEscape(transDate) + "\"," +
+                "\"vnp_CreateBy\":\"" + jsonEscape(createBy) + "\"," +
+                "\"vnp_CreateDate\":\"" + jsonEscape(createDate) + "\"," +
+                "\"vnp_IpAddr\":\"" + jsonEscape(safeIp) + "\"," +
+                "\"vnp_OrderInfo\":\"" + jsonEscape(safeOrderInfo) + "\"," +
+                "\"vnp_SecureHash\":\"" + jsonEscape(secureHash) + "\"" +
+                "}";
+
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(refundUrl))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(body))
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            String responseBody = response.body() == null ? "" : response.body();
+                String responseCode = firstNonBlank(
+                    extractJsonField(responseBody, "vnp_ResponseCode"),
+                    extractJsonField(responseBody, "response_code"),
+                    extractJsonField(responseBody, "ResponseCode")
+                );
+                String transactionStatus = firstNonBlank(
+                    extractJsonField(responseBody, "vnp_TransactionStatus"),
+                    extractJsonField(responseBody, "transaction_status"),
+                    extractJsonField(responseBody, "TransactionStatus")
+                );
+            String message = extractJsonField(responseBody, "vnp_Message");
+
+                boolean success = isAcceptedSuccessCode(responseCode) || isAcceptedSuccessCode(transactionStatus);
+            return new RefundResult(success, responseCode, StringUtils.hasText(message) ? message : responseBody);
+        } catch (Exception ex) {
+            return new RefundResult(false, "EXCEPTION", ex.getMessage());
+        }
+    }
+
+    public QueryResult queryTransaction(String txnRef,
+                                        LocalDateTime transactionDate,
+                                        String ipAddress,
+                                        String orderInfo) {
+        if (!isConfigured() || !StringUtils.hasText(refundUrl)) {
+            return new QueryResult(false, "CONFIG", "VNPAY query is not configured", null, null);
+        }
+        if (!StringUtils.hasText(txnRef) || transactionDate == null) {
+            return new QueryResult(false, "INPUT", "Missing required query parameters", null, null);
+        }
+
+        LocalDateTime now = LocalDateTime.now(ZoneId.of("Asia/Ho_Chi_Minh"));
+        String requestId = UUID.randomUUID().toString().replace("-", "").substring(0, 20);
+        String createDate = now.format(VNP_TIME_FORMAT);
+        String transDate = transactionDate.format(VNP_TIME_FORMAT);
+        String safeIp = StringUtils.hasText(ipAddress) ? ipAddress : "127.0.0.1";
+        String safeOrderInfo = StringUtils.hasText(orderInfo) ? orderInfo : "RideUp query";
+
+        String hashData = String.join("|",
+                requestId,
+                "2.1.0",
+                "querydr",
+                tmnCode,
+                txnRef,
+                transDate,
+                createDate,
+                safeIp,
+                safeOrderInfo
+        );
+        String secureHash = hmacSha512(hashSecret, hashData);
+
+        String body = "{" +
+                "\"vnp_RequestId\":\"" + jsonEscape(requestId) + "\"," +
+                "\"vnp_Version\":\"2.1.0\"," +
+                "\"vnp_Command\":\"querydr\"," +
+                "\"vnp_TmnCode\":\"" + jsonEscape(tmnCode) + "\"," +
+                "\"vnp_TxnRef\":\"" + jsonEscape(txnRef) + "\"," +
+                "\"vnp_OrderInfo\":\"" + jsonEscape(safeOrderInfo) + "\"," +
+                "\"vnp_TransactionDate\":\"" + jsonEscape(transDate) + "\"," +
+                "\"vnp_CreateDate\":\"" + jsonEscape(createDate) + "\"," +
+                "\"vnp_IpAddr\":\"" + jsonEscape(safeIp) + "\"," +
+                "\"vnp_SecureHash\":\"" + jsonEscape(secureHash) + "\"" +
+                "}";
+
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(refundUrl))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(body))
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            String responseBody = response.body() == null ? "" : response.body();
+                String responseCode = firstNonBlank(
+                    extractJsonField(responseBody, "vnp_ResponseCode"),
+                    extractJsonField(responseBody, "response_code"),
+                    extractJsonField(responseBody, "ResponseCode")
+                );
+            String message = extractJsonField(responseBody, "vnp_Message");
+            String providerTransactionId = extractJsonField(responseBody, "vnp_TransactionNo");
+            String payDate = extractJsonField(responseBody, "vnp_PayDate");
+
+                boolean success = isAcceptedSuccessCode(responseCode);
+            return new QueryResult(
+                    success,
+                    responseCode,
+                    StringUtils.hasText(message) ? message : responseBody,
+                    StringUtils.hasText(providerTransactionId) ? providerTransactionId : null,
+                    StringUtils.hasText(payDate) ? payDate : null
+            );
+        } catch (Exception ex) {
+            return new QueryResult(false, "EXCEPTION", ex.getMessage(), null, null);
+        }
+    }
+
     private String toVnpAmount(BigDecimal amount) {
         BigDecimal normalized = amount == null ? BigDecimal.ZERO : amount;
         return normalized
@@ -163,5 +344,75 @@ public class VnPayService {
         } catch (Exception ex) {
             throw new IllegalStateException("Cannot sign VNPAY payload", ex);
         }
+    }
+
+    private String jsonEscape(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"");
+    }
+
+    private String extractJsonField(String json, String fieldName) {
+        if (!StringUtils.hasText(json) || !StringUtils.hasText(fieldName)) {
+            return "";
+        }
+        String marker = "\"" + fieldName + "\"";
+        int markerPos = json.indexOf(marker);
+        if (markerPos < 0) {
+            return "";
+        }
+        int colonPos = json.indexOf(':', markerPos + marker.length());
+        if (colonPos < 0) {
+            return "";
+        }
+        int valueStart = colonPos + 1;
+        while (valueStart < json.length() && Character.isWhitespace(json.charAt(valueStart))) {
+            valueStart++;
+        }
+        if (valueStart >= json.length()) {
+            return "";
+        }
+
+        if (json.charAt(valueStart) == '"') {
+            int valueEnd = json.indexOf('"', valueStart + 1);
+            if (valueEnd > valueStart) {
+                return json.substring(valueStart + 1, valueEnd);
+            }
+            return "";
+        }
+
+        int valueEnd = valueStart;
+        while (valueEnd < json.length()
+                && json.charAt(valueEnd) != ','
+                && json.charAt(valueEnd) != '}') {
+            valueEnd++;
+        }
+        return json.substring(valueStart, valueEnd).trim();
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null || values.length == 0) {
+            return "";
+        }
+        for (String value : values) {
+            if (StringUtils.hasText(value)) {
+                return value.trim();
+            }
+        }
+        return "";
+    }
+
+    private boolean isAcceptedSuccessCode(String code) {
+        if (!StringUtils.hasText(code)) {
+            return false;
+        }
+        String normalized = code.trim();
+        if (normalized.startsWith("\"") && normalized.endsWith("\"") && normalized.length() >= 2) {
+            normalized = normalized.substring(1, normalized.length() - 1).trim();
+        }
+        return "00".equals(normalized) || "99".equals(normalized);
     }
 }

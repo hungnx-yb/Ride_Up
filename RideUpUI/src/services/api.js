@@ -1143,6 +1143,19 @@ export const createVnpayPaymentUrl = async (bookingId) => {
   return res.data?.result ?? res.data;
 };
 
+/** Hủy booking của khách hàng */
+export const cancelCustomerBooking = async (bookingId, cancellationReason) => {
+  if (USE_MOCK_DATA) {
+    await mockApiDelay(500);
+    return { id: bookingId, status: 'cancelled', cancellationReason: cancellationReason || null };
+  }
+  const payload = String(cancellationReason || '').trim()
+    ? { cancellationReason: String(cancellationReason).trim() }
+    : {};
+  const res = await apiClient.post(`/customer/bookings/${bookingId}/cancel`, payload);
+  return res.data?.result ?? res.data;
+};
+
 /** Đánh giá chuyến xe */
 export const rateRide = async (bookingId, rating, comment) => {
   if (USE_MOCK_DATA) {
