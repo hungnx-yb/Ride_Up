@@ -1895,7 +1895,9 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
             </View>
           ) : (
             <>
-              {searchResults.map((trip) => (
+              {searchResults.map((trip) => {
+                const tripDriverAvatarUrl = resolveStoragePublicUrl(trip?.driverAvatarUrl);
+                return (
                 <TouchableOpacity
                   key={trip.id}
                   style={[styles.rideCard, { padding: isSmallPhone ? 10 : 12, marginBottom: isSmallPhone ? 9 : 10 }]}
@@ -1913,7 +1915,11 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
                       },
                     ]}
                   >
-                    <Ionicons name="person-outline" size={isSmallPhone ? 16 : 17} color="#111827" />
+                    {tripDriverAvatarUrl ? (
+                      <Image source={{ uri: tripDriverAvatarUrl }} style={styles.driverAvatarImage} />
+                    ) : (
+                      <Ionicons name="person-outline" size={isSmallPhone ? 16 : 17} color="#111827" />
+                    )}
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.driverTitle, { fontSize: isSmallPhone ? 13 : 14 }]}>{trip.driverName || 'Tài xế RideUp'}</Text>
@@ -1952,7 +1958,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
                   <Text style={styles.bookBtnText}>Xem chi tiết và đặt chỗ</Text>
                 </TouchableOpacity>
                 </TouchableOpacity>
-              ))}
+              )})}
 
               {searchHasMore ? (
                 <TouchableOpacity style={styles.loadMoreBtn} onPress={loadMoreSearch} disabled={searching}>
@@ -3642,6 +3648,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#F9FAFB',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  driverAvatarImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 999,
   },
   driverTitle: { fontSize: 14, fontWeight: '900', color: '#111827' },
   driverMeta: { fontSize: 11, color: '#6B7280', marginTop: 2 },
