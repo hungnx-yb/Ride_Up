@@ -45,6 +45,12 @@ import {
   sendChatMessage,
   markChatThreadRead,
   resolveStoragePublicUrl,
+  getRealtimeNotificationFeed,
+  onRealtimeNotificationFeedChange,
+  appendRealtimeNotification,
+  getChatUnreadThreadsCount,
+  onChatUnreadThreadsCountChange,
+  updateChatUnreadThreadsCountFromThreads,
 } from '../../services/api';
 import ProvincePicker from '../../components/ProvincePicker';
 import WardPicker from '../../components/WardPicker';
@@ -111,7 +117,7 @@ const normalizeCustomerMessage = (msg) => {
   };
 };
 
-const CustomerHomeScreen = ({ user, onLogout }) => {
+const CustomerHomeScreen = ({ user, onLogout, navigation, route }) => {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const isSmallPhone = screenWidth <= 360;
   const isLargePhone = screenWidth >= 430;
@@ -181,9 +187,14 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
   const [chatSending, setChatSending] = useState(false);
   const [chatUploadingImage, setChatUploadingImage] = useState(false);
   const [chatVisible, setChatVisible] = useState(false);
+  const [unreadChatCount, setUnreadChatCount] = useState(getChatUnreadThreadsCount());
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(
+    getRealtimeNotificationFeed().filter((item) => item?.read !== true).length
+  );
   const chatRealtimeRef = useRef(null);
   const chatMessagesScrollRef = useRef(null);
   const [bookingSuccessModal, setBookingSuccessModal] = useState({ visible: false, title: '', message: '' });
+  const [showCancelBookingConfirmModal, setShowCancelBookingConfirmModal] = useState(false);
   const [showSupportCenter, setShowSupportCenter] = useState(false);
   const [showQuickResultModal, setShowQuickResultModal] = useState(false);
   const [quickResultData, setQuickResultData] = useState({
@@ -252,6 +263,21 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
   const canChatBooking = (booking) => ['pending', 'confirmed', 'in_progress'].includes(String(booking?.status || '').toLowerCase());
   const isActiveThread = (thread) => String(thread?.status || '').toUpperCase() === 'ACTIVE';
 
+  useEffect(() => {
+    const unsubscribe = onRealtimeNotificationFeedChange((next) => {
+      const count = (Array.isArray(next) ? next : []).filter((item) => item?.read !== true).length;
+      setUnreadNotificationCount(count);
+    });
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = onChatUnreadThreadsCountChange((count) => {
+      setUnreadChatCount(Number(count || 0));
+    });
+    return unsubscribe;
+  }, []);
+
   const loadData = async () => {
     try {
       const [data, threads, me] = await Promise.all([
@@ -264,6 +290,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
         setProfileUser(me);
       }
       setChatThreads(Array.isArray(threads) ? threads : []);
+      updateChatUnreadThreadsCountFromThreads(threads);
     } catch (e) {
       setErrorText(e.message || 'Không thể tải lịch sử đặt chỗ.');
     } finally {
@@ -281,6 +308,30 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
   useEffect(() => {
     setProfileUser(user || null);
   }, [user]);
+
+  useEffect(() => {
+    const incomingTab = String(route?.params?.initialTab || '').trim();
+    if (!incomingTab) {
+      return;
+    }
+
+    if (['home', 'myTrips', 'messages', 'notifications', 'account'].includes(incomingTab)) {
+      setActiveFooterTab(incomingTab);
+      if (incomingTab === 'messages') {
+        setMessageView('drivers');
+      }
+    }
+  }, [route?.params?.initialTab]);
+
+  useEffect(() => {
+    const reloadMarker = route?.params?.forceReloadAt;
+    if (!reloadMarker) {
+      return;
+    }
+
+    setRefreshing(true);
+    loadData();
+  }, [route?.params?.forceReloadAt]);
 
   const formatTime = (isoStr) => {
     if (!isoStr) return '--';
@@ -969,6 +1020,18 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
     const selectedPickupPoint = (tripDetail?.pickupPoints || []).find((p) => p.id === selectedPickupPointId) || null;
     const selectedDropoffPoint = (tripDetail?.dropoffPoints || []).find((p) => p.id === selectedDropoffPointId) || null;
 
+    const normalizeCoordinatePair = (lat, lng) => {
+      const latNum = Number(lat);
+      const lngNum = Number(lng);
+      if (Number.isFinite(latNum) && Number.isFinite(lngNum)) {
+        return { lat: latNum, lng: lngNum };
+      }
+      return { lat: null, lng: null };
+    };
+
+    const pickupCoords = normalizeCoordinatePair(pickupDetailLocation?.lat, pickupDetailLocation?.lng);
+    const dropoffCoords = normalizeCoordinatePair(dropoffDetailLocation?.lat, dropoffDetailLocation?.lng);
+
     try {
       setBookingSubmitting(true);
       const created = await bookRide({
@@ -978,11 +1041,11 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
         seatCount,
         paymentMethod,
         pickupAddress: String(pickupDetailLocation?.address || '').trim() || selectedPickupPoint?.address || selectedPickupPoint?.wardName || null,
-        pickupLat: pickupDetailLocation?.lat,
-        pickupLng: pickupDetailLocation?.lng,
+        pickupLat: pickupCoords.lat,
+        pickupLng: pickupCoords.lng,
         dropoffAddress: String(dropoffDetailLocation?.address || '').trim() || selectedDropoffPoint?.address || selectedDropoffPoint?.wardName || null,
-        dropoffLat: dropoffDetailLocation?.lat,
-        dropoffLng: dropoffDetailLocation?.lng,
+        dropoffLat: dropoffCoords.lat,
+        dropoffLng: dropoffCoords.lng,
       });
 
       setTripDetail(null);
@@ -1005,6 +1068,15 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
         visible: true,
         title: successTitle,
         message: successMessage,
+      });
+
+      appendRealtimeNotification({
+        id: `BOOKING_CREATED_LOCAL:${created?.id || Date.now()}`,
+        type: 'BOOKING_CREATED',
+        title: 'Đặt chuyến thành công',
+        message: successMessage,
+        referenceId: created?.id || null,
+        createdAt: new Date().toISOString(),
       });
 
       if (paymentMethod === 'VNPAY') {
@@ -1080,32 +1152,16 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
   const submitCancelBooking = async () => {
     if (!bookingDetail?.id || bookingCancelSubmitting) return;
 
-    let confirmed = false;
-    if (Platform.OS === 'web') {
-      confirmed = typeof window !== 'undefined'
-        ? window.confirm('Bạn có chắc chắn muốn hủy chuyến này không?')
-        : false;
-    } else {
-      confirmed = await new Promise((resolve) => {
-        Alert.alert(
-          'Xác nhận hủy chuyến',
-          'Bạn có chắc chắn muốn hủy chuyến này không?',
-          [
-            { text: 'Giữ lại', style: 'cancel', onPress: () => resolve(false) },
-            { text: 'Hủy chuyến', style: 'destructive', onPress: () => resolve(true) },
-          ],
-          { cancelable: true, onDismiss: () => resolve(false) }
-        );
-      });
-    }
+    setShowCancelBookingConfirmModal(true);
+  };
 
-    if (!confirmed) {
-      return;
-    }
+  const confirmCancelBooking = async () => {
+    if (!bookingDetail?.id || bookingCancelSubmitting) return;
 
     try {
       setBookingCancelSubmitting(true);
       await cancelCustomerBooking(bookingDetail.id, 'Khách hàng hủy chuyến');
+      setShowCancelBookingConfirmModal(false);
       setBookingDetail(null);
       await loadData();
       setErrorText('Hủy chuyến thành công.');
@@ -1340,6 +1396,11 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
     setShowSupportCenter(true);
   };
 
+  const openNotificationCenter = () => {
+    setActiveFooterTab('notifications');
+    navigation?.navigate('NotificationCenter');
+  };
+
   const openQuickResultModal = ({
     type,
     title,
@@ -1536,8 +1597,19 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
       setChatDraft('');
       startChatRealtime(thread.id);
       markChatThreadRead(thread.id).catch(() => { });
+      setChatThreads((prev) => {
+        const next = (Array.isArray(prev) ? prev : []).map((item) => (
+          item?.id === thread.id ? { ...item, myUnreadCount: 0 } : item
+        ));
+        updateChatUnreadThreadsCountFromThreads(next);
+        return next;
+      });
       getMyChatThreads()
-        .then((threads) => setChatThreads(Array.isArray(threads) ? threads : []))
+        .then((threads) => {
+          const rows = Array.isArray(threads) ? threads : [];
+          setChatThreads(rows);
+          updateChatUnreadThreadsCountFromThreads(rows);
+        })
         .catch(() => { });
     } catch (e) {
       setErrorText(e.message || 'Không thể mở cuộc trò chuyện.');
@@ -1560,8 +1632,19 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
       setChatDraft('');
       startChatRealtime(thread.id);
       markChatThreadRead(thread.id).catch(() => { });
+      setChatThreads((prev) => {
+        const next = (Array.isArray(prev) ? prev : []).map((item) => (
+          item?.id === thread.id ? { ...item, myUnreadCount: 0 } : item
+        ));
+        updateChatUnreadThreadsCountFromThreads(next);
+        return next;
+      });
       getMyChatThreads()
-        .then((threads) => setChatThreads(Array.isArray(threads) ? threads : []))
+        .then((threads) => {
+          const rows = Array.isArray(threads) ? threads : [];
+          setChatThreads(rows);
+          updateChatUnreadThreadsCountFromThreads(rows);
+        })
         .catch(() => { });
     } catch (e) {
       setErrorText(e.message || 'Không thể tải tin nhắn.');
@@ -1590,7 +1673,11 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
       appendChatMessageIfNotExists(sent);
       setChatDraft('');
       getMyChatThreads()
-        .then((threads) => setChatThreads(Array.isArray(threads) ? threads : []))
+        .then((threads) => {
+          const rows = Array.isArray(threads) ? threads : [];
+          setChatThreads(rows);
+          updateChatUnreadThreadsCountFromThreads(rows);
+        })
         .catch(() => { });
     } catch (e) {
       setErrorText(e.message || 'Không thể gửi tin nhắn.');
@@ -1669,7 +1756,11 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
 
       appendChatMessageIfNotExists(sent);
       getMyChatThreads()
-        .then((threads) => setChatThreads(Array.isArray(threads) ? threads : []))
+        .then((threads) => {
+          const rows = Array.isArray(threads) ? threads : [];
+          setChatThreads(rows);
+          updateChatUnreadThreadsCountFromThreads(rows);
+        })
         .catch(() => { });
     } catch (e) {
       setErrorText(e?.message || 'Không thể gửi ảnh.');
@@ -2286,7 +2377,7 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
               <Text style={styles.accountMenuText}>Phương thức thanh toán</Text>
               <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.accountMenuItem} activeOpacity={0.9}>
+            <TouchableOpacity style={styles.accountMenuItem} activeOpacity={0.9} onPress={openNotificationCenter}>
               <Ionicons name="notifications-outline" size={18} color="#00B14F" />
               <Text style={styles.accountMenuText}>Thông báo</Text>
               <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
@@ -2461,8 +2552,23 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
           onPress={openMessages}
           activeOpacity={0.9}
         >
-          <Ionicons name={activeFooterTab === 'messages' ? 'chatbubble-ellipses' : 'chatbubble-ellipses-outline'} size={isSmallPhone ? 18 : 20} color={activeFooterTab === 'messages' ? '#00B14F' : '#64748B'} />
+          <View style={styles.footerIconWrap}>
+            <Ionicons name={activeFooterTab === 'messages' ? 'chatbubble-ellipses' : 'chatbubble-ellipses-outline'} size={isSmallPhone ? 18 : 20} color={activeFooterTab === 'messages' ? '#00B14F' : '#64748B'} />
+            {unreadChatCount > 0 && activeFooterTab !== 'messages' && <View style={styles.footerBadgeDot} />}
+          </View>
           <Text numberOfLines={1} style={[styles.footerText, { fontSize: isSmallPhone ? 9 : 10 }, activeFooterTab === 'messages' && styles.footerTextActive]}>Tin nhắn</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.footerItem, activeFooterTab === 'notifications' && styles.footerItemActive]}
+          onPress={openNotificationCenter}
+          activeOpacity={0.9}
+        >
+          <View style={styles.footerIconWrap}>
+            <Ionicons name={activeFooterTab === 'notifications' ? 'notifications' : 'notifications-outline'} size={isSmallPhone ? 18 : 20} color={activeFooterTab === 'notifications' ? '#00B14F' : '#64748B'} />
+            {unreadNotificationCount > 0 && activeFooterTab !== 'notifications' && <View style={styles.footerBadgeDot} />}
+          </View>
+          <Text numberOfLines={1} style={[styles.footerText, { fontSize: isSmallPhone ? 9 : 10 }, activeFooterTab === 'notifications' && styles.footerTextActive]}>Thông báo</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -3022,7 +3128,15 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
         </View>
       </Modal>
 
-      <Modal visible={!!bookingDetail} transparent animationType="fade" onRequestClose={() => setBookingDetail(null)}>
+      <Modal
+        visible={!!bookingDetail}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setBookingDetail(null);
+          setShowCancelBookingConfirmModal(false);
+        }}
+      >
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <View style={styles.modalTitleRow}>
@@ -3081,8 +3195,49 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
             )}
 
             <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.confirmBtn} onPress={() => setBookingDetail(null)}>
+              <TouchableOpacity
+                style={styles.confirmBtn}
+                onPress={() => {
+                  setBookingDetail(null);
+                  setShowCancelBookingConfirmModal(false);
+                }}
+              >
                 <Text style={styles.confirmBtnText}>Đóng</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showCancelBookingConfirmModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowCancelBookingConfirmModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalTitleRow}>
+              <Ionicons name="alert-circle-outline" size={20} color="#DC2626" />
+              <Text style={styles.modalTitle}>Xác nhận hủy chuyến</Text>
+            </View>
+            <Text style={styles.modalSub}>Bạn có chắc chắn muốn hủy chuyến này không?</Text>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.cancelBtn}
+                onPress={() => setShowCancelBookingConfirmModal(false)}
+                disabled={bookingCancelSubmitting}
+              >
+                <Text style={styles.cancelBtnText}>Giữ lại</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.cancelTripDangerBtn, styles.cancelTripDangerBtnCompact, bookingCancelSubmitting && styles.cancelTripDangerBtnDisabled]}
+                onPress={confirmCancelBooking}
+                disabled={bookingCancelSubmitting}
+              >
+                <Ionicons name="close-circle-outline" size={15} color="#FFFFFF" />
+                <Text style={styles.cancelTripDangerBtnText}>{bookingCancelSubmitting ? 'Đang hủy...' : 'Hủy chuyến'}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -4029,7 +4184,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#DCE3EA',
     backgroundColor: '#F8FAFC',
-    paddingVertical: 10,
+    paddingVertical: 8,
     paddingHorizontal: 10,
     flexDirection: 'row',
     alignItems: 'center',
@@ -4668,26 +4823,26 @@ const styles = StyleSheet.create({
   },
   rateBtn: {
     marginTop: 8,
-    borderRadius: 10,
+    borderRadius: 9,
     backgroundColor: '#0F172A',
-    paddingVertical: 9,
+    paddingVertical: 8,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
-    gap: 7,
+    gap: 6,
   },
-  rateBtnText: { color: '#FFFFFF', fontWeight: '800', fontSize: 13 },
+  rateBtnText: { color: '#FFFFFF', fontWeight: '800', fontSize: 12 },
   payNowBtn: {
     marginTop: 8,
-    borderRadius: 10,
+    borderRadius: 9,
     backgroundColor: '#00B14F',
-    paddingVertical: 9,
+    paddingVertical: 8,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
-    gap: 7,
+    gap: 6,
   },
-  payNowBtnText: { color: '#FFFFFF', fontWeight: '800', fontSize: 13 },
+  payNowBtnText: { color: '#FFFFFF', fontWeight: '800', fontSize: 12 },
   ratedInfoRow: {
     marginTop: 8,
     flexDirection: 'row',
@@ -4962,7 +5117,7 @@ const styles = StyleSheet.create({
   paymentText: { color: '#475569', fontWeight: '600' },
   paymentTextActive: { color: '#008A3E', fontWeight: '800' },
   totalHint: { fontSize: 13, color: '#008A3E', fontWeight: '800', marginBottom: 4 },
-  modalActions: { flexDirection: 'row', marginTop: 12 },
+  modalActions: { flexDirection: 'row', marginTop: 10, gap: 8 },
   mapAddressInput: {
     marginTop: 8,
     marginBottom: 8,
@@ -4978,39 +5133,42 @@ const styles = StyleSheet.create({
   },
   cancelBtn: {
     flex: 1,
-    paddingVertical: 11,
-    borderRadius: 12,
+    paddingVertical: 9,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: '#DCE3EA',
     alignItems: 'center',
-    marginRight: 6,
   },
-  cancelBtnText: { color: COLORS.text, fontWeight: '700' },
+  cancelBtnText: { color: COLORS.text, fontWeight: '700', fontSize: 13 },
   confirmBtn: {
-    flex: 2,
-    paddingVertical: 11,
-    borderRadius: 12,
+    flex: 1,
+    paddingVertical: 9,
+    borderRadius: 10,
     backgroundColor: '#00B14F',
     alignItems: 'center',
-    marginLeft: 6,
   },
-  confirmBtnText: { color: '#fff', fontWeight: '700' },
+  confirmBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
   cancelTripDangerBtn: {
     marginTop: 8,
-    borderRadius: 10,
-    paddingVertical: 10,
+    borderRadius: 9,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+    gap: 5,
     backgroundColor: '#DC2626',
+  },
+  cancelTripDangerBtnCompact: {
+    flex: 1,
+    marginTop: 0,
   },
   cancelTripDangerBtnDisabled: {
     backgroundColor: '#F87171',
   },
   cancelTripDangerBtnText: {
     color: '#FFFFFF',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '800',
   },
 
@@ -5043,6 +5201,24 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingVertical: 4,
     paddingHorizontal: 2,
+  },
+  footerIconWrap: {
+    position: 'relative',
+    width: 22,
+    height: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  footerBadgeDot: {
+    position: 'absolute',
+    top: 1,
+    right: -1,
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: '#EF4444',
+    borderWidth: 1,
+    borderColor: '#FFFFFF',
   },
   footerItemActive: { backgroundColor: '#ECFDF3' },
   footerText: { marginTop: 2, fontSize: 10, color: '#64748B', fontWeight: '700' },

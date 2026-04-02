@@ -395,7 +395,7 @@ const TripDetailScreen = ({ navigation, route }) => {
           <View style={styles.bottomSpacer} />
         </ScrollView>
         <View style={styles.loadingSyncBadge}>
-          <ActivityIndicator size="small" color="#E65100" />
+          <ActivityIndicator size="small" color="#00B14F" />
           <Text style={styles.loadingSyncText}>Đang tải chi tiết chuyến đi...</Text>
         </View>
         <DriverBottomNav navigation={navigation} activeKey="trips" />
@@ -475,7 +475,7 @@ const TripDetailScreen = ({ navigation, route }) => {
 
             {chatLoading ? (
               <View style={styles.chatLoadingWrap}>
-                <ActivityIndicator size="small" color="#E65100" />
+                <ActivityIndicator size="small" color="#00B14F" />
                 <Text style={styles.chatLoadingText}>Đang tải tin nhắn...</Text>
               </View>
             ) : (
@@ -587,7 +587,7 @@ const styles = StyleSheet.create({
     color: '#C2410C',
   },
   headerSkeleton: {
-    backgroundColor: '#E65100',
+    backgroundColor: '#00B14F',
     flexDirection: 'row',
     alignItems: 'center',
     paddingTop: 52,
@@ -630,7 +630,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   header: {
-    backgroundColor: '#E65100',
+    backgroundColor: '#00B14F',
     flexDirection: 'row',
     alignItems: 'center',
     paddingTop: 52,
@@ -717,7 +717,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   chatBtn: {
-    backgroundColor: '#E65100',
+    backgroundColor: '#00B14F',
     borderRadius: 8,
     paddingVertical: 8,
     paddingHorizontal: 10,
@@ -802,7 +802,7 @@ const styles = StyleSheet.create({
   },
   chatBubbleMine: {
     alignSelf: 'flex-end',
-    backgroundColor: '#E65100',
+    backgroundColor: '#00B14F',
   },
   chatBubbleOther: {
     alignSelf: 'flex-start',
@@ -895,7 +895,7 @@ const styles = StyleSheet.create({
     color: '#6B7280',
   },
   chatSendBtn: {
-    backgroundColor: '#E65100',
+    backgroundColor: '#00B14F',
     borderRadius: 8,
     paddingHorizontal: 14,
     paddingVertical: 8,

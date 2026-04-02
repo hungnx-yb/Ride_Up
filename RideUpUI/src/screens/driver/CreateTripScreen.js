@@ -14,6 +14,7 @@ import {
   Easing,
   Modal,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { createTrip } from '../../services/api';
 import ProvincePicker from '../../components/ProvincePicker';
 import WardPicker from '../../components/WardPicker';
@@ -21,8 +22,8 @@ import DriverBottomNav, { DRIVER_BOTTOM_NAV_INSET } from '../../components/Drive
 import { ensureApprovedProfileBeforeCreateTrip } from '../../services/driverProfileGuard';
 
 const THEME = {
-  gradientStart: '#E65100',
-  accent: '#FF6F00',
+  gradientStart: '#00B14F',
+  accent: '#00A63E',
 };
 
 const WEEKDAY_LABELS = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
@@ -423,7 +424,7 @@ const CreateTripScreen = ({ navigation }) => {
                 activeOpacity={0.8}
               >
                 <Text style={styles.selectorText}>{departureDate || 'Chọn ngày'}</Text>
-                <Text style={styles.chevron}>📅</Text>
+                <Ionicons name="calendar-outline" size={16} color="#64748B" style={styles.chevron} />
               </TouchableOpacity>
             </View>
             <View style={[styles.inputWrapper, { flex: 1 }]}>
@@ -661,8 +662,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
-  chipText: { fontSize: 12, fontWeight: '700', color: '#E65100' },
-  chipRemove: { fontSize: 11, fontWeight: '800', color: '#E65100' },
+  chipText: { fontSize: 12, fontWeight: '700', color: '#00B14F' },
+  chipRemove: { fontSize: 11, fontWeight: '800', color: '#00B14F' },
 
   dateTimeRow: { flexDirection: 'row' },
 

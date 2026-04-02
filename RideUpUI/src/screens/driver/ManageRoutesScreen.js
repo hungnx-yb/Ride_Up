@@ -4,6 +4,7 @@ import {
   ScrollView, ActivityIndicator, RefreshControl,
   Modal, TextInput, Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../../config/config';
 import { getDriverRoutes, createRoute, deleteRoute } from '../../services/api';
 import ProvincePicker from '../../components/ProvincePicker';
@@ -67,7 +68,10 @@ const RouteCard = ({ route, onDelete }) => {
           style={styles.deleteBtn}
           onPress={() => onDelete(route.id)}
         >
-          <Text style={styles.deleteBtnText}>🗑 Xóa tuyến</Text>
+          <View style={styles.deleteBtnInner}>
+            <Ionicons name="trash-outline" size={13} color="#C62828" />
+            <Text style={styles.deleteBtnText}>Xóa tuyến</Text>
+          </View>
         </TouchableOpacity>
       </View>
     </View>
@@ -198,9 +202,12 @@ const AddRouteModal = ({ visible, onClose, onSave }) => {
         >
           <View style={styles.modalSheet}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>➕ Thêm tuyến mới</Text>
+              <View style={styles.modalTitleRow}>
+                <Ionicons name="add-circle-outline" size={18} color={THEME.gradientStart} />
+                <Text style={styles.modalTitle}>Thêm tuyến mới</Text>
+              </View>
               <TouchableOpacity onPress={() => { reset(); onClose(); }}>
-                <Text style={styles.modalClose}>✕</Text>
+                <Ionicons name="close" size={20} color="#94A3B8" style={styles.modalClose} />
               </TouchableOpacity>
             </View>
 
@@ -213,7 +220,7 @@ const AddRouteModal = ({ visible, onClose, onSave }) => {
                 onPress={() => setShowPickup(true)}
               >
                 <Text style={[styles.provinceBtnText, !pickupProvince && styles.provinceBtnPlaceholder]}>
-                  {pickupProvince?.name || '📍 Chọn tỉnh / thành phố...'}
+                  {pickupProvince?.name || 'Chọn tỉnh / thành phố...'}
                 </Text>
                 <Text style={styles.provinceBtnChevron}>›</Text>
               </TouchableOpacity>
@@ -232,7 +239,7 @@ const AddRouteModal = ({ visible, onClose, onSave }) => {
                 <Text style={[styles.provinceBtnText, (!pickupProvince || pickupClusters.length === 0) && styles.provinceBtnPlaceholder]}>
                   {!pickupProvince
                     ? 'Vui lòng chọn tỉnh đón trước'
-                    : '🏘️ Chọn xã / phường đón...'}
+                    : 'Chọn xã / phường đón...'}
                 </Text>
                 <Text style={styles.provinceBtnChevron}>›</Text>
               </TouchableOpacity>
@@ -245,7 +252,7 @@ const AddRouteModal = ({ visible, onClose, onSave }) => {
                         onPress={() => removeWard(pickupClusters, setPickupClusters, name)}
                         hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                       >
-                        <Text style={[styles.modalChipRemove, { color: '#E65100' }]}>✕</Text>
+                        <Ionicons name="close" size={14} color="#E65100" style={styles.modalChipRemove} />
                       </TouchableOpacity>
                     </View>
                   ))}
@@ -259,7 +266,7 @@ const AddRouteModal = ({ visible, onClose, onSave }) => {
                 onPress={() => setShowDropoff(true)}
               >
                 <Text style={[styles.provinceBtnText, !dropoffProvince && styles.provinceBtnPlaceholder]}>
-                  {dropoffProvince?.name || '📍 Chọn tỉnh / thành phố...'}
+                  {dropoffProvince?.name || 'Chọn tỉnh / thành phố...'}
                 </Text>
                 <Text style={styles.provinceBtnChevron}>›</Text>
               </TouchableOpacity>
@@ -278,7 +285,7 @@ const AddRouteModal = ({ visible, onClose, onSave }) => {
                 <Text style={[styles.provinceBtnText, (!dropoffProvince || dropoffClusters.length === 0) && styles.provinceBtnPlaceholder]}>
                   {!dropoffProvince
                     ? 'Vui lòng chọn tỉnh trả trước'
-                    : '🏘️ Chọn xã / phường trả...'}
+                    : 'Chọn xã / phường trả...'}
                 </Text>
                 <Text style={styles.provinceBtnChevron}>›</Text>
               </TouchableOpacity>
@@ -291,7 +298,7 @@ const AddRouteModal = ({ visible, onClose, onSave }) => {
                         onPress={() => removeWard(dropoffClusters, setDropoffClusters, name)}
                         hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                       >
-                        <Text style={[styles.modalChipRemove, { color: '#2E7D32' }]}>✕</Text>
+                        <Ionicons name="close" size={14} color="#2E7D32" style={styles.modalChipRemove} />
                       </TouchableOpacity>
                     </View>
                   ))}
@@ -418,7 +425,10 @@ const ManageRoutesScreen = ({ navigation }) => {
             <Text style={styles.emptyIcon}>🗺️</Text>
             <Text style={styles.emptyText}>Bạn chưa có tuyến đường nào</Text>
             <TouchableOpacity style={styles.emptyAddBtn} onPress={() => setShowModal(true)}>
-              <Text style={styles.emptyAddBtnText}>➕ Thêm tuyến đầu tiên</Text>
+              <View style={styles.emptyAddBtnInner}>
+                <Ionicons name="add-circle-outline" size={16} color="#FFFFFF" />
+                <Text style={styles.emptyAddBtnText}>Thêm tuyến đầu tiên</Text>
+              </View>
             </TouchableOpacity>
           </View>
         ) : (
@@ -507,6 +517,7 @@ const styles = StyleSheet.create({
 
   cardActions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#FFF3E0' },
   deleteBtn:   { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFEBEE', borderRadius: 8, paddingHorizontal: 14, paddingVertical: 7 },
+  deleteBtnInner: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   deleteBtnText: { color: '#C62828', fontSize: 13, fontWeight: '700' },
 
   // Empty
@@ -514,6 +525,7 @@ const styles = StyleSheet.create({
   emptyIcon:      { fontSize: 48, marginBottom: 12 },
   emptyText:      { fontSize: 15, color: '#999', marginBottom: 20 },
   emptyAddBtn:    { backgroundColor: THEME.gradientStart, borderRadius: 12, paddingHorizontal: 24, paddingVertical: 12 },
+  emptyAddBtnInner: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   emptyAddBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
 
   // FAB
@@ -524,8 +536,9 @@ const styles = StyleSheet.create({
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
   modalSheet:   { backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: 36, maxHeight: '90%' },
   modalHeader:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 },
+  modalTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   modalTitle:   { fontSize: 17, fontWeight: '800', color: THEME.gradientStart },
-  modalClose:   { fontSize: 18, color: '#999', padding: 4 },
+  modalClose:   { padding: 4 },
 
   fieldLabel: { fontSize: 13, fontWeight: '700', color: '#444', marginBottom: 6, marginTop: 12 },
   input: {

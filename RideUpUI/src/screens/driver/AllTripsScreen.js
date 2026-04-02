@@ -4,6 +4,7 @@ import {
   ActivityIndicator, ScrollView, RefreshControl,
   Alert, Modal, TextInput,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../../config/config';
 import {
   getDriverTrips,
@@ -22,15 +23,15 @@ import {
 import ProfileApprovalModal from '../../components/ProfileApprovalModal';
 
 const THEME = {
-  gradientStart: '#E65100',
-  accent:        '#FF6F00',
+  gradientStart: '#00B14F',
+  accent:        '#00A63E',
 };
 
 const STATUS_CONFIG = {
-  scheduled:   { label: 'Đã lên lịch', color: '#1565C0', bg: '#E3F2FD', icon: '📅' },
-  ongoing:     { label: 'Đang chạy',   color: '#2E7D32', bg: '#E8F5E9', icon: '🚗' },
-  completed:   { label: 'Hoàn thành',  color: '#546E7A', bg: '#ECEFF1', icon: '✅' },
-  cancelled:   { label: 'Đã hủy',      color: '#B71C1C', bg: '#FFEBEE', icon: '❌' },
+  scheduled:   { label: 'Đã lên lịch', color: '#1565C0', bg: '#E3F2FD', iconName: 'calendar-outline' },
+  ongoing:     { label: 'Đang chạy',   color: '#2E7D32', bg: '#E8F5E9', iconName: 'car-outline' },
+  completed:   { label: 'Hoàn thành',  color: '#546E7A', bg: '#ECEFF1', iconName: 'checkmark-circle-outline' },
+  cancelled:   { label: 'Đã hủy',      color: '#B71C1C', bg: '#FFEBEE', iconName: 'close-circle-outline' },
 };
 
 const TABS = [
@@ -75,14 +76,18 @@ const TripCard = ({ trip, routeName, onCancel, onStart, onComplete, onViewDetail
       <View style={styles.tripTop}>
         <View style={{ flex: 1 }}>
           <Text style={styles.tripRoute}>{displayRouteName}</Text>
-          <Text style={styles.tripDateTime}>
-            📅 {trip.departureDate}  🕐 {trip.departureTime}
-          </Text>
+          <View style={styles.tripDateTimeRow}>
+            <Ionicons name="calendar-outline" size={13} color="#6B7280" />
+            <Text style={styles.tripDateTime}>{trip.departureDate}</Text>
+            <Ionicons name="time-outline" size={13} color="#6B7280" style={{ marginLeft: 8 }} />
+            <Text style={styles.tripDateTime}>{trip.departureTime}</Text>
+          </View>
         </View>
         <View style={[styles.statusBadge, { backgroundColor: cfg.bg }]}>
-          <Text style={[styles.statusText, { color: cfg.color }]}>
-            {cfg.icon} {cfg.label}
-          </Text>
+          <View style={styles.statusTextRow}>
+            <Ionicons name={cfg.iconName} size={13} color={cfg.color} />
+            <Text style={[styles.statusText, { color: cfg.color }]}>{cfg.label}</Text>
+          </View>
         </View>
       </View>
 
@@ -361,13 +366,19 @@ const AllTripsScreen = ({ navigation }) => {
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation?.goBack()}>
           <Text style={styles.backIcon}>‹</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>📋 Tất cả chuyến xe</Text>
+        <View style={styles.headerTitleRow}>
+          <Ionicons name="list-outline" size={18} color="#FFFFFF" />
+          <Text style={styles.headerTitle}>Tất cả chuyến xe</Text>
+        </View>
         <View style={{ width: 36 }} />
       </View>
 
       <View style={styles.actionRow}>
         <TouchableOpacity style={styles.createTripMainBtn} onPress={handleCreateTripPress}>
-          <Text style={styles.createTripMainBtnText}>✨ Tạo chuyến mới</Text>
+          <View style={styles.primaryBtnIconRow}>
+            <Ionicons name="sparkles-outline" size={14} color="#FFFFFF" />
+            <Text style={styles.createTripMainBtnText}>Tạo chuyến mới</Text>
+          </View>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.refreshBtn}
@@ -431,7 +442,7 @@ const AllTripsScreen = ({ navigation }) => {
           </>
         ) : filtered.length === 0 ? (
           <View style={styles.emptyBox}>
-            <Text style={styles.emptyIcon}>🗓️</Text>
+            <Ionicons name="calendar-clear-outline" size={42} color="#94A3B8" style={styles.emptyIcon} />
             <Text style={styles.emptyText}>
               {activeTab === 'all' ? 'Chưa có chuyến xe nào' : `Không có chuyến "${STATUS_CONFIG[activeTab]?.label ?? activeTab}"`}
             </Text>
@@ -443,7 +454,10 @@ const AllTripsScreen = ({ navigation }) => {
                 style={styles.createBtn}
                 onPress={handleCreateTripPress}
               >
-                <Text style={styles.createBtnText}>✨ Tạo chuyến xe</Text>
+                <View style={styles.primaryBtnIconRow}>
+                  <Ionicons name="add-circle-outline" size={14} color="#FFFFFF" />
+                  <Text style={styles.createBtnText}>Tạo chuyến xe</Text>
+                </View>
               </TouchableOpacity>
             )}
           </View>
@@ -540,7 +554,8 @@ const styles = StyleSheet.create({
   },
   backBtn:     { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.2)', justifyContent: 'center', alignItems: 'center', marginRight: 10 },
   backIcon:    { color: '#fff', fontSize: 26, lineHeight: 30, fontWeight: '300' },
-  headerTitle: { flex: 1, color: '#fff', fontSize: 18, fontWeight: '700' },
+  headerTitleRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 },
+  headerTitle: { color: '#fff', fontSize: 18, fontWeight: '700' },
 
   actionRow: {
     flexDirection: 'row',
@@ -569,6 +584,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     fontSize: 13,
   },
+  primaryBtnIconRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   refreshBtn: {
     width: 96,
     borderRadius: 12,
@@ -679,8 +695,10 @@ const styles = StyleSheet.create({
   },
   tripTop:      { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 10 },
   tripRoute:    { fontSize: 15, fontWeight: '800', color: '#333', marginBottom: 4 },
-  tripDateTime: { fontSize: 12, color: '#888' },
+  tripDateTimeRow: { flexDirection: 'row', alignItems: 'center' },
+  tripDateTime: { fontSize: 12, color: '#888', marginLeft: 4 },
   statusBadge:  { borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4, marginLeft: 8 },
+  statusTextRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   statusText:   { fontSize: 11, fontWeight: '700' },
 
   seatsRow:  { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 },

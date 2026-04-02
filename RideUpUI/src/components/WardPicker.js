@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { fetchWards } from '../services/locationService';
 
-const THEME_COLOR = '#E65100';
+const THEME_COLOR = '#00B14F';
 
 /**
  * Modal chọn xã / phường theo tỉnh đã chọn.
@@ -178,7 +178,7 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 16, fontWeight: '800', color: THEME_COLOR },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  doneBtn: { backgroundColor: '#FFF3E0', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6 },
+  doneBtn: { backgroundColor: '#ECFDF3', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6 },
   doneText: { color: THEME_COLOR, fontSize: 12, fontWeight: '800' },
   closeBtn: { fontSize: 18, color: '#999', padding: 4 },
 
@@ -203,7 +203,7 @@ const styles = StyleSheet.create({
   itemIcon: { fontSize: 16, marginRight: 10 },
   itemText: { fontSize: 15, color: '#222', flex: 1 },
   checkIcon: { fontSize: 16, fontWeight: '900' },
-  checkOn: { color: '#2E7D32' },
+  checkOn: { color: '#00A63E' },
   checkOff: { color: '#BDBDBD' },
   sep: { height: 1, backgroundColor: '#F5F5F5', marginLeft: 46 },
 
