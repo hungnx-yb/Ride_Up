@@ -1,6 +1,9 @@
 package com.example.demo.repository;
 
 import com.example.demo.entity.Booking;
+import com.example.demo.enums.BookingStatus;
+import com.example.demo.enums.PaymentMethod;
+import com.example.demo.enums.PaymentStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -9,6 +12,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.time.LocalDateTime;
 import java.util.Optional;
 
 @Repository
@@ -86,4 +90,21 @@ public interface BookingRepository extends JpaRepository<Booking, String> {
             WHERE b.id IN :bookingIds
             """)
     List<Booking> findAllForChatByIdIn(@Param("bookingIds") List<String> bookingIds);
+
+        @Query("""
+            SELECT DISTINCT b FROM Booking b
+            JOIN FETCH b.customer c
+            JOIN FETCH b.trip t
+            LEFT JOIN FETCH b.payment p
+            WHERE b.status = :bookingStatus
+              AND p.method = :paymentMethod
+              AND p.status = :paymentStatus
+              AND b.createdAt <= :createdBefore
+            """)
+        List<Booking> findExpiredUnpaidVnpayBookings(
+            @Param("bookingStatus") BookingStatus bookingStatus,
+            @Param("paymentMethod") PaymentMethod paymentMethod,
+            @Param("paymentStatus") PaymentStatus paymentStatus,
+            @Param("createdBefore") LocalDateTime createdBefore
+        );
 }
