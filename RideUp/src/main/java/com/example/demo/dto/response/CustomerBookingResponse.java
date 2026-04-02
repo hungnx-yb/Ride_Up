@@ -14,6 +14,7 @@ import java.time.LocalDateTime;
 @FieldDefaults(level = AccessLevel.PRIVATE)
 public class CustomerBookingResponse {
     String id;
+    LocalDateTime createdAt;
     String status;
     Integer seatCount;
     BigDecimal price;

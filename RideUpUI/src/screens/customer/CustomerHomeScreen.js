@@ -63,6 +63,7 @@ const HERO_BACKGROUND_IMAGE = require('../../../assets/anh-nen-sieu-xe_020255797
 const MAP_PICK_RADIUS_KM = 20;
 const MAP_PICK_RADIUS_METERS = MAP_PICK_RADIUS_KM * 1000;
 const SEARCH_PAGE_SIZE = 20;
+const VNPAY_AUTO_CANCEL_MS = 10 * 60 * 1000;
 const REVERSE_GEOCODE_ENDPOINT = 'https://nominatim.openstreetmap.org/reverse';
 const RATING_LABELS = {
   1: 'Rất tệ',
@@ -252,11 +253,13 @@ const CustomerHomeScreen = ({ user, onLogout, navigation, route }) => {
   const [dropoffLocating, setDropoffLocating] = useState(false);
   const [pickupWardCenter, setPickupWardCenter] = useState(null);
   const [dropoffWardCenter, setDropoffWardCenter] = useState(null);
+  const [nowTick, setNowTick] = useState(Date.now());
   const pickupReverseSeq = useRef(0);
   const dropoffReverseSeq = useRef(0);
   const pickupWardCenterSeq = useRef(0);
   const dropoffWardCenterSeq = useRef(0);
   const lastRealtimeSyncedNotificationIdRef = useRef('');
+  const autoCancellingBookingIdsRef = useRef(new Set());
 
   const [errorText, setErrorText] = useState('');
   const [searchErrorText, setSearchErrorText] = useState('');
@@ -264,6 +267,67 @@ const CustomerHomeScreen = ({ user, onLogout, navigation, route }) => {
 
   const canChatBooking = (booking) => ['pending', 'confirmed', 'in_progress'].includes(String(booking?.status || '').toLowerCase());
   const isActiveThread = (thread) => String(thread?.status || '').toUpperCase() === 'ACTIVE';
+  const resolveBookingCreatedAt = (booking) => {
+    if (!booking) return null;
+    const candidates = [
+      booking.createdAt,
+      booking.bookingCreatedAt,
+      booking.bookedAt,
+      booking.created_at,
+      booking.bookingTime,
+    ];
+
+    for (const value of candidates) {
+      if (!value) continue;
+      const date = new Date(value);
+      if (!Number.isNaN(date.getTime())) {
+        return date;
+      }
+    }
+    return null;
+  };
+
+  const getVnpayAutoCancelMeta = (booking, nowMs = Date.now()) => {
+    if (!isAwaitingVnpay(booking)) {
+      return {
+        eligible: false,
+        expired: false,
+        remainingMs: null,
+        createdAt: null,
+        deadlineAt: null,
+      };
+    }
+
+    const createdAt = resolveBookingCreatedAt(booking);
+    if (!createdAt) {
+      return {
+        eligible: false,
+        expired: false,
+        remainingMs: null,
+        createdAt: null,
+        deadlineAt: null,
+      };
+    }
+
+    const deadlineMs = createdAt.getTime() + VNPAY_AUTO_CANCEL_MS;
+    return {
+      eligible: true,
+      expired: deadlineMs <= nowMs,
+      remainingMs: Math.max(0, deadlineMs - nowMs),
+      createdAt,
+      deadlineAt: new Date(deadlineMs),
+    };
+  };
+
+  const formatRemainingCountdown = (remainingMs) => {
+    if (!Number.isFinite(remainingMs) || remainingMs <= 0) {
+      return '00:00';
+    }
+    const totalSeconds = Math.ceil(remainingMs / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  };
 
   useEffect(() => {
     const unsubscribe = onRealtimeNotificationFeedChange((next) => {
@@ -309,6 +373,62 @@ const CustomerHomeScreen = ({ user, onLogout, navigation, route }) => {
     });
     return unsubscribe;
   }, []);
+
+  useEffect(() => {
+    if (!isAwaitingVnpay(bookingDetail)) {
+      return undefined;
+    }
+
+    const ticker = setInterval(() => {
+      setNowTick(Date.now());
+    }, 1000);
+
+    return () => clearInterval(ticker);
+  }, [bookingDetail?.id, bookingDetail?.status, bookingDetail?.paymentMethod, bookingDetail?.paymentStatus]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const runAutoCancelForExpiredVnpay = async () => {
+      const expiredTargets = (Array.isArray(bookings) ? bookings : []).filter((booking) => {
+        const meta = getVnpayAutoCancelMeta(booking, Date.now());
+        return meta.eligible && meta.expired;
+      });
+
+      if (!expiredTargets.length) {
+        return;
+      }
+
+      const justCancelledIds = [];
+
+      for (const booking of expiredTargets) {
+        const bookingId = String(booking?.id || '');
+        if (!bookingId || autoCancellingBookingIdsRef.current.has(bookingId)) {
+          continue;
+        }
+
+        autoCancellingBookingIdsRef.current.add(bookingId);
+        try {
+          await cancelCustomerBooking(bookingId, 'Tự động hủy sau 10 phút chưa thanh toán VNPAY');
+          justCancelledIds.push(bookingId);
+        } catch {
+          // Ignore per-booking failure; backend scheduler can still finalize auto-cancel.
+        } finally {
+          autoCancellingBookingIdsRef.current.delete(bookingId);
+        }
+      }
+
+      if (!cancelled && justCancelledIds.length > 0) {
+        await loadData();
+      }
+    };
+
+    runAutoCancelForExpiredVnpay();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [bookings]);
 
   const loadData = async () => {
     try {
@@ -637,6 +757,10 @@ const CustomerHomeScreen = ({ user, onLogout, navigation, route }) => {
   const dropoffDistanceKm = Number.isFinite(dropoffDetailLocation?.lat) && Number.isFinite(dropoffDetailLocation?.lng) && dropoffMapCenter
     ? calculateDistanceKm(dropoffMapCenter.lat, dropoffMapCenter.lng, dropoffDetailLocation.lat, dropoffDetailLocation.lng)
     : null;
+  const bookingDetailAutoCancelMeta = useMemo(
+    () => getVnpayAutoCancelMeta(bookingDetail, nowTick),
+    [bookingDetail, nowTick]
+  );
 
   useEffect(() => {
     const point = selectedPickupPoint;
@@ -1139,15 +1263,17 @@ const CustomerHomeScreen = ({ user, onLogout, navigation, route }) => {
     }
   };
 
-  const isAwaitingVnpay = (booking) => {
+  function isAwaitingVnpay(booking) {
     if (!booking) return false;
     return booking.status === 'pending'
       && String(booking.paymentMethod || '').toUpperCase() === 'VNPAY'
       && String(booking.paymentStatus || '').toUpperCase() === 'UNPAID';
-  };
+  }
 
   const canCancelBooking = (booking) => {
     if (!booking) return false;
+    if (isAwaitingVnpay(booking)) return true;
+
     const status = String(booking.status || '').toLowerCase();
     if (status !== 'pending' && status !== 'confirmed') return false;
 
@@ -3208,6 +3334,19 @@ const CustomerHomeScreen = ({ user, onLogout, navigation, route }) => {
               }
             </Text>
 
+            {isAwaitingVnpay(bookingDetail) && bookingDetailAutoCancelMeta?.eligible && (
+              <Text
+                style={[
+                  styles.paymentAutoCancelHint,
+                  bookingDetailAutoCancelMeta.expired && styles.paymentAutoCancelHintExpired,
+                ]}
+              >
+                {bookingDetailAutoCancelMeta.expired
+                  ? 'Quá 10 phút chưa thanh toán VNPAY. Hệ thống đang tự hủy booking.'
+                  : `Tự động hủy sau: ${formatRemainingCountdown(bookingDetailAutoCancelMeta.remainingMs)} nếu chưa thanh toán VNPAY.`}
+              </Text>
+            )}
+
             {isAwaitingVnpay(bookingDetail) && (
               <TouchableOpacity style={styles.payNowBtn} onPress={submitVnpayPayment} disabled={paymentConfirmSubmitting}>
                 <Ionicons name="card-outline" size={15} color="#FFFFFF" />
@@ -4889,6 +5028,21 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   payNowBtnText: { color: '#FFFFFF', fontWeight: '800', fontSize: 12 },
+  paymentAutoCancelHint: {
+    marginTop: 6,
+    marginBottom: 2,
+    color: '#92400E',
+    fontSize: 12,
+    fontWeight: '700',
+    backgroundColor: '#FFFBEB',
+    borderRadius: 8,
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+  },
+  paymentAutoCancelHintExpired: {
+    color: '#B91C1C',
+    backgroundColor: '#FEF2F2',
+  },
   ratedInfoRow: {
     marginTop: 8,
     flexDirection: 'row',

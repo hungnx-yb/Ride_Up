@@ -30,6 +30,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -596,6 +597,7 @@ public class CustomerBookingService {
 
         return CustomerBookingResponse.builder()
                 .id(booking.getId())
+                .createdAt(booking.getCreatedAt())
                 .status(toUiBookingStatus(booking.getStatus()))
                 .seatCount(booking.getSeatCount())
                 .price(booking.getTotalPrice())
@@ -615,6 +617,66 @@ public class CustomerBookingService {
                 .myRating(booking.getReview() != null ? booking.getReview().getRating() : null)
                 .build();
     }
+
+        @Scheduled(fixedDelayString = "${rideup.booking.vnpay-auto-cancel-fixed-delay-ms:60000}")
+        @Transactional
+        public void autoCancelExpiredUnpaidVnpayBookings() {
+                LocalDateTime cutoff = LocalDateTime.now().minusMinutes(10);
+                List<Booking> expired = bookingRepository.findExpiredUnpaidVnpayBookings(
+                                BookingStatus.PENDING,
+                                PaymentMethod.VNPAY,
+                                PaymentStatus.UNPAID,
+                                cutoff
+                );
+
+                if (expired.isEmpty()) {
+                        return;
+                }
+
+                for (Booking booking : expired) {
+                        if (booking == null || booking.getPayment() == null) {
+                                continue;
+                        }
+
+                        // Double-check to avoid race with payment callback that may happen at the same time.
+                        if (booking.getStatus() != BookingStatus.PENDING
+                                        || booking.getPayment().getMethod() != PaymentMethod.VNPAY
+                                        || booking.getPayment().getStatus() != PaymentStatus.UNPAID) {
+                                continue;
+                        }
+
+                        booking.setStatus(BookingStatus.CANCELLED_BY_CUSTOMER);
+                        booking.setCancelledAt(LocalDateTime.now());
+                        booking.setCancellationReason("Auto-cancelled after 10 minutes unpaid via VNPAY");
+                        booking.setCompletedAt(null);
+
+                        restoreTripSeatAfterCancellation(booking.getTrip(), booking.getSeatCount());
+                        chatService.closeThreadByBookingId(booking.getId(), "Booking auto-cancelled because VNPAY payment timed out");
+
+                        Booking saved = bookingRepository.save(booking);
+
+                        String routeLabel = buildRouteLabel(saved);
+                        String customerUserId = saved.getCustomer() != null ? saved.getCustomer().getId() : null;
+                        notificationRealtimePublisher.notifyUser(
+                                        customerUserId,
+                                        "BOOKING_AUTO_CANCELLED_UNPAID",
+                                        "Booking tự hủy do quá hạn thanh toán",
+                                        "Booking " + routeLabel + " đã tự hủy vì quá 10 phút chưa thanh toán VNPAY.",
+                                        saved.getId()
+                        );
+
+                        String driverUserId = extractDriverUserId(saved);
+                        if (StringUtils.hasText(driverUserId)) {
+                                notificationRealtimePublisher.notifyUser(
+                                                driverUserId,
+                                                "BOOKING_AUTO_CANCELLED_UNPAID",
+                                                "Booking tự hủy do quá hạn thanh toán",
+                                                "Một booking trên chuyến " + routeLabel + " đã tự hủy do quá hạn thanh toán VNPAY.",
+                                                saved.getId()
+                                );
+                        }
+                }
+        }
 
         private String createVnPayPaymentUrlForBooking(Booking booking, String customerId, String ipAddress) {
                 if (booking == null || !StringUtils.hasText(booking.getId())) {
