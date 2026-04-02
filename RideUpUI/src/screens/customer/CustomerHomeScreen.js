@@ -2406,11 +2406,6 @@ const CustomerHomeScreen = ({ user, onLogout }) => {
 
             {messageView === 'drivers' && (
               <>
-                <View style={styles.inboxBanner}>
-                  <Ionicons name="chatbubble-ellipses" size={18} color="#00B14F" />
-                  <Text style={styles.inboxBannerText}>Bạn có {inboxItems.filter((i) => i.unread).length} tin nhắn chưa đọc</Text>
-                </View>
-
                 {sortedChatThreads.length === 0 ? (
                   <View style={styles.emptyState}>
                     <Ionicons name="chatbubble-ellipses-outline" size={22} color="#94A3B8" />
