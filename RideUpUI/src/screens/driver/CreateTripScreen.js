@@ -18,7 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { createTrip } from '../../services/api';
 import ProvincePicker from '../../components/ProvincePicker';
 import WardPicker from '../../components/WardPicker';
-import DriverBottomNav, { DRIVER_BOTTOM_NAV_INSET } from '../../components/DriverBottomNav';
+import DriverBottomNav, { DRIVER_BOTTOM_NAV_INSET, DRIVER_MAIN_ROUTE } from '../../components/DriverBottomNav';
 import { ensureApprovedProfileBeforeCreateTrip } from '../../services/driverProfileGuard';
 
 const THEME = {
@@ -108,7 +108,7 @@ const CreateTripScreen = ({ navigation }) => {
     const verifyApproval = async () => {
       const result = await ensureApprovedProfileBeforeCreateTrip();
       if (!result.allowed && !cancelled) {
-        navigation?.replace('DriverProfile');
+        navigation?.replace(DRIVER_MAIN_ROUTE, { screen: 'DriverProfile' });
       }
     };
 
@@ -286,7 +286,7 @@ const CreateTripScreen = ({ navigation }) => {
 
       await playSuccessAnimation();
       resetForm();
-      navigation?.navigate('DriverHome');
+      navigation?.navigate(DRIVER_MAIN_ROUTE, { screen: 'DriverHome' });
     } catch (e) {
       Alert.alert('Lỗi', e.message || 'Không thể tạo chuyến');
     } finally {

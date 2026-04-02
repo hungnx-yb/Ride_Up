@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
-import DriverBottomNav, { DRIVER_BOTTOM_NAV_INSET } from '../../components/DriverBottomNav';
+import { DRIVER_BOTTOM_NAV_INSET } from '../../components/DriverBottomNav';
 import SkeletonShimmer from '../../components/SkeletonShimmer';
 import {
   createChatRealtimeClient,
@@ -120,7 +120,7 @@ const DriverMessagesScreen = ({ navigation }) => {
       setChatMessages(Array.isArray(messages) ? messages.map(normalizeDriverMessage) : []);
       setChatDraft('');
       setChatPendingImage(null);
-      await markChatThreadRead(thread.id).catch(() => {});
+      await markChatThreadRead(thread.id).catch(() => { });
       setThreads((prev) => {
         const next = (Array.isArray(prev) ? prev : []).map((item) => (
           item?.id === thread.id ? { ...item, myUnreadCount: 0 } : item
@@ -378,7 +378,6 @@ const DriverMessagesScreen = ({ navigation }) => {
         </View>
       </Modal>
 
-      <DriverBottomNav navigation={navigation} activeKey="messages" />
     </View>
   );
 };

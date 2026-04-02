@@ -23,7 +23,7 @@ const formatDateTime = (iso) => {
   return `${date.toLocaleDateString('vi-VN')} ${date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}`;
 };
 
-const NotificationCenterScreen = ({ navigation, role = 'CUSTOMER' }) => {
+const NotificationCenterScreen = ({ navigation, role = 'CUSTOMER', hideFooter = false }) => {
   const [feed, setFeed] = useState(getRealtimeNotificationFeed());
   const [refreshing, setRefreshing] = useState(false);
   const isDriver = String(role || '').toUpperCase() === 'DRIVER';
@@ -102,7 +102,7 @@ const NotificationCenterScreen = ({ navigation, role = 'CUSTOMER' }) => {
         }
       />
 
-      {isDriver ? (
+      {hideFooter ? null : isDriver ? (
         <DriverBottomNav navigation={navigation} activeKey="notifications" />
       ) : (
         <View style={styles.footerWrap}>

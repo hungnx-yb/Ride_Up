@@ -3,6 +3,7 @@ import { StatusBar } from 'expo-status-bar';
 import { View, ActivityIndicator, Alert, Modal, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { COLORS, ROLES } from './src/config/config';
 import {
   loadStoredAuth,
@@ -35,8 +36,10 @@ import TripDetailScreen from './src/screens/driver/TripDetailScreen';
 import DriverMessagesScreen from './src/screens/driver/DriverMessagesScreen';
 import NotificationCenterScreen from './src/screens/common/NotificationCenterScreen';
 import LoginTransitionOverlay from './src/components/LoginTransitionOverlay';
+import DriverBottomNav, { DRIVER_MAIN_ROUTE } from './src/components/DriverBottomNav';
 
 const Stack = createNativeStackNavigator();
+const DriverTab = createBottomTabNavigator();
 const navRef = createNavigationContainerRef();
 
 /** Trả về role ưu tiên cao nhất từ mảng roles */
@@ -154,7 +157,7 @@ export default function App() {
     }
 
     prefetchedForUserIdRef.current = userId;
-    prefetchDriverBootstrapData().catch(() => {});
+    prefetchDriverBootstrapData().catch(() => { });
   }, [user]);
 
   useEffect(() => {
@@ -241,7 +244,7 @@ export default function App() {
     setToken(authToken);
 
     if ((userData?.roles || []).includes(ROLES.DRIVER)) {
-      prefetchDriverBootstrapData().catch(() => {});
+      prefetchDriverBootstrapData().catch(() => { });
     }
 
     setTimeout(() => {
@@ -276,6 +279,23 @@ export default function App() {
   }
 
   // Chọn màn hình home theo role
+  const DriverMainTabs = () => (
+    <DriverTab.Navigator
+      screenOptions={{ headerShown: false }}
+      tabBar={(props) => <DriverBottomNav {...props} />}
+    >
+      <DriverTab.Screen name="DriverHome">
+        {(props) => <DriverHomeScreen {...props} user={user} onLogout={handleLogout} />}
+      </DriverTab.Screen>
+      <DriverTab.Screen name="AllTrips" component={AllTripsScreen} />
+      <DriverTab.Screen name="DriverMessages" component={DriverMessagesScreen} />
+      <DriverTab.Screen name="NotificationCenter">
+        {(props) => <NotificationCenterScreen {...props} role="DRIVER" hideFooter />}
+      </DriverTab.Screen>
+      <DriverTab.Screen name="DriverProfile" component={DriverProfileScreen} />
+    </DriverTab.Navigator>
+  );
+
   const getRoleHome = () => {
     const role = getPrimaryRole(user?.roles ?? []);
     switch (role) {
@@ -294,17 +314,9 @@ export default function App() {
       case ROLES.DRIVER:
         return (
           <>
-            <Stack.Screen name="DriverHome">
-              {(props) => <DriverHomeScreen {...props} user={user} onLogout={handleLogout} />}
-            </Stack.Screen>
-            <Stack.Screen name="CreateTrip" component={CreateTripScreen} />
-            <Stack.Screen name="AllTrips" component={AllTripsScreen} />
-            <Stack.Screen name="DriverMessages" component={DriverMessagesScreen} />
-            <Stack.Screen name="DriverProfile" component={DriverProfileScreen} />
-            <Stack.Screen name="TripDetail" component={TripDetailScreen} />
-            <Stack.Screen name="NotificationCenter">
-              {(props) => <NotificationCenterScreen {...props} role="DRIVER" />}
-            </Stack.Screen>
+            <Stack.Screen name={DRIVER_MAIN_ROUTE} component={DriverMainTabs} options={{ animation: 'none' }} />
+            <Stack.Screen name="CreateTrip" component={CreateTripScreen} options={{ animation: 'none' }} />
+            <Stack.Screen name="TripDetail" component={TripDetailScreen} options={{ animation: 'none' }} />
           </>
         );
       case ROLES.CUSTOMER:

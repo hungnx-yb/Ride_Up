@@ -10,6 +10,7 @@ import {
 } from '../services/api';
 
 export const DRIVER_BOTTOM_NAV_INSET = 116;
+export const DRIVER_MAIN_ROUTE = 'DriverMain';
 
 const ITEMS = [
   { key: 'home', label: 'Trang chủ', icon: 'home-outline', iconActive: 'home', screen: 'DriverHome' },
@@ -19,7 +20,15 @@ const ITEMS = [
   { key: 'profile', label: 'Tài khoản', icon: 'person-outline', iconActive: 'person', screen: 'DriverProfile' },
 ];
 
-const DriverBottomNav = ({ navigation, activeKey }) => {
+const routeKeyByName = {
+  DriverHome: 'home',
+  AllTrips: 'trips',
+  DriverMessages: 'messages',
+  NotificationCenter: 'notifications',
+  DriverProfile: 'profile',
+};
+
+const DriverBottomNav = ({ navigation, activeKey, state }) => {
   const [unreadMessagesCount, setUnreadMessagesCount] = useState(getChatUnreadThreadsCount());
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(
     getRealtimeNotificationFeed().filter((item) => item?.read !== true).length
@@ -49,11 +58,20 @@ const DriverBottomNav = ({ navigation, activeKey }) => {
     notifications: unreadNotificationCount,
   }), [unreadMessagesCount, unreadNotificationCount]);
 
-  const normalizedActiveKey = activeKey === 'create' ? 'trips' : activeKey;
+  const activeRouteName = state?.routes?.[state?.index]?.name;
+  const activeKeyFromState = routeKeyByName[activeRouteName] || null;
+  const normalizedActiveKey = (activeKeyFromState || activeKey) === 'create' ? 'trips' : (activeKeyFromState || activeKey);
+  const isTabBarMode = !!state;
 
   const goTo = (item) => {
     if (!navigation || normalizedActiveKey === item.key) return;
-    navigation.navigate(item.screen);
+
+    if (isTabBarMode) {
+      navigation.navigate(item.screen);
+      return;
+    }
+
+    navigation.navigate(DRIVER_MAIN_ROUTE, { screen: item.screen });
   };
 
   return (

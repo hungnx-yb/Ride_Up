@@ -190,6 +190,7 @@ const CustomerHomeScreen = ({ user, onLogout, navigation, route }) => {
   const [chatUploadingImage, setChatUploadingImage] = useState(false);
   const [chatVisible, setChatVisible] = useState(false);
   const [unreadChatCount, setUnreadChatCount] = useState(getChatUnreadThreadsCount());
+  const [notificationFeed, setNotificationFeed] = useState(getRealtimeNotificationFeed());
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(
     getRealtimeNotificationFeed().filter((item) => item?.read !== true).length
   );
@@ -331,7 +332,9 @@ const CustomerHomeScreen = ({ user, onLogout, navigation, route }) => {
 
   useEffect(() => {
     const unsubscribe = onRealtimeNotificationFeedChange((next) => {
-      const count = (Array.isArray(next) ? next : []).filter((item) => item?.read !== true).length;
+      const normalized = Array.isArray(next) ? next : [];
+      setNotificationFeed(normalized);
+      const count = normalized.filter((item) => item?.read !== true).length;
       setUnreadNotificationCount(count);
     });
     return unsubscribe;
@@ -1570,7 +1573,23 @@ const CustomerHomeScreen = ({ user, onLogout, navigation, route }) => {
     setActiveFooterTab('notifications');
     markAllRealtimeNotificationsRead();
     setUnreadNotificationCount(0);
-    navigation?.navigate('NotificationCenter');
+  };
+
+  const formatNotificationTime = (isoValue) => {
+    const raw = String(isoValue || '').trim();
+    if (!raw) {
+      return '--';
+    }
+    const date = new Date(raw);
+    if (Number.isNaN(date.getTime())) {
+      return '--';
+    }
+    return `${date.toLocaleDateString('vi-VN')} ${date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}`;
+  };
+
+  const markAllNotificationsAsRead = () => {
+    markAllRealtimeNotificationsRead();
+    setUnreadNotificationCount(0);
   };
 
   const openQuickResultModal = ({
@@ -2165,89 +2184,89 @@ const CustomerHomeScreen = ({ user, onLogout, navigation, route }) => {
                 <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
               </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[styles.dateInputWrap, showSearchDatePicker && styles.dateInputWrapActive]}
-              onPress={openSearchDatePicker}
-              activeOpacity={0.9}
-            >
-              <Ionicons name="calendar-outline" size={16} color="#64748B" />
-              <Text style={[styles.dateInput, !searchDate && styles.dateInputPlaceholder]}>
-                {formatSearchDateLabel(searchDate)}
-              </Text>
-              <Ionicons name={showSearchDatePicker ? 'chevron-up' : 'chevron-down'} size={16} color="#16A34A" />
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.dateInputWrap, showSearchDatePicker && styles.dateInputWrapActive]}
+                onPress={openSearchDatePicker}
+                activeOpacity={0.9}
+              >
+                <Ionicons name="calendar-outline" size={16} color="#64748B" />
+                <Text style={[styles.dateInput, !searchDate && styles.dateInputPlaceholder]}>
+                  {formatSearchDateLabel(searchDate)}
+                </Text>
+                <Ionicons name={showSearchDatePicker ? 'chevron-up' : 'chevron-down'} size={16} color="#16A34A" />
+              </TouchableOpacity>
 
-            {showSearchDatePicker ? (
-              <View style={styles.calendarDropdown}>
-                <View style={styles.calendarHeaderRow}>
-                  <TouchableOpacity
-                    style={styles.calendarNavBtn}
-                    onPress={() => setSearchCalendarMonth((prev) => addMonths(prev, -1))}
-                    activeOpacity={0.85}
-                  >
-                    <Ionicons name="chevron-back" size={16} color="#0F172A" />
-                  </TouchableOpacity>
-                  <Text style={styles.calendarMonthLabel}>{monthLabelFormatter.format(searchCalendarMonth)}</Text>
-                  <TouchableOpacity
-                    style={styles.calendarNavBtn}
-                    onPress={() => setSearchCalendarMonth((prev) => addMonths(prev, 1))}
-                    activeOpacity={0.85}
-                  >
-                    <Ionicons name="chevron-forward" size={16} color="#0F172A" />
-                  </TouchableOpacity>
-                </View>
+              {showSearchDatePicker ? (
+                <View style={styles.calendarDropdown}>
+                  <View style={styles.calendarHeaderRow}>
+                    <TouchableOpacity
+                      style={styles.calendarNavBtn}
+                      onPress={() => setSearchCalendarMonth((prev) => addMonths(prev, -1))}
+                      activeOpacity={0.85}
+                    >
+                      <Ionicons name="chevron-back" size={16} color="#0F172A" />
+                    </TouchableOpacity>
+                    <Text style={styles.calendarMonthLabel}>{monthLabelFormatter.format(searchCalendarMonth)}</Text>
+                    <TouchableOpacity
+                      style={styles.calendarNavBtn}
+                      onPress={() => setSearchCalendarMonth((prev) => addMonths(prev, 1))}
+                      activeOpacity={0.85}
+                    >
+                      <Ionicons name="chevron-forward" size={16} color="#0F172A" />
+                    </TouchableOpacity>
+                  </View>
 
-                <View style={styles.calendarWeekRow}>
-                  {['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'].map((dayLabel) => (
-                    <Text key={dayLabel} style={styles.calendarWeekLabel}>{dayLabel}</Text>
-                  ))}
-                </View>
+                  <View style={styles.calendarWeekRow}>
+                    {['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'].map((dayLabel) => (
+                      <Text key={dayLabel} style={styles.calendarWeekLabel}>{dayLabel}</Text>
+                    ))}
+                  </View>
 
-                <View style={styles.calendarGrid}>
-                  {calendarDays.map((item) => {
-                    const dayDate = stripTime(item.date);
-                    const isToday = isSameDay(dayDate, stripTime(today));
-                    const isSelected = !!searchDate && item.iso === searchDate;
-                    return (
-                      <TouchableOpacity
-                        key={item.iso}
-                        style={[
-                          styles.calendarDayCell,
-                          !item.inCurrentMonth && styles.calendarDayCellMuted,
-                          isToday && styles.calendarDayCellToday,
-                          isSelected && styles.calendarDayCellSelected,
-                        ]}
-                        onPress={() => selectSearchDate(item.iso)}
-                        activeOpacity={0.85}
-                      >
-                        <Text
+                  <View style={styles.calendarGrid}>
+                    {calendarDays.map((item) => {
+                      const dayDate = stripTime(item.date);
+                      const isToday = isSameDay(dayDate, stripTime(today));
+                      const isSelected = !!searchDate && item.iso === searchDate;
+                      return (
+                        <TouchableOpacity
+                          key={item.iso}
                           style={[
-                            styles.calendarDayText,
-                            !item.inCurrentMonth && styles.calendarDayTextMuted,
-                            isToday && styles.calendarDayTextToday,
-                            isSelected && styles.calendarDayTextSelected,
+                            styles.calendarDayCell,
+                            !item.inCurrentMonth && styles.calendarDayCellMuted,
+                            isToday && styles.calendarDayCellToday,
+                            isSelected && styles.calendarDayCellSelected,
                           ]}
+                          onPress={() => selectSearchDate(item.iso)}
+                          activeOpacity={0.85}
                         >
-                          {item.date.getDate()}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
+                          <Text
+                            style={[
+                              styles.calendarDayText,
+                              !item.inCurrentMonth && styles.calendarDayTextMuted,
+                              isToday && styles.calendarDayTextToday,
+                              isSelected && styles.calendarDayTextSelected,
+                            ]}
+                          >
+                            {item.date.getDate()}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
                 </View>
-              </View>
-            ) : null}
+              ) : null}
 
-            <View style={styles.quickDateRow}>
-              <TouchableOpacity style={styles.quickDateBtn} onPress={clearSearchDate}>
-                <Text style={styles.quickDateText}>Tất cả ngày</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.quickDateBtn} onPress={() => selectSearchDate(toIsoDate(today))}>
-                <Text style={styles.quickDateText}>Hôm nay</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.quickDateBtn} onPress={() => selectSearchDate(toIsoDate(tomorrow))}>
-                <Text style={styles.quickDateText}>Ngày mai</Text>
-              </TouchableOpacity>
-            </View>
+              <View style={styles.quickDateRow}>
+                <TouchableOpacity style={styles.quickDateBtn} onPress={clearSearchDate}>
+                  <Text style={styles.quickDateText}>Tất cả ngày</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.quickDateBtn} onPress={() => selectSearchDate(toIsoDate(today))}>
+                  <Text style={styles.quickDateText}>Hôm nay</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.quickDateBtn} onPress={() => selectSearchDate(toIsoDate(tomorrow))}>
+                  <Text style={styles.quickDateText}>Ngày mai</Text>
+                </TouchableOpacity>
+              </View>
 
               <Text style={styles.aiInputLabel}>Dán mô tả chuyến đi bằng AI</Text>
               <TextInput
@@ -2301,87 +2320,88 @@ const CustomerHomeScreen = ({ user, onLogout, navigation, route }) => {
               </TouchableOpacity>
             </View>
 
-          {searchResults.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Ionicons name="car-outline" size={22} color="#94A3B8" />
-              <Text style={styles.emptyTitle}>Chưa có chuyến phù hợp</Text>
-              <Text style={styles.emptyText}>Thử đổi điểm đón, điểm đến hoặc ngày khởi hành.</Text>
-            </View>
-          ) : (
-            <>
-              {searchResults.map((trip) => {
-                const tripDriverAvatarUrl = resolveStoragePublicUrl(trip?.driverAvatarUrl);
-                return (
-                <TouchableOpacity
-                  key={trip.id}
-                  style={[styles.rideCard, { padding: isSmallPhone ? 10 : 12, marginBottom: isSmallPhone ? 9 : 10 }]}
-                  onPress={() => openTripDetail(trip)}
-                  activeOpacity={0.92}
-                >
-                <View style={styles.rideCardTop}>
-                  <View
-                    style={[
-                      styles.driverAvatar,
-                      {
-                        width: isSmallPhone ? 34 : 36,
-                        height: isSmallPhone ? 34 : 36,
-                        marginRight: isSmallPhone ? 7 : 8,
-                      },
-                    ]}
-                  >
-                    {tripDriverAvatarUrl ? (
-                      <Image source={{ uri: tripDriverAvatarUrl }} style={styles.driverAvatarImage} />
-                    ) : (
-                      <Ionicons name="person-outline" size={isSmallPhone ? 16 : 17} color="#111827" />
-                    )}
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.driverTitle, { fontSize: isSmallPhone ? 13 : 14 }]}>{trip.driverName || 'Tài xế RideUp'}</Text>
-                    <Text style={[styles.driverMeta, { fontSize: isSmallPhone ? 10 : 11 }]}>⭐ {trip.driverRating || 0} • Xe ghép liên tỉnh</Text>
-                  </View>
-                  <Text style={[styles.tripPrice, { fontSize: isSmallPhone ? 15 : 17 }]}>{formatCurrency(trip.price)}</Text>
-                </View>
+            {searchResults.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Ionicons name="car-outline" size={22} color="#94A3B8" />
+                <Text style={styles.emptyTitle}>Chưa có chuyến phù hợp</Text>
+                <Text style={styles.emptyText}>Thử đổi điểm đón, điểm đến hoặc ngày khởi hành.</Text>
+              </View>
+            ) : (
+              <>
+                {searchResults.map((trip) => {
+                  const tripDriverAvatarUrl = resolveStoragePublicUrl(trip?.driverAvatarUrl);
+                  return (
+                    <TouchableOpacity
+                      key={trip.id}
+                      style={[styles.rideCard, { padding: isSmallPhone ? 10 : 12, marginBottom: isSmallPhone ? 9 : 10 }]}
+                      onPress={() => openTripDetail(trip)}
+                      activeOpacity={0.92}
+                    >
+                      <View style={styles.rideCardTop}>
+                        <View
+                          style={[
+                            styles.driverAvatar,
+                            {
+                              width: isSmallPhone ? 34 : 36,
+                              height: isSmallPhone ? 34 : 36,
+                              marginRight: isSmallPhone ? 7 : 8,
+                            },
+                          ]}
+                        >
+                          {tripDriverAvatarUrl ? (
+                            <Image source={{ uri: tripDriverAvatarUrl }} style={styles.driverAvatarImage} />
+                          ) : (
+                            <Ionicons name="person-outline" size={isSmallPhone ? 16 : 17} color="#111827" />
+                          )}
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.driverTitle, { fontSize: isSmallPhone ? 13 : 14 }]}>{trip.driverName || 'Tài xế RideUp'}</Text>
+                          <Text style={[styles.driverMeta, { fontSize: isSmallPhone ? 10 : 11 }]}>⭐ {trip.driverRating || 0} • Xe ghép liên tỉnh</Text>
+                        </View>
+                        <Text style={[styles.tripPrice, { fontSize: isSmallPhone ? 15 : 17 }]}>{formatCurrency(trip.price)}</Text>
+                      </View>
 
-                  <View style={styles.routeTimeline}>
-                    <View style={styles.routeLineCol}>
-                      <View style={styles.routeDotFrom} />
-                      <View style={styles.routeLine} />
-                      <View style={styles.routeDotTo} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.routeMain}>{trip.from}</Text>
-                      <Text style={styles.routeSub}>Đón linh hoạt theo tuyến</Text>
-                      <View style={{ height: 10 }} />
-                      <Text style={styles.routeMain}>{trip.to}</Text>
-                      <Text style={styles.routeSub}>Trả tại điểm đã đăng ký</Text>
-                    </View>
-                  </View>
+                      <View style={styles.routeTimeline}>
+                        <View style={styles.routeLineCol}>
+                          <View style={styles.routeDotFrom} />
+                          <View style={styles.routeLine} />
+                          <View style={styles.routeDotTo} />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.routeMain}>{trip.from}</Text>
+                          <Text style={styles.routeSub}>Đón linh hoạt theo tuyến</Text>
+                          <View style={{ height: 10 }} />
+                          <Text style={styles.routeMain}>{trip.to}</Text>
+                          <Text style={styles.routeSub}>Trả tại điểm đã đăng ký</Text>
+                        </View>
+                      </View>
 
-                  <View style={styles.rideMetaRow}>
-                    <View style={styles.metaChip}>
-                      <Ionicons name="time-outline" size={13} color="#0F172A" />
-                      <Text style={styles.metaChipText}>{formatTime(trip.departureTime)}</Text>
-                    </View>
-                    <View style={styles.metaChip}>
-                      <Ionicons name="people-outline" size={13} color="#0F172A" />
-                      <Text style={styles.metaChipText}>{trip.availableSeats}/{trip.totalSeats} chỗ</Text>
-                    </View>
-                  </View>
+                      <View style={styles.rideMetaRow}>
+                        <View style={styles.metaChip}>
+                          <Ionicons name="time-outline" size={13} color="#0F172A" />
+                          <Text style={styles.metaChipText}>{formatTime(trip.departureTime)}</Text>
+                        </View>
+                        <View style={styles.metaChip}>
+                          <Ionicons name="people-outline" size={13} color="#0F172A" />
+                          <Text style={styles.metaChipText}>{trip.availableSeats}/{trip.totalSeats} chỗ</Text>
+                        </View>
+                      </View>
 
-                <TouchableOpacity style={styles.bookBtn} onPress={() => openTripDetail(trip)}>
-                  <Text style={styles.bookBtnText}>Xem chi tiết và đặt chỗ</Text>
-                </TouchableOpacity>
-                </TouchableOpacity>
-              )})}
+                      <TouchableOpacity style={styles.bookBtn} onPress={() => openTripDetail(trip)}>
+                        <Text style={styles.bookBtnText}>Xem chi tiết và đặt chỗ</Text>
+                      </TouchableOpacity>
+                    </TouchableOpacity>
+                  )
+                })}
 
-              {searchHasMore ? (
-                <TouchableOpacity style={styles.loadMoreBtn} onPress={loadMoreSearch} disabled={searching}>
-                  <Text style={styles.loadMoreBtnText}>{searching ? 'Đang tải thêm...' : 'Xem thêm chuyến'}</Text>
-                </TouchableOpacity>
-              ) : null}
-            </>
-          )}
-        </View>
+                {searchHasMore ? (
+                  <TouchableOpacity style={styles.loadMoreBtn} onPress={loadMoreSearch} disabled={searching}>
+                    <Text style={styles.loadMoreBtnText}>{searching ? 'Đang tải thêm...' : 'Xem thêm chuyến'}</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </>
+            )}
+          </View>
 
           <View style={[styles.bottomPad, { height: footerSpacer }]} />
         </ScrollView>
@@ -2693,6 +2713,58 @@ const CustomerHomeScreen = ({ user, onLogout, navigation, route }) => {
                   ))
                 )}
               </>
+            )}
+          </View>
+
+          <View style={[styles.bottomPad, { height: footerSpacer }]} />
+        </ScrollView>
+      )}
+
+      {activeFooterTab === 'notifications' && (
+        <ScrollView
+          style={styles.container}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => {
+                setRefreshing(true);
+                loadData();
+              }}
+            />
+          }
+        >
+          <View style={[styles.pageHeader, { paddingHorizontal: horizontalGutter, paddingTop: isSmallPhone ? 18 : 24 }]}>
+            <Text style={styles.pageTitle}>Thông báo</Text>
+            <Text style={styles.pageSubTitle}>Bạn có {unreadNotificationCount} thông báo chưa đọc</Text>
+          </View>
+
+          <View style={[styles.section, { paddingHorizontal: horizontalGutter, marginTop: sectionTopGap }]}>
+            <View style={styles.notificationActionRow}>
+              <TouchableOpacity style={styles.notificationReadBtn} onPress={markAllNotificationsAsRead} activeOpacity={0.88}>
+                <Text style={styles.notificationReadBtnText}>Đã đọc hết</Text>
+              </TouchableOpacity>
+            </View>
+
+            {notificationFeed.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Ionicons name="notifications-off-outline" size={22} color="#94A3B8" />
+                <Text style={styles.emptyTitle}>Chưa có thông báo nào</Text>
+                <Text style={styles.emptyText}>Thông báo mới sẽ xuất hiện ở đây khi có cập nhật chuyến đi.</Text>
+              </View>
+            ) : (
+              notificationFeed.map((item) => {
+                const unread = item?.read !== true;
+                return (
+                  <View key={String(item?.id || `${item?.createdAt || ''}-${item?.title || ''}`)} style={[styles.notificationCard, unread && styles.notificationCardUnread]}>
+                    <View style={styles.notificationCardHead}>
+                      <Text style={styles.notificationCardTitle}>{item?.title || 'Thông báo'}</Text>
+                      {unread ? <View style={styles.notificationUnreadDot} /> : null}
+                    </View>
+                    <Text style={styles.notificationCardMessage}>{item?.message || ''}</Text>
+                    <Text style={styles.notificationCardTime}>{formatNotificationTime(item?.createdAt)}</Text>
+                  </View>
+                );
+              })
             )}
           </View>
 
@@ -4901,6 +4973,62 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: '#00B14F',
     marginTop: 5,
+  },
+  notificationActionRow: {
+    marginBottom: 10,
+    alignItems: 'flex-end',
+  },
+  notificationReadBtn: {
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: '#DCFCE7',
+  },
+  notificationReadBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#15803D',
+  },
+  notificationCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 12,
+    marginBottom: 10,
+  },
+  notificationCardUnread: {
+    borderColor: '#86EFAC',
+    backgroundColor: '#F0FDF4',
+  },
+  notificationCardHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  notificationCardTitle: {
+    flex: 1,
+    marginRight: 8,
+    color: '#0F172A',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  notificationUnreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: '#EF4444',
+  },
+  notificationCardMessage: {
+    color: '#334155',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  notificationCardTime: {
+    marginTop: 8,
+    color: '#64748B',
+    fontSize: 12,
   },
   modalScroll: { maxHeight: '100%' },
   modalScrollContent: { paddingBottom: 4 },

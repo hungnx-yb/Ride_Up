@@ -17,7 +17,7 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../../config/config';
-import DriverBottomNav, { DRIVER_BOTTOM_NAV_INSET } from '../../components/DriverBottomNav';
+import { DRIVER_BOTTOM_NAV_INSET } from '../../components/DriverBottomNav';
 import SkeletonShimmer from '../../components/SkeletonShimmer';
 import { getDriverProfile, submitDriverProfile, uploadFile } from '../../services/api';
 import { syncDriverProfileApprovalCache } from '../../services/driverProfileGuard';
@@ -376,7 +376,6 @@ const DriverProfileScreen = ({ navigation }) => {
           <ActivityIndicator size="small" color={THEME.top} />
           <Text style={styles.loadingSyncText}>Đang tải hồ sơ tài xế...</Text>
         </View>
-        <DriverBottomNav navigation={navigation} activeKey="profile" />
       </View>
     );
   }
@@ -392,153 +391,152 @@ const DriverProfileScreen = ({ navigation }) => {
         style={styles.container}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => loadProfile(true)} tintColor={THEME.top} />}
       >
-      <View style={styles.topBar}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation?.goBack()}>
-          <Text style={styles.backBtnText}>‹ Quay lại</Text>
-        </TouchableOpacity>
-      </View>
-
-      <Animated.View style={[styles.hero, { opacity: headAnim, transform: [{ translateY: headTranslate }] }]}>
-        <View style={styles.heroGlow} />
-        <Text style={styles.heroSubtitle}>RideUp Driver Center</Text>
-        <Text style={styles.heroTitle}>Quản lý thông tin tài xế</Text>
-        <View style={styles.badgeRow}>
-          <View style={styles.badgePill}><Text style={styles.badgeText}>Trạng thái: {statusText}</Text></View>
-          <View style={styles.badgePillSoft}>
-            <View style={styles.ratingBadgeRow}>
-              <Ionicons name="star" size={13} color="#F59E0B" />
-              <Text style={styles.badgeTextSoft}>{profile?.driverRating || 0} · {profile?.totalDriverRides || 0} chuyến</Text>
-            </View>
-          </View>
-        </View>
-        {isLocked && <Text style={styles.lockedHint}>Hồ sơ đang chờ duyệt, bạn chỉ có thể xem và chưa thể chỉnh sửa.</Text>}
-        {profile?.status === 'REJECTED' && profile?.rejectionReason ? (
-          <Text style={styles.rejectedHint}>Lý do từ chối: {profile.rejectionReason}</Text>
-        ) : null}
-      </Animated.View>
-
-      {!!submitSuccessMsg && (
-        <View style={styles.successBanner}><Text style={styles.successText}>{submitSuccessMsg}</Text></View>
-      )}
-
-      <Animated.View style={[styles.card, { opacity: infoAnim, transform: [{ translateY: infoTranslate }] }]}>
-        <Text style={styles.sectionTitle}>Thông tin cá nhân</Text>
-        <FormField label="Họ và tên" value={form.fullName} onChangeText={(v) => onChange('fullName', v)} placeholder="Nguyễn Văn A" editable={!isLocked} />
-        <FormField label="Số điện thoại" value={form.phoneNumber} onChangeText={(v) => onChange('phoneNumber', v)} placeholder="09xxxxxxxx" keyboardType="phone-pad" editable={!isLocked} />
-        <FormField label="Email" value={form.email} onChangeText={() => {}} placeholder="Email" editable={false} />
-        <DateField label="Ngày sinh" value={form.dateOfBirth} placeholder="Chọn ngày sinh" editable={!isLocked} onPress={() => openDatePicker('dateOfBirth', form.dateOfBirth)} />
-        <FormField label="Avatar URL" value={form.avatarUrl} onChangeText={(v) => onChange('avatarUrl', v)} placeholder="https://..." editable={!isLocked} />
-      </Animated.View>
-
-      <Animated.View style={[styles.card, { opacity: docAnim, transform: [{ translateY: docTranslate }] }]}>
-        <Text style={styles.sectionTitle}>Giấy tờ tài xế</Text>
-        <FormField label="CCCD" value={form.cccd} onChangeText={(v) => onChange('cccd', v)} placeholder="079xxxxxxxxx" editable={!isLocked} error={submitErrors.cccd} />
-        <UploadField label="Ảnh CCCD mặt trước" value={form.cccdImageFront} onChangeText={(v) => onChange('cccdImageFront', v)} editable={!isLocked} uploading={uploadingField === 'cccdImageFront'} onUpload={() => pickAndUploadImage('cccdImageFront', 'Ảnh CCCD mặt trước')} />
-        <UploadField label="Ảnh CCCD mặt sau" value={form.cccdImageBack} onChangeText={(v) => onChange('cccdImageBack', v)} editable={!isLocked} uploading={uploadingField === 'cccdImageBack'} onUpload={() => pickAndUploadImage('cccdImageBack', 'Ảnh CCCD mặt sau')} />
-        <FormField label="GPLX" value={form.gplx} onChangeText={(v) => onChange('gplx', v)} placeholder="B2 / C / D..." editable={!isLocked} error={submitErrors.gplx} />
-        <DateField label="Hạn GPLX" value={form.gplxExpiryDate} placeholder="Chọn ngày hết hạn" editable={!isLocked} onPress={() => openDatePicker('gplxExpiryDate', form.gplxExpiryDate)} />
-        <UploadField label="Ảnh GPLX" value={form.gplxImage} onChangeText={(v) => onChange('gplxImage', v)} editable={!isLocked} uploading={uploadingField === 'gplxImage'} onUpload={() => pickAndUploadImage('gplxImage', 'Ảnh GPLX')} />
-      </Animated.View>
-
-      <Animated.View style={[styles.card, { opacity: vehicleAnim, transform: [{ translateY: vehicleTranslate }] }]}>
-        <Text style={styles.sectionTitle}>Thông tin xe</Text>
-        <FormField label="Biển số" value={form.plateNumber} onChangeText={(v) => onChange('plateNumber', v)} placeholder="30A-123.45" editable={!isLocked} error={submitErrors.plateNumber} />
-        <View style={styles.row}>
-          <View style={styles.col}><FormField label="Hãng xe" value={form.vehicleBrand} onChangeText={(v) => onChange('vehicleBrand', v)} placeholder="Toyota" editable={!isLocked} error={submitErrors.vehicleBrand} /></View>
-          <View style={styles.col}><FormField label="Dòng xe" value={form.vehicleModel} onChangeText={(v) => onChange('vehicleModel', v)} placeholder="Vios" editable={!isLocked} error={submitErrors.vehicleModel} /></View>
-        </View>
-        <View style={styles.row}>
-          <View style={styles.col}><FormField label="Năm xe" value={form.vehicleYear} onChangeText={(v) => onChange('vehicleYear', v.replace(/[^0-9]/g, ''))} placeholder="2020" keyboardType="number-pad" editable={!isLocked} /></View>
-          <View style={styles.col}><FormField label="Số ghế" value={form.seatCapacity} onChangeText={(v) => onChange('seatCapacity', v.replace(/[^0-9]/g, ''))} placeholder="4" keyboardType="number-pad" editable={!isLocked} /></View>
-        </View>
-        <FormField label="Màu xe" value={form.vehicleColor} onChangeText={(v) => onChange('vehicleColor', v)} placeholder="Trắng / Đen / Xám" editable={!isLocked} />
-        <FormField label="Loại xe" value={form.vehicleType} onChangeText={(v) => onChange('vehicleType', v)} placeholder="Sedan 4 chỗ / Limousine..." editable={!isLocked} />
-        <UploadField label="Ảnh xe" value={form.vehicleImage} onChangeText={(v) => onChange('vehicleImage', v)} editable={!isLocked} uploading={uploadingField === 'vehicleImage'} onUpload={() => pickAndUploadImage('vehicleImage', 'Ảnh xe')} />
-        <UploadField label="Ảnh đăng ký xe" value={form.registrationImage} onChangeText={(v) => onChange('registrationImage', v)} editable={!isLocked} uploading={uploadingField === 'registrationImage'} onUpload={() => pickAndUploadImage('registrationImage', 'Ảnh đăng ký xe')} />
-        <DateField label="Hạn đăng ký" value={form.registrationExpiryDate} placeholder="Chọn ngày hết hạn" editable={!isLocked} onPress={() => openDatePicker('registrationExpiryDate', form.registrationExpiryDate)} />
-        <UploadField label="Ảnh bảo hiểm" value={form.insuranceImage} onChangeText={(v) => onChange('insuranceImage', v)} editable={!isLocked} uploading={uploadingField === 'insuranceImage'} onUpload={() => pickAndUploadImage('insuranceImage', 'Ảnh bảo hiểm')} />
-        <DateField label="Hạn bảo hiểm" value={form.insuranceExpiryDate} placeholder="Chọn ngày hết hạn" editable={!isLocked} onPress={() => openDatePicker('insuranceExpiryDate', form.insuranceExpiryDate)} />
-
-        <View style={styles.switchRow}>
-          <Text style={styles.switchLabel}>Xe đang hoạt động</Text>
-          <Switch
-            value={!!form.vehicleActive}
-            onValueChange={(v) => !isLocked && onChange('vehicleActive', v)}
-            disabled={isLocked}
-            trackColor={{ false: '#D1D5DB', true: '#8EE4AF' }}
-            thumbColor={form.vehicleActive ? '#0B6E4F' : '#9CA3AF'}
-          />
+        <View style={styles.topBar}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => navigation?.goBack()}>
+            <Text style={styles.backBtnText}>‹ Quay lại</Text>
+          </TouchableOpacity>
         </View>
 
-        <Text style={styles.verifyHint}>Trạng thái xác minh xe: {profile?.vehicleVerified ? 'Đã xác minh' : 'Chưa xác minh'}</Text>
-      </Animated.View>
-
-      {canSubmit && (
-        <TouchableOpacity style={[styles.submitBtn, (submitting || isLocked) && styles.saveBtnDisabled]} onPress={handleSubmitProfile} disabled={submitting || isLocked}>
-          {submitting ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.saveBtnText}>{submitBtnText}</Text>}
-        </TouchableOpacity>
-      )}
-
-      {showDatePicker && (
-        <Modal transparent visible={showDatePicker} animationType="fade" onRequestClose={() => setShowDatePicker(false)}>
-          <View style={styles.pickerBackdrop}>
-            <View style={styles.pickerCard}>
-              <Text style={styles.pickerTitle}>Chọn ngày</Text>
-              <View style={styles.dateInputRow}>
-                <View style={styles.dateInputCol}>
-                  <Text style={styles.dateInputLabel}>Ngày</Text>
-                  <TextInput
-                    value={pickerDay}
-                    onChangeText={(v) => setPickerDay(toNumericInput(v, 2))}
-                    keyboardType="number-pad"
-                    maxLength={2}
-                    placeholder="DD"
-                    placeholderTextColor="#94A3B8"
-                    style={styles.dateInput}
-                  />
-                </View>
-                <View style={styles.dateInputCol}>
-                  <Text style={styles.dateInputLabel}>Tháng</Text>
-                  <TextInput
-                    value={pickerMonth}
-                    onChangeText={(v) => setPickerMonth(toNumericInput(v, 2))}
-                    keyboardType="number-pad"
-                    maxLength={2}
-                    placeholder="MM"
-                    placeholderTextColor="#94A3B8"
-                    style={styles.dateInput}
-                  />
-                </View>
-                <View style={[styles.dateInputCol, styles.dateInputYearCol]}>
-                  <Text style={styles.dateInputLabel}>Năm</Text>
-                  <TextInput
-                    value={pickerYear}
-                    onChangeText={(v) => setPickerYear(toNumericInput(v, 4))}
-                    keyboardType="number-pad"
-                    maxLength={4}
-                    placeholder="YYYY"
-                    placeholderTextColor="#94A3B8"
-                    style={styles.dateInput}
-                  />
-                </View>
-              </View>
-              <Text style={styles.pickerPreview}>Đã chọn: {pickerYear || 'YYYY'}-{(pickerMonth || 'MM').padStart(2, '0')}-{(pickerDay || 'DD').padStart(2, '0')}</Text>
-              <View style={styles.pickerActions}>
-                <TouchableOpacity style={styles.pickerBtnGhost} onPress={() => setShowDatePicker(false)}>
-                  <Text style={styles.pickerBtnGhostText}>Hủy</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.pickerBtnPrimary} onPress={confirmPickedDate}>
-                  <Text style={styles.pickerBtnPrimaryText}>Xác nhận</Text>
-                </TouchableOpacity>
+        <Animated.View style={[styles.hero, { opacity: headAnim, transform: [{ translateY: headTranslate }] }]}>
+          <View style={styles.heroGlow} />
+          <Text style={styles.heroSubtitle}>RideUp Driver Center</Text>
+          <Text style={styles.heroTitle}>Quản lý thông tin tài xế</Text>
+          <View style={styles.badgeRow}>
+            <View style={styles.badgePill}><Text style={styles.badgeText}>Trạng thái: {statusText}</Text></View>
+            <View style={styles.badgePillSoft}>
+              <View style={styles.ratingBadgeRow}>
+                <Ionicons name="star" size={13} color="#F59E0B" />
+                <Text style={styles.badgeTextSoft}>{profile?.driverRating || 0} · {profile?.totalDriverRides || 0} chuyến</Text>
               </View>
             </View>
           </View>
-        </Modal>
-      )}
+          {isLocked && <Text style={styles.lockedHint}>Hồ sơ đang chờ duyệt, bạn chỉ có thể xem và chưa thể chỉnh sửa.</Text>}
+          {profile?.status === 'REJECTED' && profile?.rejectionReason ? (
+            <Text style={styles.rejectedHint}>Lý do từ chối: {profile.rejectionReason}</Text>
+          ) : null}
+        </Animated.View>
+
+        {!!submitSuccessMsg && (
+          <View style={styles.successBanner}><Text style={styles.successText}>{submitSuccessMsg}</Text></View>
+        )}
+
+        <Animated.View style={[styles.card, { opacity: infoAnim, transform: [{ translateY: infoTranslate }] }]}>
+          <Text style={styles.sectionTitle}>Thông tin cá nhân</Text>
+          <FormField label="Họ và tên" value={form.fullName} onChangeText={(v) => onChange('fullName', v)} placeholder="Nguyễn Văn A" editable={!isLocked} />
+          <FormField label="Số điện thoại" value={form.phoneNumber} onChangeText={(v) => onChange('phoneNumber', v)} placeholder="09xxxxxxxx" keyboardType="phone-pad" editable={!isLocked} />
+          <FormField label="Email" value={form.email} onChangeText={() => { }} placeholder="Email" editable={false} />
+          <DateField label="Ngày sinh" value={form.dateOfBirth} placeholder="Chọn ngày sinh" editable={!isLocked} onPress={() => openDatePicker('dateOfBirth', form.dateOfBirth)} />
+          <FormField label="Avatar URL" value={form.avatarUrl} onChangeText={(v) => onChange('avatarUrl', v)} placeholder="https://..." editable={!isLocked} />
+        </Animated.View>
+
+        <Animated.View style={[styles.card, { opacity: docAnim, transform: [{ translateY: docTranslate }] }]}>
+          <Text style={styles.sectionTitle}>Giấy tờ tài xế</Text>
+          <FormField label="CCCD" value={form.cccd} onChangeText={(v) => onChange('cccd', v)} placeholder="079xxxxxxxxx" editable={!isLocked} error={submitErrors.cccd} />
+          <UploadField label="Ảnh CCCD mặt trước" value={form.cccdImageFront} onChangeText={(v) => onChange('cccdImageFront', v)} editable={!isLocked} uploading={uploadingField === 'cccdImageFront'} onUpload={() => pickAndUploadImage('cccdImageFront', 'Ảnh CCCD mặt trước')} />
+          <UploadField label="Ảnh CCCD mặt sau" value={form.cccdImageBack} onChangeText={(v) => onChange('cccdImageBack', v)} editable={!isLocked} uploading={uploadingField === 'cccdImageBack'} onUpload={() => pickAndUploadImage('cccdImageBack', 'Ảnh CCCD mặt sau')} />
+          <FormField label="GPLX" value={form.gplx} onChangeText={(v) => onChange('gplx', v)} placeholder="B2 / C / D..." editable={!isLocked} error={submitErrors.gplx} />
+          <DateField label="Hạn GPLX" value={form.gplxExpiryDate} placeholder="Chọn ngày hết hạn" editable={!isLocked} onPress={() => openDatePicker('gplxExpiryDate', form.gplxExpiryDate)} />
+          <UploadField label="Ảnh GPLX" value={form.gplxImage} onChangeText={(v) => onChange('gplxImage', v)} editable={!isLocked} uploading={uploadingField === 'gplxImage'} onUpload={() => pickAndUploadImage('gplxImage', 'Ảnh GPLX')} />
+        </Animated.View>
+
+        <Animated.View style={[styles.card, { opacity: vehicleAnim, transform: [{ translateY: vehicleTranslate }] }]}>
+          <Text style={styles.sectionTitle}>Thông tin xe</Text>
+          <FormField label="Biển số" value={form.plateNumber} onChangeText={(v) => onChange('plateNumber', v)} placeholder="30A-123.45" editable={!isLocked} error={submitErrors.plateNumber} />
+          <View style={styles.row}>
+            <View style={styles.col}><FormField label="Hãng xe" value={form.vehicleBrand} onChangeText={(v) => onChange('vehicleBrand', v)} placeholder="Toyota" editable={!isLocked} error={submitErrors.vehicleBrand} /></View>
+            <View style={styles.col}><FormField label="Dòng xe" value={form.vehicleModel} onChangeText={(v) => onChange('vehicleModel', v)} placeholder="Vios" editable={!isLocked} error={submitErrors.vehicleModel} /></View>
+          </View>
+          <View style={styles.row}>
+            <View style={styles.col}><FormField label="Năm xe" value={form.vehicleYear} onChangeText={(v) => onChange('vehicleYear', v.replace(/[^0-9]/g, ''))} placeholder="2020" keyboardType="number-pad" editable={!isLocked} /></View>
+            <View style={styles.col}><FormField label="Số ghế" value={form.seatCapacity} onChangeText={(v) => onChange('seatCapacity', v.replace(/[^0-9]/g, ''))} placeholder="4" keyboardType="number-pad" editable={!isLocked} /></View>
+          </View>
+          <FormField label="Màu xe" value={form.vehicleColor} onChangeText={(v) => onChange('vehicleColor', v)} placeholder="Trắng / Đen / Xám" editable={!isLocked} />
+          <FormField label="Loại xe" value={form.vehicleType} onChangeText={(v) => onChange('vehicleType', v)} placeholder="Sedan 4 chỗ / Limousine..." editable={!isLocked} />
+          <UploadField label="Ảnh xe" value={form.vehicleImage} onChangeText={(v) => onChange('vehicleImage', v)} editable={!isLocked} uploading={uploadingField === 'vehicleImage'} onUpload={() => pickAndUploadImage('vehicleImage', 'Ảnh xe')} />
+          <UploadField label="Ảnh đăng ký xe" value={form.registrationImage} onChangeText={(v) => onChange('registrationImage', v)} editable={!isLocked} uploading={uploadingField === 'registrationImage'} onUpload={() => pickAndUploadImage('registrationImage', 'Ảnh đăng ký xe')} />
+          <DateField label="Hạn đăng ký" value={form.registrationExpiryDate} placeholder="Chọn ngày hết hạn" editable={!isLocked} onPress={() => openDatePicker('registrationExpiryDate', form.registrationExpiryDate)} />
+          <UploadField label="Ảnh bảo hiểm" value={form.insuranceImage} onChangeText={(v) => onChange('insuranceImage', v)} editable={!isLocked} uploading={uploadingField === 'insuranceImage'} onUpload={() => pickAndUploadImage('insuranceImage', 'Ảnh bảo hiểm')} />
+          <DateField label="Hạn bảo hiểm" value={form.insuranceExpiryDate} placeholder="Chọn ngày hết hạn" editable={!isLocked} onPress={() => openDatePicker('insuranceExpiryDate', form.insuranceExpiryDate)} />
+
+          <View style={styles.switchRow}>
+            <Text style={styles.switchLabel}>Xe đang hoạt động</Text>
+            <Switch
+              value={!!form.vehicleActive}
+              onValueChange={(v) => !isLocked && onChange('vehicleActive', v)}
+              disabled={isLocked}
+              trackColor={{ false: '#D1D5DB', true: '#8EE4AF' }}
+              thumbColor={form.vehicleActive ? '#0B6E4F' : '#9CA3AF'}
+            />
+          </View>
+
+          <Text style={styles.verifyHint}>Trạng thái xác minh xe: {profile?.vehicleVerified ? 'Đã xác minh' : 'Chưa xác minh'}</Text>
+        </Animated.View>
+
+        {canSubmit && (
+          <TouchableOpacity style={[styles.submitBtn, (submitting || isLocked) && styles.saveBtnDisabled]} onPress={handleSubmitProfile} disabled={submitting || isLocked}>
+            {submitting ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.saveBtnText}>{submitBtnText}</Text>}
+          </TouchableOpacity>
+        )}
+
+        {showDatePicker && (
+          <Modal transparent visible={showDatePicker} animationType="fade" onRequestClose={() => setShowDatePicker(false)}>
+            <View style={styles.pickerBackdrop}>
+              <View style={styles.pickerCard}>
+                <Text style={styles.pickerTitle}>Chọn ngày</Text>
+                <View style={styles.dateInputRow}>
+                  <View style={styles.dateInputCol}>
+                    <Text style={styles.dateInputLabel}>Ngày</Text>
+                    <TextInput
+                      value={pickerDay}
+                      onChangeText={(v) => setPickerDay(toNumericInput(v, 2))}
+                      keyboardType="number-pad"
+                      maxLength={2}
+                      placeholder="DD"
+                      placeholderTextColor="#94A3B8"
+                      style={styles.dateInput}
+                    />
+                  </View>
+                  <View style={styles.dateInputCol}>
+                    <Text style={styles.dateInputLabel}>Tháng</Text>
+                    <TextInput
+                      value={pickerMonth}
+                      onChangeText={(v) => setPickerMonth(toNumericInput(v, 2))}
+                      keyboardType="number-pad"
+                      maxLength={2}
+                      placeholder="MM"
+                      placeholderTextColor="#94A3B8"
+                      style={styles.dateInput}
+                    />
+                  </View>
+                  <View style={[styles.dateInputCol, styles.dateInputYearCol]}>
+                    <Text style={styles.dateInputLabel}>Năm</Text>
+                    <TextInput
+                      value={pickerYear}
+                      onChangeText={(v) => setPickerYear(toNumericInput(v, 4))}
+                      keyboardType="number-pad"
+                      maxLength={4}
+                      placeholder="YYYY"
+                      placeholderTextColor="#94A3B8"
+                      style={styles.dateInput}
+                    />
+                  </View>
+                </View>
+                <Text style={styles.pickerPreview}>Đã chọn: {pickerYear || 'YYYY'}-{(pickerMonth || 'MM').padStart(2, '0')}-{(pickerDay || 'DD').padStart(2, '0')}</Text>
+                <View style={styles.pickerActions}>
+                  <TouchableOpacity style={styles.pickerBtnGhost} onPress={() => setShowDatePicker(false)}>
+                    <Text style={styles.pickerBtnGhostText}>Hủy</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.pickerBtnPrimary} onPress={confirmPickedDate}>
+                    <Text style={styles.pickerBtnPrimaryText}>Xác nhận</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </Modal>
+        )}
 
         <View style={styles.bottomGap} />
       </ScrollView>
-      <DriverBottomNav navigation={navigation} activeKey="profile" />
     </View>
   );
 };

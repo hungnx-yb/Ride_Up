@@ -13,7 +13,7 @@ import {
   completeDriverTrip,
   peekDriverTripsSnapshot,
 } from '../../services/api';
-import DriverBottomNav, { DRIVER_BOTTOM_NAV_INSET } from '../../components/DriverBottomNav';
+import { DRIVER_BOTTOM_NAV_INSET } from '../../components/DriverBottomNav';
 import SkeletonShimmer from '../../components/SkeletonShimmer';
 import {
   ensureApprovedProfileBeforeCreateTrip,
@@ -24,14 +24,14 @@ import ProfileApprovalModal from '../../components/ProfileApprovalModal';
 
 const THEME = {
   gradientStart: '#00B14F',
-  accent:        '#00A63E',
+  accent: '#00A63E',
 };
 
 const STATUS_CONFIG = {
-  scheduled:   { label: 'Đã lên lịch', color: '#1565C0', bg: '#E3F2FD', iconName: 'calendar-outline' },
-  ongoing:     { label: 'Đang chạy',   color: '#2E7D32', bg: '#E8F5E9', iconName: 'car-outline' },
-  completed:   { label: 'Hoàn thành',  color: '#546E7A', bg: '#ECEFF1', iconName: 'checkmark-circle-outline' },
-  cancelled:   { label: 'Đã hủy',      color: '#B71C1C', bg: '#FFEBEE', iconName: 'close-circle-outline' },
+  scheduled: { label: 'Đã lên lịch', color: '#1565C0', bg: '#E3F2FD', iconName: 'calendar-outline' },
+  ongoing: { label: 'Đang chạy', color: '#2E7D32', bg: '#E8F5E9', iconName: 'car-outline' },
+  completed: { label: 'Hoàn thành', color: '#546E7A', bg: '#ECEFF1', iconName: 'checkmark-circle-outline' },
+  cancelled: { label: 'Đã hủy', color: '#B71C1C', bg: '#FFEBEE', iconName: 'close-circle-outline' },
 };
 
 const TABS = [
@@ -62,7 +62,7 @@ const parseTripDeparture = (trip) => {
 
 // ─── Trip Card ────────────────────────────────────────────
 const TripCard = ({ trip, routeName, onCancel, onStart, onComplete, onViewDetail, actioning }) => {
-  const cfg   = STATUS_CONFIG[trip.status] ?? STATUS_CONFIG.scheduled;
+  const cfg = STATUS_CONFIG[trip.status] ?? STATUS_CONFIG.scheduled;
   const filled = trip.totalSeats - trip.availableSeats;
   const fillPct = Math.round((filled / trip.totalSeats) * 100);
   const displayRouteName = routeName
@@ -181,11 +181,11 @@ const TripCardSkeleton = () => (
 const AllTripsScreen = ({ navigation }) => {
   const listScrollRef = useRef(null);
   const initialTripsRef = useRef(peekDriverTripsSnapshot());
-  const [trips, setTrips]     = useState(initialTripsRef.current);
+  const [trips, setTrips] = useState(initialTripsRef.current);
   const [loading, setLoading] = useState(initialTripsRef.current.length === 0);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState('');
-  const [activeTab, setActiveTab]   = useState('all');
+  const [activeTab, setActiveTab] = useState('all');
   const [cancelingTripId, setCancelingTripId] = useState(null);
   const [processingTripId, setProcessingTripId] = useState(null);
   const [cancelModalVisible, setCancelModalVisible] = useState(false);
@@ -535,7 +535,6 @@ const AllTripsScreen = ({ navigation }) => {
         onGoProfile={goToDriverProfile}
       />
 
-      <DriverBottomNav navigation={navigation} activeKey="trips" />
     </View>
   );
 };
@@ -544,7 +543,7 @@ export default AllTripsScreen;
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F6F8FA' },
-  center:    { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F6F8FA' },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F6F8FA' },
 
   // Header
   header: {
@@ -552,8 +551,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center',
     paddingTop: 52, paddingBottom: 16, paddingHorizontal: 16,
   },
-  backBtn:     { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.2)', justifyContent: 'center', alignItems: 'center', marginRight: 10 },
-  backIcon:    { color: '#fff', fontSize: 26, lineHeight: 30, fontWeight: '300' },
+  backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.2)', justifyContent: 'center', alignItems: 'center', marginRight: 10 },
+  backIcon: { color: '#fff', fontSize: 26, lineHeight: 30, fontWeight: '300' },
   headerTitleRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 },
   headerTitle: { color: '#fff', fontSize: 18, fontWeight: '700' },
 
@@ -693,24 +692,24 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#F2F2F2',
   },
-  tripTop:      { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 10 },
-  tripRoute:    { fontSize: 15, fontWeight: '800', color: '#333', marginBottom: 4 },
+  tripTop: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 10 },
+  tripRoute: { fontSize: 15, fontWeight: '800', color: '#333', marginBottom: 4 },
   tripDateTimeRow: { flexDirection: 'row', alignItems: 'center' },
   tripDateTime: { fontSize: 12, color: '#888', marginLeft: 4 },
-  statusBadge:  { borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4, marginLeft: 8 },
+  statusBadge: { borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4, marginLeft: 8 },
   statusTextRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  statusText:   { fontSize: 11, fontWeight: '700' },
+  statusText: { fontSize: 11, fontWeight: '700' },
 
-  seatsRow:  { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 },
+  seatsRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 },
   seatsLabel: { fontSize: 12, color: '#777' },
   seatsCount: { fontSize: 12, fontWeight: '700', color: '#333' },
   barBg: { height: 5, backgroundColor: '#F0F0F0', borderRadius: 3, marginBottom: 10 },
   barFill: { height: 5, backgroundColor: THEME.gradientStart, borderRadius: 3 },
 
-  tripFooter:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 10, borderTopWidth: 1, borderTopColor: '#F5F5F5' },
-  fareBox:     {},
-  fareLabel:   { fontSize: 11, color: '#999' },
-  fareValue:   { fontSize: 15, fontWeight: '800', color: THEME.accent },
+  tripFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 10, borderTopWidth: 1, borderTopColor: '#F5F5F5' },
+  fareBox: {},
+  fareLabel: { fontSize: 11, color: '#999' },
+  fareValue: { fontSize: 15, fontWeight: '800', color: THEME.accent },
   footerRight: { alignItems: 'flex-end' },
   farePerSeat: { fontSize: 12, color: '#AAA' },
   actionBtnsRow: {
@@ -765,11 +764,11 @@ const styles = StyleSheet.create({
   detailBtnText: { color: '#92400E', fontSize: 12, fontWeight: '800' },
 
   // Empty
-  emptyBox:      { alignItems: 'center', paddingTop: 36 },
-  emptyIcon:     { fontSize: 48, marginBottom: 12 },
-  emptyText:     { fontSize: 15, color: '#999', marginBottom: 20 },
-  errorText:     { fontSize: 12, color: '#B71C1C', marginBottom: 14, textAlign: 'center', paddingHorizontal: 16 },
-  createBtn:     { backgroundColor: THEME.gradientStart, borderRadius: 12, paddingHorizontal: 24, paddingVertical: 12 },
+  emptyBox: { alignItems: 'center', paddingTop: 36 },
+  emptyIcon: { fontSize: 48, marginBottom: 12 },
+  emptyText: { fontSize: 15, color: '#999', marginBottom: 20 },
+  errorText: { fontSize: 12, color: '#B71C1C', marginBottom: 14, textAlign: 'center', paddingHorizontal: 16 },
+  createBtn: { backgroundColor: THEME.gradientStart, borderRadius: 12, paddingHorizontal: 24, paddingVertical: 12 },
   createBtnText: { color: '#fff', fontWeight: '700' },
 
   // Cancel modal

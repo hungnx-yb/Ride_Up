@@ -6,7 +6,7 @@ import Constants from 'expo-constants';
 // CẤU HÌNH API
 // ========================================
 const ENV_BASE_URL = (process.env.EXPO_PUBLIC_API_BASE_URL || '').trim();
-const WEB_HOSTNAME = typeof window !== 'undefined' ? window.location.hostname : '';
+const WEB_HOSTNAME = typeof window !== 'undefined' && window.location ? window.location.hostname : '';
 const WEB_AUTO_BASE_URL = WEB_HOSTNAME && WEB_HOSTNAME !== 'localhost' && WEB_HOSTNAME !== '127.0.0.1'
   ? `http://${WEB_HOSTNAME}:8080/rideUp`
   : '';
@@ -33,7 +33,7 @@ const EXPO_AUTO_BASE_URL = EXPO_HOSTNAME && EXPO_HOSTNAME !== 'localhost' && EXP
   ? `http://${EXPO_HOSTNAME}:8080/rideUp`
   : '';
 const WEB_LOCAL_BASE_URL = 'http://localhost:8080/rideUp';
-const FALLBACK_NATIVE_BASE_URL = 'http://172.11.63.154:8080/rideUp';
+const FALLBACK_NATIVE_BASE_URL = 'http://[IP_ADDRESS]/rideUp';
 
 const resolveBaseUrl = () => {
   if (ENV_BASE_URL) {

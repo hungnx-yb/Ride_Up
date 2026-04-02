@@ -13,7 +13,7 @@ import {
   peekDriverStatsSnapshot,
   onRealtimeNotificationFeedChange,
 } from '../../services/api';
-import DriverBottomNav, { DRIVER_BOTTOM_NAV_INSET } from '../../components/DriverBottomNav';
+import { DRIVER_BOTTOM_NAV_INSET } from '../../components/DriverBottomNav';
 import SkeletonShimmer from '../../components/SkeletonShimmer';
 import {
   ensureApprovedProfileBeforeCreateTrip,
@@ -25,18 +25,18 @@ import ProfileApprovalModal from '../../components/ProfileApprovalModal';
 // Green theme aligned with customer UI
 const THEME = {
   gradientStart: '#00B14F',
-  gradientEnd:   '#008A3E',
-  accent:        '#00A63E',
-  cardBorder:    '#DCFCE7',
+  gradientEnd: '#008A3E',
+  accent: '#00A63E',
+  cardBorder: '#DCFCE7',
 };
 
 const STATUS_CONFIG = {
-  scheduled:   { label: 'Đã lên lịch',   color: '#1565C0', bg: '#E3F2FD' },
-  ongoing:     { label: 'Đang chạy',     color: '#2E7D32', bg: '#E8F5E9' },
-  completed:   { label: 'Hoàn thành',    color: '#546E7A', bg: '#ECEFF1' },
-  cancelled:   { label: 'Đã hủy',        color: '#B71C1C', bg: '#FFEBEE' },
-  pending:     { label: 'Chờ khởi hành', color: '#E65100', bg: '#FFF3E0' },
-  in_progress: { label: 'Đang diễn ra',  color: '#1565C0', bg: '#E3F2FD' },
+  scheduled: { label: 'Đã lên lịch', color: '#1565C0', bg: '#E3F2FD' },
+  ongoing: { label: 'Đang chạy', color: '#2E7D32', bg: '#E8F5E9' },
+  completed: { label: 'Hoàn thành', color: '#546E7A', bg: '#ECEFF1' },
+  cancelled: { label: 'Đã hủy', color: '#B71C1C', bg: '#FFEBEE' },
+  pending: { label: 'Chờ khởi hành', color: '#E65100', bg: '#FFF3E0' },
+  in_progress: { label: 'Đang diễn ra', color: '#1565C0', bg: '#E3F2FD' },
 };
 
 const DriverHomeScreen = ({ user, onLogout, navigation }) => {
@@ -44,10 +44,10 @@ const DriverHomeScreen = ({ user, onLogout, navigation }) => {
   const initialStatsRef = useRef(peekDriverStatsSnapshot());
   const lastRealtimeSyncedNotificationIdRef = useRef('');
 
-  const [trips, setTrips]   = useState(initialTripsRef.current);
-  const [stats, setStats]   = useState(initialStatsRef.current);
+  const [trips, setTrips] = useState(initialTripsRef.current);
+  const [stats, setStats] = useState(initialStatsRef.current);
   const [loadError, setLoadError] = useState('');
-  const [loading, setLoading]       = useState(initialTripsRef.current.length === 0 && !initialStatsRef.current);
+  const [loading, setLoading] = useState(initialTripsRef.current.length === 0 && !initialStatsRef.current);
   const [refreshing, setRefreshing] = useState(false);
   const [approvalModalVisible, setApprovalModalVisible] = useState(false);
   const [approvalModalMessage, setApprovalModalMessage] = useState('');
@@ -86,14 +86,14 @@ const DriverHomeScreen = ({ user, onLogout, navigation }) => {
 
   // Animations
   const headerAnim = useRef(new Animated.Value(0)).current;
-  const statsAnim  = useRef(new Animated.Value(0)).current;
-  const listAnim   = useRef(new Animated.Value(0)).current;
+  const statsAnim = useRef(new Animated.Value(0)).current;
+  const listAnim = useRef(new Animated.Value(0)).current;
 
   const runEntrance = () => {
     Animated.stagger(120, [
       Animated.timing(headerAnim, { toValue: 1, duration: 450, easing: Easing.out(Easing.back(1.2)), useNativeDriver: true }),
-      Animated.timing(statsAnim,  { toValue: 1, duration: 450, easing: Easing.out(Easing.back(1.1)), useNativeDriver: true }),
-      Animated.timing(listAnim,   { toValue: 1, duration: 400, easing: Easing.out(Easing.quad),      useNativeDriver: true }),
+      Animated.timing(statsAnim, { toValue: 1, duration: 450, easing: Easing.out(Easing.back(1.1)), useNativeDriver: true }),
+      Animated.timing(listAnim, { toValue: 1, duration: 400, easing: Easing.out(Easing.quad), useNativeDriver: true }),
     ]).start();
   };
 
@@ -165,15 +165,15 @@ const DriverHomeScreen = ({ user, onLogout, navigation }) => {
   const formatCurrency = (n) =>
     new Intl.NumberFormat('vi-VN').format(n) + '\u20ab';
 
-  const todayStr      = new Date().toISOString().split('T')[0];
-  const todayTrips    = trips.filter((t) => t.departureDate === todayStr || t.status === 'ongoing');
+  const todayStr = new Date().toISOString().split('T')[0];
+  const todayTrips = trips.filter((t) => t.departureDate === todayStr || t.status === 'ongoing');
   const upcomingTrips = trips.filter((t) => t.departureDate > todayStr && t.status === 'scheduled');
 
   const isInitialLoading = loading && !refreshing;
 
   const headerTranslate = headerAnim.interpolate({ inputRange: [0, 1], outputRange: [-30, 0] });
-  const statsScale      = statsAnim.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] });
-  const listTranslate   = listAnim.interpolate({ inputRange: [0, 1], outputRange: [40, 0] });
+  const statsScale = statsAnim.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] });
+  const listTranslate = listAnim.interpolate({ inputRange: [0, 1], outputRange: [40, 0] });
 
   return (
     <View style={styles.screen}>
@@ -187,114 +187,114 @@ const DriverHomeScreen = ({ user, onLogout, navigation }) => {
           />
         }
       >
-      {(loading || refreshing) && (
-        <View style={styles.syncHintWrap}>
-          <ActivityIndicator size="small" color={THEME.gradientStart} />
-          <Text style={styles.syncHintText}>Đang đồng bộ dữ liệu tài xế...</Text>
-        </View>
-      )}
-
-      {/* ── Header ── */}
-      <Animated.View style={[styles.header, { opacity: headerAnim, transform: [{ translateY: headerTranslate }] }]}>
-        <View style={styles.headerPattern} />
-        <View style={styles.headerRow}>
-          <View>
-            <View style={styles.sparkleRow}>
-              <Ionicons name="sparkles-outline" size={14} color="rgba(255,255,255,0.9)" style={styles.sparkleIcon} />
-              <Text style={styles.sparkleText}>Tài xế RideUp</Text>
-            </View>
-            <Text style={styles.userName}>{user?.fullName || 'Tài xế'}</Text>
-            <View style={styles.ratingRow}>
-              <Ionicons name="star" size={14} color="#FDE047" style={styles.ratingIcon} />
-              <Text style={styles.ratingText}>{user?.rating ?? stats?.rating ?? '—'}</Text>
-              <Text style={styles.totalRidesText}> · {user?.totalRides ?? stats?.totalReviews ?? 0} chuyến</Text>
-            </View>
-            {user?.vehicleModel && (
-              <View style={styles.vehicleRow}>
-                <Ionicons name="car-sport-outline" size={13} color="rgba(255,255,255,0.85)" />
-                <Text style={styles.vehicleText}>{user.vehicleModel} · {user.vehiclePlate}</Text>
-              </View>
-            )}
+        {(loading || refreshing) && (
+          <View style={styles.syncHintWrap}>
+            <ActivityIndicator size="small" color={THEME.gradientStart} />
+            <Text style={styles.syncHintText}>Đang đồng bộ dữ liệu tài xế...</Text>
           </View>
-          <TouchableOpacity style={styles.logoutBtn} onPress={onLogout}>
-            <Text style={styles.logoutText}>Đăng xuất</Text>
-          </TouchableOpacity>
-        </View>
-      </Animated.View>
-
-      {/* ── Stats card (lifted) ── */}
-      {stats ? (
-        <Animated.View style={[styles.statsCard, { opacity: statsAnim, transform: [{ scale: statsScale }] }]}>
-          <StatMini iconName="calendar-outline" label="Chuyến tháng"  value={stats.thisMonth.totalRides} />
-          <View style={styles.statDivider} />
-          <StatMini iconName="checkmark-circle-outline" label="Hoàn thành"    value={stats.thisMonth.completedRides} />
-          <View style={styles.statDivider} />
-          <StatMini iconName="cash-outline" label="Doanh thu"     value={formatCurrency(stats.thisMonth.revenue)} small />
-        </Animated.View>
-      ) : isInitialLoading ? (
-        <View style={styles.statsCardSkeleton}>
-          <SkeletonShimmer style={styles.skeletonCol} />
-          <View style={styles.skeletonDivider} />
-          <SkeletonShimmer style={styles.skeletonCol} />
-          <View style={styles.skeletonDivider} />
-          <SkeletonShimmer style={styles.skeletonCol} />
-        </View>
-      ) : null}
-
-      {/* ── Revenue preview ── */}
-      {stats && (
-        <Animated.View style={[styles.revenueCard, { opacity: statsAnim }]}>
-          <View style={styles.revenueLeft}>
-            <Text style={styles.revenueLabel}>Doanh thu dự kiến tháng này</Text>
-            <Text style={styles.revenueValue}>{formatCurrency(stats.thisMonth.revenue)}</Text>
-          </View>
-          <Ionicons name="trending-up-outline" size={34} color="#FFFFFF" />
-        </Animated.View>
-      )}
-
-      {!!loadError && (
-        <Animated.View style={[styles.section, { opacity: listAnim }]}>
-          <Text style={styles.inlineError}>{loadError}</Text>
-        </Animated.View>
-      )}
-
-      {/* ── Chuyến hôm nay ── */}
-      <Animated.View style={[styles.section, { opacity: listAnim, transform: [{ translateY: listTranslate }] }]}>
-        <Text style={styles.sectionTitle}>Hôm nay ({todayTrips.length})</Text>
-        {isInitialLoading ? (
-          <>
-            <TripCardSkeleton />
-            <TripCardSkeleton />
-          </>
-        ) : todayTrips.length === 0 ? (
-          <EmptyCard
-            text="Không có chuyến hôm nay"
-            btnText="Tạo chuyến xe mới"
-            onPress={handleCreateTripPress}
-          />
-        ) : (
-          todayTrips.map((trip) => (
-            <TripCard key={trip.id} trip={trip} formatCurrency={formatCurrency} />
-          ))
         )}
-      </Animated.View>
 
-      {/* ── Chuyến sắp tới ── */}
-      {upcomingTrips.length > 0 && (
-        <Animated.View style={[styles.section, { opacity: listAnim }]}>
-          <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionTitle}>Sắp tới ({upcomingTrips.length})</Text>
-            <TouchableOpacity onPress={handleAllTripsPress}>
-              <Text style={styles.seeAllText}>Xem tất cả →</Text>
+        {/* ── Header ── */}
+        <Animated.View style={[styles.header, { opacity: headerAnim, transform: [{ translateY: headerTranslate }] }]}>
+          <View style={styles.headerPattern} />
+          <View style={styles.headerRow}>
+            <View>
+              <View style={styles.sparkleRow}>
+                <Ionicons name="sparkles-outline" size={14} color="rgba(255,255,255,0.9)" style={styles.sparkleIcon} />
+                <Text style={styles.sparkleText}>Tài xế RideUp</Text>
+              </View>
+              <Text style={styles.userName}>{user?.fullName || 'Tài xế'}</Text>
+              <View style={styles.ratingRow}>
+                <Ionicons name="star" size={14} color="#FDE047" style={styles.ratingIcon} />
+                <Text style={styles.ratingText}>{user?.rating ?? stats?.rating ?? '—'}</Text>
+                <Text style={styles.totalRidesText}> · {user?.totalRides ?? stats?.totalReviews ?? 0} chuyến</Text>
+              </View>
+              {user?.vehicleModel && (
+                <View style={styles.vehicleRow}>
+                  <Ionicons name="car-sport-outline" size={13} color="rgba(255,255,255,0.85)" />
+                  <Text style={styles.vehicleText}>{user.vehicleModel} · {user.vehiclePlate}</Text>
+                </View>
+              )}
+            </View>
+            <TouchableOpacity style={styles.logoutBtn} onPress={onLogout}>
+              <Text style={styles.logoutText}>Đăng xuất</Text>
             </TouchableOpacity>
           </View>
-          {upcomingTrips.map((trip) => (
-            <TripCard key={trip.id} trip={trip} formatCurrency={formatCurrency} />
-          ))}
         </Animated.View>
-      )}
 
-      <View style={styles.bottomPad} />
+        {/* ── Stats card (lifted) ── */}
+        {stats ? (
+          <Animated.View style={[styles.statsCard, { opacity: statsAnim, transform: [{ scale: statsScale }] }]}>
+            <StatMini iconName="calendar-outline" label="Chuyến tháng" value={stats.thisMonth.totalRides} />
+            <View style={styles.statDivider} />
+            <StatMini iconName="checkmark-circle-outline" label="Hoàn thành" value={stats.thisMonth.completedRides} />
+            <View style={styles.statDivider} />
+            <StatMini iconName="cash-outline" label="Doanh thu" value={formatCurrency(stats.thisMonth.revenue)} small />
+          </Animated.View>
+        ) : isInitialLoading ? (
+          <View style={styles.statsCardSkeleton}>
+            <SkeletonShimmer style={styles.skeletonCol} />
+            <View style={styles.skeletonDivider} />
+            <SkeletonShimmer style={styles.skeletonCol} />
+            <View style={styles.skeletonDivider} />
+            <SkeletonShimmer style={styles.skeletonCol} />
+          </View>
+        ) : null}
+
+        {/* ── Revenue preview ── */}
+        {stats && (
+          <Animated.View style={[styles.revenueCard, { opacity: statsAnim }]}>
+            <View style={styles.revenueLeft}>
+              <Text style={styles.revenueLabel}>Doanh thu dự kiến tháng này</Text>
+              <Text style={styles.revenueValue}>{formatCurrency(stats.thisMonth.revenue)}</Text>
+            </View>
+            <Ionicons name="trending-up-outline" size={34} color="#FFFFFF" />
+          </Animated.View>
+        )}
+
+        {!!loadError && (
+          <Animated.View style={[styles.section, { opacity: listAnim }]}>
+            <Text style={styles.inlineError}>{loadError}</Text>
+          </Animated.View>
+        )}
+
+        {/* ── Chuyến hôm nay ── */}
+        <Animated.View style={[styles.section, { opacity: listAnim, transform: [{ translateY: listTranslate }] }]}>
+          <Text style={styles.sectionTitle}>Hôm nay ({todayTrips.length})</Text>
+          {isInitialLoading ? (
+            <>
+              <TripCardSkeleton />
+              <TripCardSkeleton />
+            </>
+          ) : todayTrips.length === 0 ? (
+            <EmptyCard
+              text="Không có chuyến hôm nay"
+              btnText="Tạo chuyến xe mới"
+              onPress={handleCreateTripPress}
+            />
+          ) : (
+            todayTrips.map((trip) => (
+              <TripCard key={trip.id} trip={trip} formatCurrency={formatCurrency} />
+            ))
+          )}
+        </Animated.View>
+
+        {/* ── Chuyến sắp tới ── */}
+        {upcomingTrips.length > 0 && (
+          <Animated.View style={[styles.section, { opacity: listAnim }]}>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionTitle}>Sắp tới ({upcomingTrips.length})</Text>
+              <TouchableOpacity onPress={handleAllTripsPress}>
+                <Text style={styles.seeAllText}>Xem tất cả →</Text>
+              </TouchableOpacity>
+            </View>
+            {upcomingTrips.map((trip) => (
+              <TripCard key={trip.id} trip={trip} formatCurrency={formatCurrency} />
+            ))}
+          </Animated.View>
+        )}
+
+        <View style={styles.bottomPad} />
 
         <ProfileApprovalModal
           visible={approvalModalVisible}
@@ -303,7 +303,6 @@ const DriverHomeScreen = ({ user, onLogout, navigation }) => {
           onGoProfile={goToDriverProfile}
         />
       </ScrollView>
-      <DriverBottomNav navigation={navigation} activeKey="home" />
     </View>
   );
 };
@@ -373,10 +372,10 @@ const TripCardSkeleton = () => (
 // ─── Styles ──────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  screen:           { flex: 1, backgroundColor: COLORS.background },
-  container:        { flex: 1, backgroundColor: COLORS.background },
+  screen: { flex: 1, backgroundColor: COLORS.background },
+  container: { flex: 1, backgroundColor: COLORS.background },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background },
-  loadingText:      { marginTop: 12, color: COLORS.textLight },
+  loadingText: { marginTop: 12, color: COLORS.textLight },
   syncHintWrap: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -399,17 +398,17 @@ const styles = StyleSheet.create({
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
     backgroundColor: THEME.gradientEnd, opacity: 0.35,
   },
-  headerRow:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  sparkleRow:     { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
-  sparkleIcon:    { marginRight: 6 },
-  sparkleText:    { color: 'rgba(255,255,255,0.85)', fontSize: 13, fontWeight: '600' },
-  userName:       { color: COLORS.white, fontSize: 24, fontWeight: '800', marginTop: 2 },
-  ratingRow:      { flexDirection: 'row', alignItems: 'center', marginTop: 6 },
-  ratingIcon:     { marginRight: 4 },
-  ratingText:     { color: COLORS.white, fontSize: 14, fontWeight: '600' },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  sparkleRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
+  sparkleIcon: { marginRight: 6 },
+  sparkleText: { color: 'rgba(255,255,255,0.85)', fontSize: 13, fontWeight: '600' },
+  userName: { color: COLORS.white, fontSize: 24, fontWeight: '800', marginTop: 2 },
+  ratingRow: { flexDirection: 'row', alignItems: 'center', marginTop: 6 },
+  ratingIcon: { marginRight: 4 },
+  ratingText: { color: COLORS.white, fontSize: 14, fontWeight: '600' },
   totalRidesText: { color: 'rgba(255,255,255,0.7)', fontSize: 13 },
-  vehicleRow:     { flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 4 },
-  vehicleText:    { color: 'rgba(255,255,255,0.8)', fontSize: 12 },
+  vehicleRow: { flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 4 },
+  vehicleText: { color: 'rgba(255,255,255,0.8)', fontSize: 12 },
   logoutBtn: {
     backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 10,
     paddingHorizontal: 12, paddingVertical: 8, marginTop: 4,
@@ -431,8 +430,8 @@ const styles = StyleSheet.create({
   },
   skeletonCol: { flex: 1, height: 44, borderRadius: 10, backgroundColor: '#ECEFF3' },
   skeletonDivider: { width: 10 },
-  statMini:      { flex: 1, alignItems: 'center' },
-  statDivider:   { width: 1, backgroundColor: COLORS.border },
+  statMini: { flex: 1, alignItems: 'center' },
+  statDivider: { width: 1, backgroundColor: COLORS.border },
   statMiniValue: { fontSize: 15, fontWeight: '800', color: COLORS.text, marginTop: 4 },
   statMiniLabel: { fontSize: 11, color: COLORS.textLight, marginTop: 2, textAlign: 'center' },
 
@@ -444,15 +443,15 @@ const styles = StyleSheet.create({
     shadowColor: THEME.gradientStart, shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3, shadowRadius: 8, elevation: 5,
   },
-  revenueLeft:      { flex: 1 },
-  revenueLabel:     { color: 'rgba(255,255,255,0.8)', fontSize: 12, marginBottom: 4 },
-  revenueValue:     { color: COLORS.white, fontSize: 22, fontWeight: '800' },
+  revenueLeft: { flex: 1 },
+  revenueLabel: { color: 'rgba(255,255,255,0.8)', fontSize: 12, marginBottom: 4 },
+  revenueValue: { color: COLORS.white, fontSize: 22, fontWeight: '800' },
 
   // Section
-  section:          { paddingHorizontal: 16, marginTop: 20 },
+  section: { paddingHorizontal: 16, marginTop: 20 },
   sectionHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  sectionTitle:     { fontSize: 16, fontWeight: '700', color: COLORS.text, marginBottom: 12 },
-  seeAllText:       { fontSize: 13, color: THEME.gradientStart, fontWeight: '600', marginBottom: 12 },
+  sectionTitle: { fontSize: 16, fontWeight: '700', color: COLORS.text, marginBottom: 12 },
+  seeAllText: { fontSize: 13, color: THEME.gradientStart, fontWeight: '600', marginBottom: 12 },
   inlineError: { color: '#B71C1C', fontSize: 12, marginBottom: 8 },
 
   // Trip card
@@ -461,18 +460,18 @@ const styles = StyleSheet.create({
     borderWidth: 1.5, borderColor: COLORS.border,
     shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
   },
-  tripCardHeader:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  statusBadge:     { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 },
-  statusText:      { fontSize: 12, fontWeight: '700' },
-  tripFare:        { fontSize: 14, fontWeight: '700', color: THEME.accent },
-  tripRoute:       { fontSize: 13, color: COLORS.text, marginBottom: 3, lineHeight: 20 },
-  tripMetaRow:     { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  tripFooter:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, marginBottom: 8 },
-  tripTime:        { fontSize: 12, color: COLORS.textLight },
-  seatBadge:       { backgroundColor: '#ECFDF3', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
-  seatText:        { fontSize: 12, color: THEME.gradientStart, fontWeight: '600' },
-  seatBarBg:       { height: 4, backgroundColor: COLORS.border, borderRadius: 2 },
-  seatBarFill:     { height: 4, backgroundColor: THEME.gradientStart, borderRadius: 2 },
+  tripCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  statusBadge: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 },
+  statusText: { fontSize: 12, fontWeight: '700' },
+  tripFare: { fontSize: 14, fontWeight: '700', color: THEME.accent },
+  tripRoute: { fontSize: 13, color: COLORS.text, marginBottom: 3, lineHeight: 20 },
+  tripMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  tripFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, marginBottom: 8 },
+  tripTime: { fontSize: 12, color: COLORS.textLight },
+  seatBadge: { backgroundColor: '#ECFDF3', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
+  seatText: { fontSize: 12, color: THEME.gradientStart, fontWeight: '600' },
+  seatBarBg: { height: 4, backgroundColor: COLORS.border, borderRadius: 2 },
+  seatBarFill: { height: 4, backgroundColor: THEME.gradientStart, borderRadius: 2 },
   tripCardSkeleton: {
     backgroundColor: COLORS.surface,
     borderRadius: 16,
@@ -486,8 +485,8 @@ const styles = StyleSheet.create({
   skeletonLineSm: { height: 10, borderRadius: 8, width: '34%', backgroundColor: '#ECEFF3' },
 
   // Empty
-  emptyBox:     { backgroundColor: COLORS.surface, borderRadius: 16, padding: 24, alignItems: 'center', borderWidth: 1.5, borderColor: THEME.cardBorder },
-  emptyText:    { fontSize: 14, color: COLORS.textMuted, marginBottom: 14 },
+  emptyBox: { backgroundColor: COLORS.surface, borderRadius: 16, padding: 24, alignItems: 'center', borderWidth: 1.5, borderColor: THEME.cardBorder },
+  emptyText: { fontSize: 14, color: COLORS.textMuted, marginBottom: 14 },
   emptyBtn: {
     backgroundColor: THEME.gradientStart, borderRadius: 12,
     paddingHorizontal: 20, paddingVertical: 10,
