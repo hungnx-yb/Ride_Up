@@ -39,7 +39,10 @@ public enum ErrorCode {
     CHAT_FORBIDDEN(1035, "You are not allowed to access this chat", HttpStatus.FORBIDDEN),
     CHAT_NOT_ALLOWED(1036, "Chat is only allowed before the trip ends", HttpStatus.BAD_REQUEST),
     CHAT_MESSAGE_INVALID(1037, "Chat message is invalid", HttpStatus.BAD_REQUEST),
-    VNPAY_NOT_CONFIGURED(1038, "VNPAY is not configured on backend", HttpStatus.BAD_REQUEST);
+    VNPAY_NOT_CONFIGURED(1038, "VNPAY is not configured on backend", HttpStatus.BAD_REQUEST),
+    BOOKING_REQUEST_INVALID(1039, "Booking request is invalid", HttpStatus.BAD_REQUEST),
+    BOOKING_POINT_NOT_FOUND(1040, "Selected pickup/dropoff point does not belong to this trip", HttpStatus.BAD_REQUEST),
+    TRIP_NO_AVAILABLE_SEATS(1041, "Trip does not have enough available seats", HttpStatus.BAD_REQUEST);
 
     private Integer code;
     private String message;

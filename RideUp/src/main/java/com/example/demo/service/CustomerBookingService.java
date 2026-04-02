@@ -27,6 +27,7 @@ import com.example.demo.repository.TripRepository;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,6 +45,7 @@ import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 public class CustomerBookingService {
 
@@ -121,17 +123,26 @@ public class CustomerBookingService {
         User currentUser = userService.getCurrentUser();
 
         Trip trip = tripRepository.findByIdForUpdate(request.getTripId())
-                .orElseThrow(() -> new AppException(ErrorCode.INVALID_KEY));
+                                .orElseThrow(() -> {
+                                        log.warn("Create booking failed: trip not found, tripId={}", request.getTripId());
+                                        return new AppException(ErrorCode.TRIP_NOT_FOUND);
+                                });
 
         TripPickupPoint pickupPoint = trip.getPickupPoints().stream()
                 .filter(p -> Objects.equals(p.getId(), request.getPickupPointId()))
                 .findFirst()
-                .orElseThrow(() -> new AppException(ErrorCode.INVALID_KEY));
+                                .orElseThrow(() -> {
+                                        log.warn("Create booking failed: pickup point not in trip, tripId={}, pickupPointId={}", trip.getId(), request.getPickupPointId());
+                                        return new AppException(ErrorCode.BOOKING_POINT_NOT_FOUND);
+                                });
 
         TripDropoffPoint dropoffPoint = trip.getDropoffPoints().stream()
                 .filter(p -> Objects.equals(p.getId(), request.getDropoffPointId()))
                 .findFirst()
-                .orElseThrow(() -> new AppException(ErrorCode.INVALID_KEY));
+                                .orElseThrow(() -> {
+                                        log.warn("Create booking failed: dropoff point not in trip, tripId={}, dropoffPointId={}", trip.getId(), request.getDropoffPointId());
+                                        return new AppException(ErrorCode.BOOKING_POINT_NOT_FOUND);
+                                });
 
         Double pickupLat = request.getPickupLat();
         Double pickupLng = request.getPickupLng();
@@ -151,12 +162,14 @@ public class CustomerBookingService {
 
         int seatCount = request.getSeatCount() == null ? 1 : request.getSeatCount();
         if (seatCount < 1) {
-            throw new AppException(ErrorCode.INVALID_KEY);
+                        throw new AppException(ErrorCode.BOOKING_REQUEST_INVALID);
         }
 
         int availableSeats = trip.getAvailableSeats() == null ? 0 : trip.getAvailableSeats();
         if (availableSeats < seatCount || trip.getStatus() == TripStatus.CANCELLED || trip.getStatus() == TripStatus.COMPLETED) {
-            throw new AppException(ErrorCode.INVALID_KEY);
+                        log.warn("Create booking failed: seats/status invalid, tripId={}, availableSeats={}, requestedSeats={}, status={}",
+                                        trip.getId(), availableSeats, seatCount, trip.getStatus());
+                        throw new AppException(ErrorCode.TRIP_NO_AVAILABLE_SEATS);
         }
 
         BigDecimal fare = trip.getPricePerSeat() == null ? BigDecimal.ZERO : trip.getPricePerSeat();
@@ -399,7 +412,7 @@ public class CustomerBookingService {
                 || !StringUtils.hasText(request.getTripId())
                 || !StringUtils.hasText(request.getPickupPointId())
                 || !StringUtils.hasText(request.getDropoffPointId())) {
-            throw new AppException(ErrorCode.INVALID_KEY);
+                        throw new AppException(ErrorCode.BOOKING_REQUEST_INVALID);
         }
     }
 

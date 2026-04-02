@@ -184,7 +184,7 @@ public class DriverTripService {
 
         Trip saved = tripRepository.save(newTrip);
         DriverTripResponse response = toTripResponse(saved, List.of(template));
-        response.setRouteId(template.getId());
+        response.setRouteId(StringUtils.hasText(template.getId()) ? template.getId() : saved.getId());
         return response;
     }
 
@@ -461,7 +461,9 @@ public class DriverTripService {
         template.setPickupPoints(pickupPoints);
         template.setDropoffPoints(dropoffPoints);
 
-        return tripRepository.save(template);
+        // Do not persist a brand-new template here to avoid creating a duplicate
+        // row in trip table when driver creates a trip from ad-hoc form input.
+        return template;
     }
 
     private Province resolveProvince(String provinceId, String provinceName) {
@@ -714,6 +716,10 @@ public class DriverTripService {
     }
 
     private Optional<String> matchTemplateId(Trip trip, List<Trip> templates) {
+        if (templates == null || templates.isEmpty()) {
+            return Optional.empty();
+        }
+
         List<String> pickup = extractPickupWardIds(trip.getPickupPoints());
         List<String> dropoff = extractDropoffWardIds(trip.getDropoffPoints());
 
@@ -721,6 +727,7 @@ public class DriverTripService {
             .filter(t -> pickup.equals(extractPickupWardIds(t.getPickupPoints()))
                 && dropoff.equals(extractDropoffWardIds(t.getDropoffPoints())))
                 .map(Trip::getId)
+                .filter(StringUtils::hasText)
                 .findFirst();
     }
 
