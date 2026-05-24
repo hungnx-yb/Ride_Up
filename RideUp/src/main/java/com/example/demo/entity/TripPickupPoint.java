@@ -30,16 +30,16 @@ public class TripPickupPoint {
     @JoinColumn(name = "district_id", nullable = false)
     Ward ward;
 
-    // Địa chỉ cụ thể (VD: "Bến xe Mỹ Đình, số 20 Phạm Hùng")
+    // Địa chỉ cụ thể (ví dụ: "Bến xe Mỹ Đình, số 20 Phạm Hùng")
     String address;
 
     // Giờ đón dự kiến tại điểm này
     LocalTime pickupTime;
 
-    // Thứ tự đón (1, 2, 3...)
+    // Thứ tự đón theo thứ tự tăng dần (1 là điểm đón đầu tiên)
     Integer sortOrder;
 
-    // Ghi chú (VD: "Đón trước cổng số 2")
+    // Ghi chú (ví dụ: "Đón trước cổng số 2")
     String note;
 }
 

@@ -17,6 +17,21 @@ import lombok.experimental.FieldDefaults;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Service xử lý nghiệp vụ quản lý hồ sơ tài xế (DriverProfile và Vehicle).
+ *
+ * <p>Quản lý toàn bộ vòng đời hồ sơ:
+ * PENDING (mới tạo) → PENDING+submitted (đã nộp) → APPROVED/REJECTED (Admin duyệt)
+ * → PENDING+submitted lại (nếu tài xế chỉnh sửa sau khi được duyệt)</p>
+ *
+ * <p><b>Cơ chế khóa hồ sơ:</b> Khi {@code submitted = true} và {@code status = PENDING},
+ * hồ sơ bị khóa không cho chỉnh sửa để đảm bảo Admin duyệt đúng phiên bản
+ * tài xế đã xác nhận nộp.</p>
+ *
+ * @author Phạm Quang Huy (B22DCCN394)
+ * @see DriverProfile
+ * @see Vehicle
+ */
 @Service
 @RequiredArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
@@ -27,6 +42,11 @@ public class DriverProfileService {
     VehicleRepository vehicleRepository;
     TripRepository tripRepository;
 
+    /**
+     * Lấy hồ sơ tài xế của user đang đăng nhập.
+     *
+     * @return DriverProfileResponse hiển thị thông tin hồ sơ và trạng thái duyệt
+     */
     @Transactional(readOnly = true)
     public DriverProfileResponse getMyProfile() {
         User user = userService.getCurrentUser();
@@ -34,6 +54,25 @@ public class DriverProfileService {
         return toResponse(user, profile, profile.getVehicle());
     }
 
+    /**
+     * Cập nhật thông tin hồ sơ tài xế (cả User, DriverProfile và Vehicle).
+     *
+     * <p><b>Chiến lược update partial:</b> Chỉ cập nhật các trường có giá trị
+     * khác null trong request. Điều này cho phép client gửi patch nhỏ mà không
+     * cần gửi lại toàn bộ hồ sơ, giảm bandwidth và tránh ghi đè nhầm.</p>
+     *
+     * <p><b>Auto re-review khi chỉnh sửa sau APPROVED:</b> Nếu tài xế chỉnh sửa
+     * hồ sơ sau khi đã được duyệt, trạng thái tự động về PENDING để Admin
+     * xem xét lại. Điều này ngăn tài xế thay đổi thông tin xe/GPLX sau khi
+     * được duyệt mà không qua kiểm soát.</p>
+     *
+     * <p><b>Vehicle creation on-demand:</b> Nếu request có thông tin xe nhưng
+     * Vehicle entity chưa tồn tại (hồ sơ mới), Vehicle được tạo mới tự động.</p>
+     *
+     * @param request dữ liệu cập nhật (partial update - chỉ field != null mới được ghi)
+     * @return DriverProfileResponse phản ánh trạng thái mới nhất
+     * @throws AppException {@code DRIVER_PROFILE_LOCKED} nếu hồ sơ đang chờ duyệt (PENDING+submitted)
+     */
     @Transactional
     public DriverProfileResponse updateMyProfile(DriverProfileUpdateRequest request) {
         User user = userService.getCurrentUser();
@@ -146,7 +185,7 @@ public class DriverProfileService {
             profile.setVehicle(vehicle);
         }
 
-        // If an already approved profile is edited, it must be re-reviewed by admin.
+        // Nếu hồ sơ đã được duyệt mà có chỉnh sửa, bắt buộc quay về PENDING để Admin duyệt lại.
         if (originalStatus == DriverStatus.APPROVED) {
             profile.setStatus(DriverStatus.PENDING);
             profile.setSubmitted(true);
@@ -160,6 +199,24 @@ public class DriverProfileService {
         return toResponse(user, savedProfile, savedProfile.getVehicle());
     }
 
+    /**
+     * Nộp hồ sơ tài xế để Admin xem xét.
+     *
+     * <p>Trước khi nộp, validate bắt buộc:
+     * <ul>
+     *   <li>Tài liệu pháp lý: phải có số CCCD và số GPLX</li>
+     *   <li>Thông tin xe: phải có biển số, hãng xe và dòng xe</li>
+     * </ul>
+     * Các trường khác (ảnh, ngày hết hạn...) không bắt buộc ở bước này
+     * nhưng Admin có thể từ chối nếu thiếu.</p>
+     *
+     * <p><b>Idempotent:</b> Nếu hồ sơ đã ở trạng thái PENDING+submitted,
+     * method trả về ngay kết quả hiện tại mà không thực hiện thêm gì,
+     * tránh tạo duplicate request khi client gọi nhiều lần.</p>
+     *
+     * @return DriverProfileResponse với profileLocked = true, status = PENDING
+     * @throws AppException {@code DRIVER_PROFILE_INCOMPLETE} nếu thiếu CCCD/GPLX/biển số/hãng xe/dòng xe
+     */
     @Transactional
     public DriverProfileResponse submitMyProfile() {
         User user = userService.getCurrentUser();
@@ -180,6 +237,15 @@ public class DriverProfileService {
         return toResponse(user, saved, saved.getVehicle());
     }
 
+    /**
+     * Lấy DriverProfile của user, hoặc tạo mới nếu chưa tồn tại.
+     *
+     * <p>Nếu có nhiều profile (legacy), chọn profile có nhiều trip nhất
+     * để tránh phân mảnh dữ liệu.</p>
+     *
+     * @param user user hiện tại
+     * @return DriverProfile không bao giờ null
+     */
     private DriverProfile getOrCreateDriverProfile(User user) {
         var profiles = driverProfileRepository.findAllByUserIdOrderByCreatedAtDesc(user.getId());
         if (!profiles.isEmpty()) {
@@ -250,12 +316,40 @@ public class DriverProfileService {
         return trimmed.isEmpty() ? null : trimmed;
     }
 
+    /**
+     * Kiểm tra hồ sơ có đang bị khóa chỉnh sửa hay không.
+     *
+     * <p>Hồ sơ bị khóa khi {@code submitted = true} VÀ {@code status = PENDING}.
+     * Tức là tài xế đã nộp và đang chờ Admin xem xét. Khóa này được tháo khi:
+     * <ul>
+     *   <li>Admin duyệt (status -> APPROVED)</li>
+     *   <li>Admin từ chối (status -> REJECTED, submitted -> false)</li>
+     * </ul>
+     * </p>
+     *
+     * @param profile hồ sơ cần kiểm tra
+     * @return true nếu đang chờ duyệt và không được chỉnh sửa
+     */
     private boolean isProfileLocked(DriverProfile profile) {
         return profile != null
                 && Boolean.TRUE.equals(profile.getSubmitted())
                 && profile.getStatus() == DriverStatus.PENDING;
     }
 
+    /**
+     * Validate các trường bắt buộc tối thiểu trước khi nộp hồ sơ.
+     *
+     * <p>Chia thành 2 nhóm kiểm tra:
+     * <ul>
+     *   <li>{@code hasCoreDocs}: số CCCD và số GPLX (không cần ảnh ở bước này)</li>
+     *   <li>{@code hasCoreVehicle}: biển số xe, hãng xe, dòng xe
+     *       (thông tin định danh tối thiểu của phương tiện)</li>
+     * </ul>
+     * </p>
+     *
+     * @param profile hồ sơ cần validate
+     * @throws AppException {@code DRIVER_PROFILE_INCOMPLETE} nếu thiếu bất kỳ trường nào
+     */
     private void validateProfileForSubmit(DriverProfile profile) {
         Vehicle vehicle = profile.getVehicle();
         boolean hasCoreDocs = org.springframework.util.StringUtils.hasText(profile.getCccd())

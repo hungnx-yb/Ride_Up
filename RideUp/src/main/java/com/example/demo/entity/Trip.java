@@ -11,6 +11,25 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Entity đại diện cho một chuyến đi trong hệ thống Ride Up.
+ *
+ * <p>Ánh xạ bảng {@code trip} trong PostgreSQL. Một Trip có thể là:
+ * <ul>
+ *   <li><b>Route template</b>: {@code departureTime = null} – lưu tuyến đường tái sử dụng</li>
+ *   <li><b>Chuyến thực tế</b>: {@code departureTime != null} – chuyến có lịch cụ thể</li>
+ * </ul>
+ * </p>
+ *
+ * <p><b>Vòng đời trạng thái:</b>
+ * OPEN → FULL (khi hết ghế) → IN_PROGRESS (khi bắt đầu) → COMPLETED/CANCELLED</p>
+ *
+ * <p><b>Index CSDL:</b> 3 composite index tối ưu các query phổ biến:
+ * filter theo (status, departure_time), sort theo departure_time,
+ * và query theo (driver_id, departure_time).</p>
+ *
+ * @author Phạm Quang Huy (B22DCCN394)
+ */
 @Entity
 @Table(name = "trip", indexes = {
     @Index(name = "idx_trip_status_departure", columnList = "status,departure_time"),
@@ -33,16 +52,16 @@ public class Trip {
     @JoinColumn(name = "driver_id", nullable = false)
     DriverProfile driver;
 
-    // Thời gian khởi hành
+    /** Thời gian khởi hành đã lên lịch. Null nếu Trip là route template. */
     LocalDateTime departureTime;
 
     // Tổng số ghế (copy từ vehicle.seatCapacity khi tạo)
     Integer totalSeats;
 
-    // Số ghế còn trống
+    /** Số ghế còn trống. Giảm khi booking CONFIRMED, tăng lại khi booking bị hủy. */
     Integer availableSeats;
 
-    // Giá mỗi ghế (cố định cho cả chuyến)
+    /** Giá mỗi ghế tính bằng VND, cố định cho toàn bộ chuyến. */
     BigDecimal pricePerSeat;
 
     // Trạng thái chuyến
@@ -63,7 +82,7 @@ public class Trip {
     // Thời gian di chuyển ước tính (phút)
     Integer estimatedDurationMinutes;
 
-    // Thời điểm thực tế xuất phát (khi driver bấm "Bắt đầu")
+    /** Thời điểm tài xế bấm "Bắt đầu" – thực tế có thể trễ hơn departureTime. */
     LocalDateTime actualDepartureTime;
 
     // Thời điểm thực tế đến điểm cuối

@@ -10,6 +10,11 @@ import org.hibernate.annotations.UpdateTimestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
+/**
+ * Entity lưu thông tin phương tiện của tài xế để phục vụ xác minh và vận hành.
+ *
+ * @author Phạm Quang Huy (B22DCCN394)
+ */
 @Entity
 @Getter
 @Setter
@@ -25,10 +30,10 @@ public class Vehicle {
     // Biển số xe
     String plateNumber;
 
-    // Hãng xe (Toyota, Honda...)
+    // Hãng xe (ví dụ: Toyota, Honda)
     String vehicleBrand;
 
-    // Dòng xe (Vios, City...)
+    // Dòng xe (ví dụ: Vios, City)
     String vehicleModel;
 
     // Năm sản xuất

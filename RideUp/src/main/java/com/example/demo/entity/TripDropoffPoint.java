@@ -31,13 +31,13 @@ public class TripDropoffPoint {
     @JoinColumn(name = "district_id", nullable = false)
     Ward ward;
 
-    // Địa chỉ cụ thể (VD: "Bến xe Niệm Nghĩa")
+    // Địa chỉ cụ thể (ví dụ: "Bến xe Niệm Nghĩa")
     String address;
 
     // Giờ trả dự kiến tại điểm này
     LocalTime dropoffTime;
 
-    // Thứ tự trả (1, 2, 3...)
+    // Thứ tự trả theo thứ tự tăng dần (1 là điểm trả đầu tiên)
     Integer sortOrder;
 
     // Ghi chú

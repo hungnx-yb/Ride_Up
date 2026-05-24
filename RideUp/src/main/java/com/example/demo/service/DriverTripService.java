@@ -50,6 +50,28 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+/**
+ * Service xử lý toàn bộ nghiệp vụ quản lý chuyến đi của tài xế (Driver).
+ *
+ * <p>Đây là lớp trung tâm của module Tài xế, chịu trách nhiệm:
+ * <ul>
+ *   <li>Tạo và quản lý vòng đời chuyến đi: OPEN → IN_PROGRESS → COMPLETED/CANCELLED</li>
+ *   <li>Quản lý điểm đón/trả (TripPickupPoint, TripDropoffPoint)</li>
+ *   <li>Phối hợp với {@link CustomerBookingService} để hoàn tiền VNPay khi hủy chuyến</li>
+ *   <li>Publish thông báo realtime qua WebSocket STOMP sau mỗi thay đổi trạng thái</li>
+ *   <li>Tính toán thống kê doanh thu theo tháng</li>
+ * </ul>
+ * </p>
+ *
+ * <p><b>Nguyên tắc bảo mật:</b> Mọi truy vấn trip đều kèm điều kiện
+ * {@code driver_id = currentDriverProfile.id} để đảm bảo tài xế chỉ
+ * thao tác được trên chuyến của mình (tránh IDOR).</p>
+ *
+ * @author Phạm Quang Huy (B22DCCN394)
+ * @see DriverTripController
+ * @see Trip
+ * @see TripRepository
+ */
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -69,6 +91,16 @@ public class DriverTripService {
     DateTimeFormatter viDate = DateTimeFormatter.ofPattern("dd/MM/yyyy");
     DateTimeFormatter uiTime = DateTimeFormatter.ofPattern("HH:mm");
 
+    /**
+     * Lấy toàn bộ danh sách chuyến đi thực tế của tài xế đang đăng nhập.
+     *
+     * <p>Sử dụng điều kiện {@code departureTime IS NOT NULL} để phân biệt
+     * chuyến đi thực tế với route template (template có departureTime = null).
+     * Kết quả sắp xếp giảm dần theo thời gian khởi hành.</p>
+     *
+     * @return danh sách {@link DriverTripResponse} đã được map từ entity,
+     *         trả về list rỗng nếu tài xế chưa tạo chuyến nào
+     */
     @Transactional(readOnly = true)
     public List<DriverTripResponse> getMyTrips() {
         DriverProfile driverProfile = getOrCreateDriverProfile();
@@ -79,6 +111,23 @@ public class DriverTripService {
                 .collect(Collectors.toList());
     }
 
+            /**
+             * Lấy thông tin chi tiết đầy đủ của một chuyến đi, bao gồm danh sách
+             * điểm đón, điểm trả và toàn bộ booking của chuyến.
+             *
+             * <p>Tính toán thêm các trường dẫn xuất:
+             * <ul>
+             *   <li>{@code bookedSeats} = totalSeats - availableSeats</li>
+             *   <li>{@code estimatedRevenue} = fixedFare × bookedSeats</li>
+             *   <li>{@code pickupProvince} / {@code dropoffProvince} – lấy từ điểm đón/trả
+             *       đầu tiên theo sortOrder</li>
+             * </ul>
+             * </p>
+             *
+             * @param tripId ID của chuyến cần xem chi tiết
+             * @return {@link DriverTripDetailResponse} bao gồm cả pickupPoints, dropoffPoints và bookings
+             * @throws AppException {@code TRIP_NOT_FOUND} nếu chuyến không tồn tại hoặc không thuộc tài xế này
+             */
             @Transactional(readOnly = true)
             public DriverTripDetailResponse getTripDetail(String tripId) {
             DriverProfile driverProfile = getOrCreateDriverProfile();
@@ -89,6 +138,7 @@ public class DriverTripService {
             List<DriverTripDetailResponse.PointInfo> dropoffPoints = mapDropoffPoints(trip.getDropoffPoints());
             List<DriverTripDetailResponse.BookingInfo> bookings = mapBookings(trip.getBookings());
 
+            // Tính toán các trường dẫn xuất để UI không phải tính lại từ client.
             int totalSeats = trip.getTotalSeats() == null ? 0 : trip.getTotalSeats();
             int availableSeats = trip.getAvailableSeats() == null ? 0 : trip.getAvailableSeats();
             int bookedSeats = Math.max(0, totalSeats - availableSeats);
@@ -132,9 +182,35 @@ public class DriverTripService {
                 .build();
             }
 
+    /**
+     * Tạo một chuyến đi mới từ dữ liệu do tài xế nhập vào.
+     *
+     * <p><b>Luồng xử lý chi tiết:</b>
+     * <ol>
+     *   <li>{@link #validateCreateRequest(DriverTripRequest)} – kiểm tra tính hợp lệ của request</li>
+     *   <li>{@link #getOrCreateDriverProfile()} – lấy hồ sơ tài xế, kiểm tra status = APPROVED</li>
+     *   <li>{@link #resolveOrCreateTemplate(DriverProfile, DriverTripRequest)} –
+     *       resolve hoặc tạo route template từ thông tin tỉnh/xã</li>
+     *   <li>Build {@link Trip} entity mới với pickup/dropoff points copy từ template</li>
+     *   <li>Persist trip vào PostgreSQL qua {@link TripRepository#save(Object)}</li>
+     *   <li>Publish WebSocket event {@code DRIVER_TRIP_CREATED} đến tài xế</li>
+     * </ol>
+     * </p>
+     *
+     * <p><b>Về availableSeats:</b> Mặc định bằng totalSeats khi tạo mới.
+     * Giá trị này giảm mỗi khi có booking được xác nhận và tăng lại khi booking bị hủy,
+     * do CustomerBookingService quản lý.</p>
+     *
+     * @param request dữ liệu tạo chuyến từ client (xem {@link DriverTripRequest})
+     * @return {@link DriverTripResponse} thông tin chuyến vừa tạo
+     * @throws AppException {@code DRIVER_PROFILE_NOT_APPROVED} nếu hồ sơ chưa được Admin duyệt
+     * @throws AppException {@code INVALID_KEY} nếu thiếu tỉnh, clusters, giá vé, hoặc ngày giờ
+     */
     @Transactional
     public DriverTripResponse createTrip(DriverTripRequest request) {
+        // ── 1. Xác thực request ──────────────────────────────────────────────────────
         validateCreateRequest(request);
+        // ── 2. Lấy hồ sơ tài xế & route template ────────────────────────────────────
         DriverProfile driverProfile = getOrCreateDriverProfile();
         if (driverProfile.getStatus() != DriverStatus.APPROVED) {
             throw new AppException(ErrorCode.DRIVER_PROFILE_NOT_APPROVED);
@@ -142,6 +218,7 @@ public class DriverTripService {
 
         Trip template = resolveOrCreateTemplate(driverProfile, request);
 
+        // ── 3. Dựng Trip entity ─────────────────────────────────────────────────────
         int totalSeats = request.getTotalSeats() == null || request.getTotalSeats() < 1 ? 4 : request.getTotalSeats();
         int availableSeats = request.getAvailableSeats() == null
                 ? totalSeats
@@ -163,6 +240,7 @@ public class DriverTripService {
                 .dropoffPoints(new ArrayList<>())
                 .build();
 
+        // ── 4. Sao chép điểm đón/trả từ template ────────────────────────────────────
         List<TripPickupPoint> pickupPoints = template.getPickupPoints().stream()
                 .sorted(Comparator.comparingInt(p -> p.getSortOrder() == null ? 0 : p.getSortOrder()))
                 .map(p -> TripPickupPoint.builder()
@@ -190,6 +268,7 @@ public class DriverTripService {
         newTrip.setPickupPoints(pickupPoints);
         newTrip.setDropoffPoints(dropoffPoints);
 
+        // ── 5. Lưu & phát thông báo ─────────────────────────────────────────────────
         Trip saved = tripRepository.save(newTrip);
         String driverUserId = driverProfile.getUser() != null ? driverProfile.getUser().getId() : null;
         notificationRealtimePublisher.notifyUser(
@@ -204,17 +283,50 @@ public class DriverTripService {
         return response;
     }
 
+    /**
+     * Hủy chuyến đi và thực hiện toàn bộ side effects liên quan.
+     *
+     * <p><b>Điều kiện tiên quyết:</b> Chỉ hủy được khi status là OPEN hoặc FULL.
+     * Không thể hủy chuyến đang chạy (IN_PROGRESS) hoặc đã kết thúc.</p>
+     *
+     * <p><b>Side effects theo thứ tự:</b>
+     * <ol>
+     *   <li>Cập nhật {@code trip.status = CANCELLED}</li>
+     *   <li>Duyệt qua tất cả booking PENDING/CONFIRMED:
+     *       <ul>
+     *         <li>Đặt {@code booking.status = CANCELLED_BY_DRIVER}</li>
+     *         <li>Gọi {@link CustomerBookingService#tryAutoRefundVnPay} cho booking VNPay đã thanh toán.
+     *             Lỗi refund được bắt và log warning – không làm dừng luồng hủy chuyến,
+     *             vì nghiệp vụ hủy phải thành công bất kể refund có lỗi hay không.</li>
+     *       </ul>
+     *   </li>
+     *   <li>Đóng tất cả chat thread của chuyến</li>
+     *   <li>Gửi WebSocket {@code DRIVER_TRIP_CANCELLED} đến tài xế</li>
+     *   <li>Gửi WebSocket {@code TRIP_CANCELLED_BY_DRIVER} đến từng hành khách bị ảnh hưởng</li>
+     * </ol>
+     * </p>
+     *
+     * @param tripId    ID chuyến cần hủy
+     * @param request   thông tin hủy, có thể null (lý do hủy là tùy chọn)
+     * @param ipAddress IP của client, dùng cho VNPay Refund API
+     * @return {@link DriverTripResponse} phản ánh trạng thái CANCELLED
+     * @throws AppException {@code TRIP_NOT_FOUND} nếu chuyến không tồn tại hoặc không thuộc tài xế
+     * @throws AppException {@code TRIP_CANCEL_NOT_ALLOWED} nếu trạng thái không hợp lệ
+     */
     @Transactional
     public DriverTripResponse cancelTrip(String tripId, TripCancellationRequest request, String ipAddress) {
+        // ── 1. Kiểm tra quyền sở hữu & trạng thái chuyến ────────────────────────────
         DriverProfile driverProfile = getOrCreateDriverProfile();
         Trip trip = tripRepository.findByIdAndDriverIdAndDepartureTimeIsNotNullWithBookings(tripId, driverProfile.getId())
                 .orElseThrow(() -> new AppException(ErrorCode.TRIP_NOT_FOUND));
 
         TripStatus status = trip.getStatus();
         if (status == TripStatus.COMPLETED || status == TripStatus.CANCELLED || status == TripStatus.IN_PROGRESS) {
+            // Không cho phép hủy khi chuyến đã kết thúc hoặc đang chạy để tránh sai lệch trạng thái.
             throw new AppException(ErrorCode.TRIP_CANCEL_NOT_ALLOWED);
         }
 
+        // ── 2. Cập nhật trạng thái & ghi chú chuyến ─────────────────────────────────
         trip.setStatus(TripStatus.CANCELLED);
         trip.setCompletedAt(null);
 
@@ -223,8 +335,10 @@ public class DriverTripService {
             trip.setDriverNote(reason.trim());
         }
 
+        // ── 3. Hủy booking & hoàn tiền tự động nếu cần ──────────────────────────────
         markBookingsCancelledByDriver(trip, reason, ipAddress);
 
+        // ── 4. Lưu, đóng chat và thông báo người dùng ───────────────────────────────
         Trip saved = tripRepository.save(trip);
         chatService.closeThreadsByTripId(saved.getId(), "Trip was cancelled by driver");
 
@@ -250,6 +364,24 @@ public class DriverTripService {
         return toTripResponse(saved, routeTemplates);
     }
 
+    /**
+     * Bắt đầu chuyến đi – chuyển trạng thái OPEN/FULL sang IN_PROGRESS.
+     *
+     * <p><b>Guard condition về giờ khởi hành:</b>
+     * Hệ thống kiểm tra {@code now >= departureTime} trước khi cho phép bắt đầu.
+     * Điều này đảm bảo tài xế không thể xuất phát sớm hơn giờ đã cam kết với
+     * hành khách trên app, tránh trường hợp khách đến điểm đón đúng giờ nhưng
+     * xe đã đi rồi.</p>
+     *
+     * <p>Ghi lại {@code actualDepartureTime = now()} để phục vụ thống kê
+     * và tính toán thời gian thực tế của chuyến.</p>
+     *
+     * @param tripId ID chuyến cần bắt đầu
+     * @return {@link DriverTripResponse} với status "ongoing"
+     * @throws AppException {@code TRIP_NOT_FOUND}
+     * @throws AppException {@code TRIP_START_NOT_ALLOWED} nếu status không phải OPEN/FULL
+     * @throws AppException {@code TRIP_START_BEFORE_SCHEDULE} nếu now < departureTime
+     */
     @Transactional
     public DriverTripResponse startTrip(String tripId) {
         DriverProfile driverProfile = getOrCreateDriverProfile();
@@ -262,6 +394,7 @@ public class DriverTripService {
 
         LocalDateTime now = LocalDateTime.now();
         if (trip.getDepartureTime() != null && now.isBefore(trip.getDepartureTime())) {
+            // Chặn tài xế bắt đầu sớm để đảm bảo đúng giờ hẹn với hành khách.
             throw new AppException(ErrorCode.TRIP_START_BEFORE_SCHEDULE);
         }
 
@@ -277,6 +410,30 @@ public class DriverTripService {
         return toTripResponse(saved, routeTemplates);
     }
 
+    /**
+     * Hoàn thành chuyến đi – chuyển trạng thái IN_PROGRESS sang COMPLETED.
+     *
+     * <p><b>Guard quan trọng về tiền mặt chưa thu:</b>
+     * Trước khi hoàn thành, hệ thống kiểm tra còn booking nào có
+     * {@code payment.method = CASH} và {@code payment.status = UNPAID} không.
+     * Nếu có, ném exception {@code UNCONFIRMED_CASH_PAYMENTS} và yêu cầu
+     * tài xế xác nhận thu tiền thủ công trước. Ràng buộc này bảo vệ tài xế
+     * không bị mất doanh thu và bảo vệ tính nhất quán dữ liệu tài chính.</p>
+     *
+     * <p><b>Side effects:</b>
+     * <ul>
+     *   <li>Tất cả booking CONFIRMED/PENDING → COMPLETED</li>
+     *   <li>Chat thread của chuyến bị đóng lại</li>
+     *   <li>WebSocket {@code DRIVER_TRIP_COMPLETED} gửi đến tài xế</li>
+     *   <li>WebSocket {@code TRIP_COMPLETED} gửi đến từng hành khách</li>
+     * </ul>
+     * </p>
+     *
+     * @param tripId ID chuyến cần hoàn thành
+     * @return {@link DriverTripResponse} với status "completed"
+     * @throws AppException {@code TRIP_COMPLETE_NOT_ALLOWED} nếu status != IN_PROGRESS
+     * @throws AppException {@code UNCONFIRMED_CASH_PAYMENTS} nếu còn booking CASH chưa thu tiền
+     */
     @Transactional
     public DriverTripResponse completeTrip(String tripId) {
         DriverProfile driverProfile = getOrCreateDriverProfile();
@@ -288,6 +445,7 @@ public class DriverTripService {
         }
 
         if (trip.getBookings() != null) {
+            // Không cho phép hoàn thành nếu vẫn còn booking tiền mặt chưa xác nhận.
             boolean hasUnconfirmedCashPayment = trip.getBookings().stream()
                     .filter(b -> b != null && (b.getStatus() == BookingStatus.CONFIRMED || b.getStatus() == BookingStatus.PENDING))
                     .map(com.example.demo.entity.Booking::getPayment)
@@ -332,6 +490,31 @@ public class DriverTripService {
         return toTripResponse(saved, routeTemplates);
     }
 
+    /**
+     * Xác nhận tài xế đã thu tiền mặt từ hành khách cho một booking.
+     *
+     * <p>Validate đa tầng trước khi cập nhật:
+     * <ol>
+     *   <li>Trip phải tồn tại và thuộc tài xế đang login</li>
+     *   <li>Booking phải nằm trong trip đó</li>
+     *   <li>Payment phải tồn tại trên booking</li>
+     *   <li>{@code payment.method} phải là {@code CASH} (không cho phép xác nhận thủ công VNPay)</li>
+     *   <li>{@code payment.status} phải là {@code UNPAID} (tránh xác nhận trùng lặp)</li>
+     * </ol>
+     * </p>
+     *
+     * <p>Sau khi xác nhận thành công, hệ thống gửi WebSocket event
+     * {@code CASH_PAYMENT_CONFIRMED} đến hành khách để app phía khách
+     * cập nhật realtime trạng thái thanh toán mà không cần refresh.</p>
+     *
+     * @param tripId    ID chuyến
+     * @param bookingId ID booking cần xác nhận
+     * @return {@link DriverTripDetailResponse.BookingInfo} đã cập nhật paymentStatus = "PAID"
+     * @throws AppException {@code TRIP_NOT_FOUND}
+     * @throws AppException {@code BOOKING_NOT_FOUND}
+     * @throws AppException {@code PAYMENT_NOT_FOUND}
+     * @throws AppException {@code PAYMENT_CONFIRM_NOT_ALLOWED}
+     */
     @Transactional
     public DriverTripDetailResponse.BookingInfo confirmCashPayment(String tripId, String bookingId) {
         DriverProfile driverProfile = getOrCreateDriverProfile();
@@ -349,10 +532,12 @@ public class DriverTripService {
         }
 
         if (payment.getMethod() != PaymentMethod.CASH) {
+            // Chỉ cho phép xác nhận thủ công với tiền mặt, không được can thiệp VNPay.
             throw new AppException(ErrorCode.PAYMENT_CONFIRM_NOT_ALLOWED);
         }
 
         if (payment.getStatus() != PaymentStatus.UNPAID) {
+            // Ngăn việc xác nhận trùng lặp khi payment đã ở trạng thái PAID.
             throw new AppException(ErrorCode.PAYMENT_CONFIRM_NOT_ALLOWED);
         }
 
@@ -361,7 +546,7 @@ public class DriverTripService {
 
         tripRepository.save(trip);
 
-        // Notify the customer that their cash payment has been confirmed
+        // Thông báo realtime để khách cập nhật trạng thái thanh toán không cần refresh.
         User customer = booking.getCustomer();
         if (customer != null && StringUtils.hasText(customer.getId())) {
             notificationRealtimePublisher.notifyUser(
@@ -376,6 +561,19 @@ public class DriverTripService {
         return toBookingInfo(booking);
     }
 
+    /**
+     * Đánh dấu tất cả booking PENDING/CONFIRMED trong chuyến là bị hủy bởi tài xế,
+     * và thực hiện hoàn tiền VNPay tự động nếu booking đã thanh toán online.
+     *
+     * <p><b>Xử lý lỗi refund:</b> Exception từ {@code tryAutoRefundVnPay} được
+     * catch và log ở mức WARNING thay vì propagate lên. Quyết định thiết kế này
+     * đảm bảo việc hủy chuyến luôn hoàn thành dù VNPay có timeout hay lỗi kết nối.
+     * Các refund thất bại có thể được xử lý thủ công bởi admin sau đó.</p>
+     *
+     * @param trip      chuyến bị hủy (đã có bookings được fetch eager)
+     * @param reason    lý do hủy để ghi vào booking.cancellationReason
+     * @param ipAddress IP client để truyền vào VNPay Refund API
+     */
     private void markBookingsCancelledByDriver(Trip trip, String reason, String ipAddress) {
         if (trip.getBookings() == null || trip.getBookings().isEmpty()) {
             return;
@@ -398,7 +596,7 @@ public class DriverTripService {
                 try {
                     customerBookingService.tryAutoRefundVnPay(booking, ipAddress, "Driver cancellation refund " + booking.getId());
                 } catch (Exception ex) {
-                    // Driver cancellation must still succeed even if a specific refund fails.
+                    // Hủy chuyến vẫn phải thành công kể cả refund bị lỗi.
                     log.warn("Auto refund failed while driver cancels trip. tripId={}, bookingId={}, message={}",
                             trip != null ? trip.getId() : null,
                             booking.getId(),
@@ -408,6 +606,16 @@ public class DriverTripService {
         }
     }
 
+    /**
+     * Trích xuất tập hợp userId của tất cả hành khách có booking trong chuyến.
+     *
+     * <p>Dùng Set để tự động loại bỏ trùng lặp trong trường hợp một hành khách
+     * có nhiều booking trên cùng chuyến (mua nhiều ghế). Mỗi userId chỉ nhận
+     * một thông báo WebSocket dù có bao nhiêu booking.</p>
+     *
+     * @param trip chuyến cần lấy danh sách khách bị ảnh hưởng
+     * @return Set userId không trùng lặp, không bao giờ null
+     */
     private Set<String> collectAffectedCustomerUserIds(Trip trip) {
         if (trip == null || trip.getBookings() == null || trip.getBookings().isEmpty()) {
             return Set.of();
@@ -510,6 +718,17 @@ public class DriverTripService {
         }
     }
 
+    /**
+     * Tính toán và trả về thống kê hiệu suất của tài xế trong tháng hiện tại.
+     *
+     * <p>Doanh thu được tính theo công thức:
+     * {@code revenue = Σ (pricePerSeat × (totalSeats - availableSeats))}
+     * cho các chuyến không bị hủy trong tháng. Chuyến hủy bị loại trừ
+     * vì tiền đã được hoàn lại cho hành khách.</p>
+     *
+     * @return Map với 3 key: {@code thisMonth} (Map con), {@code rating} (Double),
+     *         {@code totalReviews} (Integer)
+     */
     @Transactional(readOnly = true)
     public Map<String, Object> getDriverStats() {
         DriverProfile driverProfile = getOrCreateDriverProfile();
@@ -524,6 +743,7 @@ public class DriverTripService {
         int completedRides = (int) thisMonthTrips.stream().filter(t -> t.getStatus() == TripStatus.COMPLETED).count();
         int cancelledRides = (int) thisMonthTrips.stream().filter(t -> t.getStatus() == TripStatus.CANCELLED).count();
 
+        // Loại bỏ chuyến hủy khỏi doanh thu vì đã hoàn tiền cho hành khách.
         long revenue = thisMonthTrips.stream()
                 .filter(t -> t.getStatus() != TripStatus.CANCELLED)
                 .mapToLong(this::calculateTripRevenue)
@@ -550,6 +770,21 @@ public class DriverTripService {
         return fare * booked;
     }
 
+    /**
+     * Validate tính hợp lệ của request tạo chuyến trước khi xử lý nghiệp vụ.
+     *
+     * <p>Các ràng buộc:
+     * <ul>
+     *   <li>Phải có {@code departureDate} và {@code departureTime}</li>
+     *   <li>Nếu không có {@code routeId} (tạo từ đầu): phải có tỉnh đi, tỉnh đến,
+     *       ít nhất 1 pickup cluster, ít nhất 1 dropoff cluster, giá vé >= 1.000đ</li>
+     *   <li>Nếu có {@code routeId} (tái sử dụng template): chỉ cần ngày giờ</li>
+     * </ul>
+     * </p>
+     *
+     * @param request request cần validate
+     * @throws AppException {@code INVALID_KEY} nếu vi phạm bất kỳ ràng buộc nào
+     */
     private void validateCreateRequest(DriverTripRequest request) {
         if (request == null
                 || !StringUtils.hasText(request.getDepartureDate())
@@ -576,6 +811,24 @@ public class DriverTripService {
         }
     }
 
+    /**
+     * Resolve hoặc tạo route template từ thông tin tỉnh và clusters do tài xế nhập.
+     *
+     * <p><b>Cơ chế tái sử dụng template:</b>
+     * Nếu tài xế tạo chuyến với cùng tuyến đường (cùng ward IDs pickup và dropoff)
+     * và cùng giá vé, hệ thống sẽ tái sử dụng template đã có thay vì tạo mới.
+     * Điều này tránh duplicate data và giúp tài xế dễ tạo chuyến định kỳ trên
+     * cùng tuyến.</p>
+     *
+     * <p><b>Lưu ý:</b> Template mới (chưa từng tồn tại trong DB) được build
+     * in-memory nhưng KHÔNG được persist ở đây. Việc lưu xảy ra khi Trip
+     * thực tế được lưu với cascade, tránh tạo row rỗng trong bảng trip.</p>
+     *
+     * @param driverProfile hồ sơ tài xế đang tạo chuyến
+     * @param request       dữ liệu tạo chuyến từ client
+     * @return Trip entity đóng vai trò route template (có thể chưa có ID nếu tạo mới)
+     * @throws AppException {@code INVALID_KEY} nếu tỉnh hoặc ward không tìm thấy trong DB
+     */
     private Trip resolveOrCreateTemplate(DriverProfile driverProfile, DriverTripRequest request) {
         if (StringUtils.hasText(request.getRouteId())) {
             return tripRepository.findByIdAndDriverIdAndDepartureTimeIsNull(request.getRouteId(), driverProfile.getId())
@@ -635,8 +888,7 @@ public class DriverTripService {
         template.setPickupPoints(pickupPoints);
         template.setDropoffPoints(dropoffPoints);
 
-        // Do not persist a brand-new template here to avoid creating a duplicate
-        // row in trip table when driver creates a trip from ad-hoc form input.
+        // Không persist template mới ở đây để tránh tạo row rỗng trong bảng trip.
         return template;
     }
 
@@ -685,6 +937,21 @@ public class DriverTripService {
                 && templateFare == fare.longValue();
     }
 
+    /**
+     * Lấy DriverProfile của tài xế đang đăng nhập, hoặc tạo mới nếu chưa có.
+     *
+     * <p>Logic ưu tiên:
+     * <ol>
+     *   <li>Tìm profile theo userId trong DB</li>
+     *   <li>Nếu có nhiều profile (legacy data từ phiên bản cũ) → chọn profile
+     *       có nhiều trip nhất để đảm bảo dữ liệu không bị phân tán</li>
+     *   <li>Nếu chưa có profile nào → tạo mới với {@code status = PENDING},
+     *       {@code submitted = false}, rating = 0.0</li>
+     * </ol>
+     * </p>
+     *
+     * @return DriverProfile của tài xế hiện tại, không bao giờ null
+     */
     private DriverProfile getOrCreateDriverProfile() {
         User currentUser = userService.getCurrentUser();
         Optional<DriverProfile> existingProfile = driverProfileRepository.findByUserId(currentUser.getId());
@@ -692,7 +959,7 @@ public class DriverTripService {
             return existingProfile.get();
         }
 
-        // Fallback for legacy duplicated data.
+        // Fallback cho dữ liệu legacy có thể bị duplicate profile.
         List<DriverProfile> profiles = driverProfileRepository.findAllByUserIdOrderByCreatedAtDesc(currentUser.getId());
         if (!profiles.isEmpty()) {
             return profiles.stream()
@@ -711,6 +978,21 @@ public class DriverTripService {
         );
     }
 
+    /**
+     * Phân tích ngày giờ khởi hành từ 2 chuỗi riêng biệt thành {@link LocalDateTime}.
+     *
+     * <p>Hỗ trợ 2 định dạng ngày để tương thích với cả web form và mobile app:
+     * <ul>
+     *   <li>ISO: {@code yyyy-MM-dd} (mặc định của DatePicker trên một số platform)</li>
+     *   <li>Việt Nam: {@code dd/MM/yyyy} (quen thuộc với người dùng VN)</li>
+     * </ul>
+     * </p>
+     *
+     * @param departureDate chuỗi ngày (yyyy-MM-dd hoặc dd/MM/yyyy)
+     * @param departureTime chuỗi giờ (HH:mm)
+     * @return LocalDateTime kết hợp ngày và giờ
+     * @throws AppException {@code INVALID_KEY} nếu không parse được định dạng nào
+     */
     private LocalDateTime parseDepartureDateTime(String departureDate, String departureTime) {
         LocalDate date = parseDateFlexible(departureDate);
         LocalTime time = parseTimeFlexible(departureTime);
@@ -945,6 +1227,10 @@ public class DriverTripService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Chuyển đổi chuỗi trạng thái từ client về {@link TripStatus} enum nội bộ.
+     * Chấp nhận cả tiếng Anh kỹ thuật ("in_progress") và UI string ("ongoing").
+     */
     private TripStatus toTripStatus(String uiStatus) {
         if (!StringUtils.hasText(uiStatus)) {
             return TripStatus.OPEN;
@@ -966,6 +1252,14 @@ public class DriverTripService {
         }
     }
 
+    /**
+     * Chuyển đổi {@link TripStatus} enum nội bộ sang chuỗi UI-friendly để trả về client.
+     *
+     * <p>Mapping: OPEN/FULL → "scheduled", IN_PROGRESS → "ongoing",
+     * COMPLETED → "completed", CANCELLED → "cancelled".
+     * Cách này tách biệt model nội bộ khỏi API contract, cho phép thay đổi
+     * giá trị enum mà không break client.</p>
+     */
     private String toUiStatus(TripStatus status) {
         if (status == null) {
             return "scheduled";
