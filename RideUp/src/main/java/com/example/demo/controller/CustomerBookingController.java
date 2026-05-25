@@ -24,6 +24,13 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Controller for handling customer bookings, including ride search, booking creation,
+ * payment processing, and cancellations.
+ * 
+ * Controller xử lý các chức năng liên quan đến việc đặt xe của khách hàng, 
+ * bao gồm: tìm kiếm chuyến đi, tạo đơn đặt xe, xử lý thanh toán và hủy chuyến.
+ */
 @RestController
 @RequiredArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
@@ -32,6 +39,22 @@ public class CustomerBookingController {
     CustomerBookingService customerBookingService;
     RideSearchTextService rideSearchTextService;
 
+    /**
+     * Search for available rides based on criteria like province, ward, and departure date.
+     * 
+     * API Tìm kiếm các chuyến đi có sẵn dựa trên các tiêu chí: 
+     * tỉnh/thành phố đi/đến, phường/xã đi/đến, ngày khởi hành, v.v.
+     * 
+     * @param fromProvinceId ID của tỉnh/thành phố điểm đi
+     * @param toProvinceId ID của tỉnh/thành phố điểm đến
+     * @param fromWardId ID của phường/xã điểm đi
+     * @param toWardId ID của phường/xã điểm đến
+     * @param departureDate Ngày khởi hành mong muốn
+     * @param status Trạng thái chuyến đi
+     * @param page Trang hiện tại (phân trang)
+     * @param size Số lượng kết quả mỗi trang
+     * @return Danh sách các chuyến đi phù hợp (List<RideSearchResponse>)
+     */
     @GetMapping("/rides/search")
     @PreAuthorize("isAuthenticated()")
     public List<RideSearchResponse> searchRides(@RequestParam(required = false) String fromProvinceId,
@@ -46,6 +69,16 @@ public class CustomerBookingController {
         return customerBookingService.searchRides(fromProvinceId, toProvinceId, fromWardId, toWardId, departureDate, status, page, size);
     }
 
+    /**
+     * Search for rides using natural language text input (powered by AI).
+     * 
+     * API Tìm kiếm chuyến đi sử dụng văn bản tự nhiên (AI NLP). 
+     * Hệ thống sẽ phân tích câu lệnh (ví dụ: "Tìm chuyến từ Hà Nội đi Hải Phòng ngày mai") 
+     * để tự động trích xuất các tiêu chí tìm kiếm.
+     * 
+     * @param request Chứa đoạn text truy vấn (queryText)
+     * @return Kết quả phân tích văn bản và danh sách chuyến đi tìm được
+     */
     @PostMapping("/rides/search-from-text")
     @PreAuthorize("isAuthenticated()")
     public RideSearchFromTextResponse searchRidesFromText(
@@ -62,6 +95,17 @@ public class CustomerBookingController {
         return customerBookingService.getMyBookings(page, size);
     }
 
+    /**
+     * Create a new booking for a specific ride.
+     * 
+     * API Đặt xe (Tạo đơn đặt xe mới).
+     * Khách hàng gửi thông tin số lượng ghế, mã chuyến đi, và các thông tin liên quan 
+     * để hệ thống xử lý đặt chỗ.
+     * 
+     * @param request Chứa thông tin đặt xe (mã chuyến, vị trí đón/trả, v.v.)
+     * @param httpServletRequest HttpServletRequest để lấy IP client
+     * @return Thông tin đơn đặt xe vừa tạo
+     */
     @PostMapping("/customer/bookings")
     @PreAuthorize("isAuthenticated()")
     public CustomerBookingResponse createBooking(@RequestBody CreateBookingRequest request,
@@ -69,6 +113,16 @@ public class CustomerBookingController {
         return customerBookingService.createBooking(request, getClientIp(httpServletRequest));
     }
 
+    /**
+     * Generate a VNPay payment URL for a specific booking.
+     * 
+     * API Tạo URL thanh toán VNPay cho đơn đặt xe.
+     * Gọi qua cổng thanh toán VNPay (External API) để lấy link thanh toán.
+     * 
+     * @param bookingId Mã đơn đặt xe cần thanh toán
+     * @param httpServletRequest HttpServletRequest để lấy IP client (bắt buộc cho VNPay)
+     * @return Map chứa URL thanh toán VNPay
+     */
     @PostMapping("/customer/bookings/{bookingId}/payment/vnpay-url")
     @PreAuthorize("isAuthenticated()")
     public Map<String, String> createVnpayPaymentUrl(@PathVariable String bookingId,

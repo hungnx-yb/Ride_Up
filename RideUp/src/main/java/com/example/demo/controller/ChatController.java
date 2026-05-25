@@ -20,6 +20,15 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
+/**
+ * Controller for handling chat functionality between users, drivers, and the support chatbot.
+ * 
+ * Controller quản lý các chức năng nhắn tin/chat, bao gồm:
+ * - Mở luồng chat (thread) cho các chuyến đi
+ * - Lấy danh sách cuộc trò chuyện
+ * - Gửi tin nhắn và đánh dấu đã đọc
+ * Có thể tích hợp tin nhắn cho Chatbot chăm sóc khách hàng (AI Support).
+ */
 @RestController
 @RequestMapping("/chat")
 @RequiredArgsConstructor
@@ -28,6 +37,14 @@ public class ChatController {
 
     ChatService chatService;
 
+    /**
+     * Open or retrieve an existing chat thread (e.g., related to a booking).
+     * 
+     * API Mở một luồng chat mới hoặc lấy luồng chat đã có (ví dụ: liên kết với một đơn đặt xe).
+     * 
+     * @param request Yêu cầu chứa thông tin mã chuyến đi (bookingId)
+     * @return Thông tin luồng chat (ChatThreadResponse)
+     */
     @PostMapping("/threads/open")
     @PreAuthorize("isAuthenticated()")
     public ApiResponse<ChatThreadResponse> openThread(@RequestBody OpenChatThreadRequest request) {
@@ -60,6 +77,16 @@ public class ChatController {
                 .build();
     }
 
+    /**
+     * Send a new message to a specific chat thread.
+     * 
+     * API Gửi tin nhắn mới vào một luồng chat. 
+     * Nếu luồng chat là với AI, Chatbot chăm sóc khách hàng sẽ tự động xử lý và phản hồi.
+     * 
+     * @param threadId Mã luồng chat
+     * @param request Nội dung tin nhắn
+     * @return Thông tin tin nhắn vừa gửi
+     */
     @PostMapping("/threads/{threadId}/messages")
     @PreAuthorize("isAuthenticated()")
     public ApiResponse<ChatMessageResponse> sendMessage(

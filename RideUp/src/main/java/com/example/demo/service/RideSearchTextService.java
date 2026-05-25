@@ -28,6 +28,14 @@ import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/**
+ * Service for parsing and searching rides using text input.
+ * 
+ * Service hỗ trợ tìm kiếm chuyến đi thông minh dựa trên văn bản.
+ * - Sử dụng AI (AiRideSearchAssistant) để hiểu ngữ nghĩa câu nói.
+ * - Có cơ chế dự phòng (fallback) bằng Regex để trích xuất điểm đi, điểm đến, thời gian nếu AI lỗi.
+ * - Tìm kiếm các chuyến xe (rides) phù hợp nhất với tiêu chí đã phân tích.
+ */
 @Service
 @RequiredArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
@@ -49,6 +57,15 @@ public class RideSearchTextService {
     ProvinceRepository provinceRepository;
     WardRepository wardRepository;
 
+    /**
+     * Search rides by extracting intent from a raw natural language query.
+     * 
+     * Phân tích văn bản của người dùng (vd: "tìm chuyến từ HN đi HP sáng mai"), 
+     * sau đó gọi database để tìm các chuyến xe phù hợp.
+     * 
+     * @param rawQueryText Câu lệnh tìm kiếm của người dùng
+     * @return Kết quả tìm kiếm chuyến (RideSearchFromTextResponse)
+     */
     @Transactional(readOnly = true)
     public RideSearchFromTextResponse searchFromText(String rawQueryText) {
         String queryText = rawQueryText == null ? "" : rawQueryText.trim();

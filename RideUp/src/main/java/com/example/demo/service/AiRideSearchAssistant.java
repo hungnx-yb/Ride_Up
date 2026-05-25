@@ -27,6 +27,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+/**
+ * Service for parsing natural language ride search queries using Google Gemini AI.
+ * 
+ * Class AI hỗ trợ tính năng "Tìm kiếm chuyến" bằng văn bản tự nhiên (NLP).
+ * Gọi API tới Google Gemini để trích xuất các thông tin như: điểm đi, điểm đến, 
+ * ngày khởi hành, số ghế, mức giá từ câu nói của người dùng.
+ */
 @Service
 @FieldDefaults(level = AccessLevel.PRIVATE)
 public class AiRideSearchAssistant {
@@ -49,6 +56,16 @@ public class AiRideSearchAssistant {
     @Value("${support.ai.api-key:}")
     String apiKey;
 
+    /**
+     * Parse natural language query to structured search criteria.
+     * 
+     * Phân tích câu lệnh tìm kiếm của người dùng thành đối tượng JSON có cấu trúc.
+     * VD: "Tìm xe từ Hà Nội về Hải Phòng ngày mai 2 người" 
+     * -> {fromText: "Hà Nội", toText: "Hải Phòng", departureDate: "YYYY-MM-DD", seatCount: 2}
+     * 
+     * @param queryText Câu tìm kiếm bằng ngôn ngữ tự nhiên
+     * @return Tùy chọn chứa kết quả phân tích (ParsedRideQuery)
+     */
     public Optional<ParsedRideQuery> parseQuery(String queryText) {
         if (!enabled || !StringUtils.hasText(apiKey) || !StringUtils.hasText(queryText)) {
             return Optional.empty();

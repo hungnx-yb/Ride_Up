@@ -26,6 +26,14 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * Service for communicating with the external AI language model (Google Gemini).
+ * 
+ * Class này phụ trách việc gọi API ra ngoài (External API) tới Google Gemini 
+ * để đóng vai trò là một trợ lý ảo chăm sóc khách hàng.
+ * Nó xử lý việc đóng gói câu hỏi của người dùng cùng với ngữ cảnh (context) hiện tại
+ * và gửi tới mô hình AI để sinh câu trả lời tự nhiên.
+ */
 @Service
 @FieldDefaults(level = AccessLevel.PRIVATE)
 public class AiSupportAssistant {
@@ -55,6 +63,19 @@ public class AiSupportAssistant {
     @Value("${support.ai.cache-ttl-seconds:90}")
     long cacheTtlSeconds;
 
+    /**
+     * Generate an AI reply based on user message and their booking history.
+     * 
+     * Hàm sinh câu trả lời thông qua AI.
+     * 1. Gộp nội dung người dùng hỏi + lịch sử booking + lịch sử hội thoại thành một Prompt.
+     * 2. Gọi External API (Google Gemini) để sinh câu trả lời.
+     * 3. Phân tích kết quả JSON trả về từ AI (Intent, Reply, Suggestions).
+     * 
+     * @param userMessage Câu hỏi của người dùng
+     * @param bookings Danh sách các chuyến đi gần nhất làm ngữ cảnh
+     * @param history Lịch sử các tin nhắn đã chat
+     * @return Câu trả lời dạng SupportChatResponse (nếu gọi thành công)
+     */
         public Optional<SupportChatResponse> generateReply(
             String userMessage,
             List<CustomerBookingResponse> bookings,

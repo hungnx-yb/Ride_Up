@@ -46,6 +46,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
+/**
+ * Service managing customer booking operations.
+ * 
+ * Service quản lý các nghiệp vụ liên quan đến khách hàng, bao gồm:
+ * - Tìm kiếm chuyến đi (searchRides)
+ * - Đặt chuyến (createBooking)
+ * - Xử lý thanh toán VNPay
+ * - Hủy chuyến và đánh giá chuyến đi
+ */
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -60,6 +69,22 @@ public class CustomerBookingService {
         VnPayService vnPayService;
                 NotificationRealtimePublisher notificationRealtimePublisher;
 
+    /**
+     * Search for available rides based on criteria such as locations, date, and status.
+     * 
+     * Hàm tìm kiếm chuyến đi. Truy vấn database để tìm các chuyến có điểm đi, điểm đến
+     * phù hợp với ngày và số lượng ghế còn trống.
+     * 
+     * @param fromProvinceId ID tỉnh xuất phát
+     * @param toProvinceId ID tỉnh đích
+     * @param fromWardId ID phường xã xuất phát
+     * @param toWardId ID phường xã đích
+     * @param departureDate Ngày xuất phát
+     * @param status Trạng thái chuyến đi
+     * @param page Số trang
+     * @param size Số lượng phần tử mỗi trang
+     * @return Danh sách các chuyến xe thỏa mãn điều kiện
+     */
     @Transactional(readOnly = true)
     public List<RideSearchResponse> searchRides(String fromProvinceId,
                                                 String toProvinceId,
@@ -128,6 +153,20 @@ public class CustomerBookingService {
                 .toList();
     }
 
+    /**
+     * Create a new booking for a ride.
+     * 
+     * Hàm tạo một yêu cầu đặt chỗ. Nó sẽ kiểm tra:
+     * 1. Tuyến đường và các điểm đón trả.
+     * 2. Vị trí tọa độ nằm trong bán kính cho phép.
+     * 3. Số ghế còn trống của chuyến xe (Available Seats).
+     * 
+     * Sau khi tạo booking, sẽ khởi tạo thông tin thanh toán (Payment).
+     * 
+     * @param request Thông tin yêu cầu đặt xe
+     * @param ipAddress IP của khách hàng để gọi tới VNPay (nếu chọn)
+     * @return Thông tin chi tiết của đơn đặt xe vừa tạo
+     */
         @Transactional
         public CustomerBookingResponse createBooking(CreateBookingRequest request, String ipAddress) {
         validateCreateRequest(request);

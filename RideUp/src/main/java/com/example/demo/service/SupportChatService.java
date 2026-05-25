@@ -18,6 +18,14 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 
+/**
+ * Service for the AI Support Chatbot.
+ * 
+ * Service quản lý các tính năng của Chatbot chăm sóc khách hàng (AI Support Chatbot).
+ * - Sử dụng quy tắc xử lý cơ bản (Rule-based) để trả lời các câu hỏi FAQ thường gặp.
+ * - Gọi AI Assistant để xử lý các câu hỏi phức tạp hơn (NLP).
+ * - Tự động tra cứu thông tin chuyến đi (Booking) của người dùng để trả lời ngữ cảnh cá nhân hóa.
+ */
 @Service
 @RequiredArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
@@ -38,6 +46,19 @@ public class SupportChatService {
     CustomerBookingService customerBookingService;
     AiSupportAssistant aiSupportAssistant;
 
+    /**
+     * Process user's chat message and generate an appropriate chatbot response.
+     * 
+     * Xử lý tin nhắn của người dùng và sinh ra câu trả lời từ Chatbot.
+     * Luồng xử lý:
+     * 1. Phân tích ngữ cảnh lịch sử chat.
+     * 2. Xử lý các mẫu tin nhắn FAQ (xin chào, cảm ơn, hỏi giá, voucher...).
+     * 3. Tra cứu lịch sử đặt xe nếu người dùng hỏi về chuyến đi.
+     * 4. Dùng AI (aiSupportAssistant) để trả lời nếu không khớp với rule FAQ nào.
+     * 
+     * @param request Yêu cầu chat chứa nội dung tin nhắn và lịch sử hội thoại
+     * @return Câu trả lời của Chatbot (SupportChatResponse)
+     */
     public SupportChatResponse reply(SupportChatRequest request) {
         String message = request == null ? null : request.getMessage();
         List<SupportChatRequest.HistoryItem> history = request == null ? List.of() : request.getHistory();
