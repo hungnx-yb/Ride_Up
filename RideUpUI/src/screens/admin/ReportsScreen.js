@@ -9,7 +9,9 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { COLORS } from '../../config/config';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
+import { ADMIN_COLORS, ADMIN_SHADOW, ADMIN_SHADOW_SM, GRADIENT_HEADER } from '../../config/AdminTheme';
 import { getAdminStats } from '../../services/api';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -115,7 +117,7 @@ const ReportsScreen = ({ navigation }) => {
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color={COLORS.adminColor} />
+        <ActivityIndicator size="large" color={ADMIN_COLORS.gradientStart} />
       </View>
     );
   }
@@ -123,53 +125,82 @@ const ReportsScreen = ({ navigation }) => {
   return (
     <ScrollView
       style={styles.container}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadData(); }} />}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={() => { setRefreshing(true); loadData(); }}
+          tintColor={ADMIN_COLORS.gradientStart}
+        />
+      }
     >
-      <View style={styles.header}>
+      <LinearGradient colors={GRADIENT_HEADER} style={styles.header} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation?.goBack()}>
-          <Text style={styles.backText}>‹</Text>
+          <Ionicons name="chevron-back" size={24} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.title}>Báo cáo thống kê</Text>
-        <View style={{ width: 36 }} />
-      </View>
+        <View style={{ alignItems: 'center' }}>
+          <Text style={styles.title}>Báo cáo thống kê</Text>
+          <View style={styles.headerDatePill}>
+            <Ionicons name="calendar-outline" size={11} color="#fff" />
+            <Text style={styles.headerDateText}> {new Date().toLocaleDateString('vi-VN')}</Text>
+          </View>
+        </View>
+        <View style={{ width: 38 }} />
+      </LinearGradient>
 
       <View style={styles.heroWrap}>
-        <View style={styles.heroCard}>
-          <View>
-            <Text style={styles.heroLabel}>Tổng quan vận hành</Text>
-            <Text style={styles.heroDate}>{new Date().toLocaleDateString('vi-VN')}</Text>
+        <LinearGradient
+          colors={['#1E1B4B', '#312E81']}
+          style={styles.heroCard}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+        >
+          <View style={{ flex: 1 }}>
+            <Text style={styles.heroLabel}>Điểm vận hành hôm nay</Text>
+            <View style={styles.heroStatusRow}>
+              <View style={[styles.heroStatusDot, {
+                backgroundColor: normalized.operationScore >= 80 ? '#16A34A' :
+                  normalized.operationScore >= 50 ? '#D97706' : '#DC2626'
+              }]} />
+              <Text style={styles.heroSubLabel}>
+                {normalized.operationScore >= 80 ? 'Hoạt động tốt' :
+                  normalized.operationScore >= 50 ? 'Cần theo dõi' : 'Cần cải thiện'}
+              </Text>
+            </View>
           </View>
           <View style={styles.scoreBox}>
             <Text style={styles.scoreValue}>{normalized.operationScore}</Text>
-            <Text style={styles.scoreLabel}>Điểm</Text>
+            <Text style={styles.scoreLabel}>/ 100</Text>
           </View>
-        </View>
+        </LinearGradient>
       </View>
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>KPI hôm nay</Text>
         <View style={styles.grid}>
-          <MetricCard icon="🚗" label="Tổng chuyến" value={normalized.today.totalRides} color="#1565C0" />
-          <MetricCard icon="✅" label="Hoàn thành" value={normalized.today.completedRides} color="#2E7D32" />
-          <MetricCard icon="❌" label="Đã hủy" value={normalized.today.cancelledRides} color="#C62828" />
-          <MetricCard icon="💰" label="Doanh thu" value={formatCurrency(normalized.today.revenue)} color="#E65100" />
+          <MetricCard icon="car-outline" label="Tổng chuyến" value={normalized.today.totalRides} color="#2563EB" bg="#DBEAFE" />
+          <MetricCard icon="checkmark-circle-outline" label="Hoàn thành" value={normalized.today.completedRides} color="#16A34A" bg="#DCFCE7" />
+          <MetricCard icon="close-circle-outline" label="Đã hủy" value={normalized.today.cancelledRides} color="#DC2626" bg="#FEE2E2" />
+          <MetricCard icon="cash-outline" label="Doanh thu" value={formatCurrency(normalized.today.revenue)} color="#D97706" bg="#FEF3C7" />
         </View>
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Cơ cấu trạng thái chuyến hôm nay</Text>
+        <Text style={styles.sectionTitle}>Cơ cấu trạng thái hôm nay</Text>
         <View style={styles.card}>
-          <ProgressRow label="Hoàn thành" value={normalized.completionRate} color="#2E7D32" count={normalized.today.completedRides} />
-          <ProgressRow label="Đã hủy" value={normalized.cancelRate} color="#C62828" count={normalized.today.cancelledRides} />
-          <ProgressRow label="Đang xử lý" value={normalized.activeRate} color="#1565C0" count={Math.max(normalized.today.totalRides - normalized.today.completedRides - normalized.today.cancelledRides, 0)} />
+          <ProgressRow label="Hoàn thành" value={normalized.completionRate} color="#16A34A" count={normalized.today.completedRides} />
+          <ProgressRow label="Đã hủy" value={normalized.cancelRate} color="#DC2626" count={normalized.today.cancelledRides} />
+          <ProgressRow label="Đang xử lý" value={normalized.activeRate} color="#2563EB" count={Math.max(normalized.today.totalRides - normalized.today.completedRides - normalized.today.cancelledRides, 0)} />
         </View>
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>So sánh nhanh hôm nay vs trung bình tháng</Text>
+        <Text style={styles.sectionTitle}>So sánh hôm nay vs trung bình tháng</Text>
         <View style={styles.compareGrid}>
           <View style={[styles.card, styles.compareCard]}>
-            <Text style={styles.compareTitle}>Số chuyến</Text>
+            <View style={styles.compareTitleRow}>
+              <Ionicons name="car-outline" size={14} color="#1565C0" />
+              <Text style={styles.compareTitle}> Số chuyến</Text>
+            </View>
             <View style={styles.columnChart}>
               {normalized.ridesComparison.map((item) => (
                 <ColumnBar
@@ -184,7 +215,10 @@ const ReportsScreen = ({ navigation }) => {
           </View>
 
           <View style={[styles.card, styles.compareCard]}>
-            <Text style={styles.compareTitle}>Doanh thu</Text>
+            <View style={styles.compareTitleRow}>
+              <Ionicons name="cash-outline" size={14} color="#E65100" />
+              <Text style={styles.compareTitle}> Doanh thu</Text>
+            </View>
             <View style={styles.columnChart}>
               {normalized.revenueComparison.map((item) => (
                 <ColumnBar
@@ -265,10 +299,12 @@ const ReportsScreen = ({ navigation }) => {
   );
 };
 
-const MetricCard = ({ icon, label, value, color }) => (
-  <View style={[styles.metricCard, { borderTopColor: color }]}>
-    <Text style={styles.metricIcon}>{icon}</Text>
-    <Text style={styles.metricValue}>{value}</Text>
+const MetricCard = ({ icon, label, value, color, bg }) => (
+  <View style={[styles.metricCard, { backgroundColor: bg || '#F1F5F9', borderTopColor: color }]}>
+    <View style={[styles.metricIconWrap, { backgroundColor: color + '22' }]}>
+      <Ionicons name={icon} size={18} color={color} />
+    </View>
+    <Text style={[styles.metricValue, { color }]}>{value}</Text>
     <Text style={styles.metricLabel}>{label}</Text>
   </View>
 );
@@ -326,165 +362,192 @@ const TimelineItem = ({ message, time }) => (
 );
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F6F8FA' },
+  container: { flex: 1, backgroundColor: ADMIN_COLORS.pageBg },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   header: {
-    backgroundColor: COLORS.adminColor,
     paddingTop: 52,
-    paddingBottom: 14,
+    paddingBottom: 16,
     paddingHorizontal: 16,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
   backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     backgroundColor: 'rgba(255,255,255,0.2)',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
   },
-  backText: { color: '#fff', fontSize: 26, lineHeight: 30 },
-  title: { color: '#fff', fontSize: 18, fontWeight: '700' },
-  heroWrap: { paddingHorizontal: 12, marginTop: 10 },
+  title: { color: '#fff', fontSize: 17, fontWeight: '800' },
+  headerDatePill: {
+    marginTop: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+  },
+  headerDateText: { color: '#fff', fontSize: 11, fontWeight: '600' },
+
+  // Hero
+  heroWrap: { paddingHorizontal: 12, marginTop: 12 },
   heroCard: {
-    borderRadius: 14,
-    backgroundColor: '#20113A',
-    paddingHorizontal: 14,
-    paddingVertical: 14,
+    borderRadius: 18,
+    paddingHorizontal: 18,
+    paddingVertical: 18,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    ...ADMIN_SHADOW,
   },
-  heroLabel: { color: '#D8C9FF', fontSize: 13, fontWeight: '700' },
-  heroDate: { color: '#fff', fontSize: 18, fontWeight: '800', marginTop: 4 },
+  heroLabel: { color: '#C7D2FE', fontSize: 13, fontWeight: '700' },
+  heroStatusRow: { flexDirection: 'row', alignItems: 'center', marginTop: 6, gap: 6 },
+  heroStatusDot: { width: 8, height: 8, borderRadius: 4 },
+  heroSubLabel: { color: '#fff', fontSize: 15, fontWeight: '800' },
   scoreBox: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: '#7C3AED',
+    width: 78,
+    height: 78,
+    borderRadius: 39,
+    backgroundColor: 'rgba(255,255,255,0.15)',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.3)',
   },
-  scoreValue: { color: '#fff', fontSize: 24, fontWeight: '900' },
-  scoreLabel: { color: '#E9D5FF', fontSize: 11, fontWeight: '700' },
-  section: { paddingHorizontal: 12, marginTop: 12 },
-  sectionTitle: { fontSize: 15, fontWeight: '800', color: '#111827', marginBottom: 8 },
+  scoreValue: { color: '#fff', fontSize: 26, fontWeight: '900' },
+  scoreLabel: { color: '#C7D2FE', fontSize: 10, fontWeight: '700' },
+
+  // Section
+  section: { paddingHorizontal: 12, marginTop: 14 },
+  sectionTitle: {
+    fontSize: 15, fontWeight: '800', color: ADMIN_COLORS.textPrimary,
+    marginBottom: 10, letterSpacing: 0.2,
+  },
+
+  // Grid
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   metricCard: {
     width: '48%',
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    borderRadius: 14,
     borderTopWidth: 3,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+    padding: 14,
+    ...ADMIN_SHADOW_SM,
   },
-  metricIcon: { fontSize: 16, marginBottom: 4 },
-  metricValue: { fontSize: 18, fontWeight: '800', color: '#111827' },
-  metricLabel: { marginTop: 4, fontSize: 12, color: '#6B7280' },
+  metricIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  metricValue: { fontSize: 18, fontWeight: '800' },
+  metricLabel: { marginTop: 4, fontSize: 11, color: ADMIN_COLORS.textSecondary },
+
+  // Card
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    padding: 12,
+    backgroundColor: ADMIN_COLORS.cardBg,
+    borderRadius: 14,
+    padding: 14,
+    ...ADMIN_SHADOW_SM,
   },
   compareGrid: { gap: 10 },
   compareCard: {
     width: SCREEN_WIDTH - 24,
   },
-  compareTitle: { fontSize: 13, fontWeight: '800', color: '#334155', marginBottom: 8 },
+  compareTitleRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+  compareTitle: { fontSize: 13, fontWeight: '800', color: ADMIN_COLORS.textPrimary },
   columnChart: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'space-around',
     minHeight: CHART_MAX_HEIGHT + 36,
   },
-  columnItem: {
-    alignItems: 'center',
-    width: '42%',
-  },
-  columnValue: { fontSize: 11, color: '#334155', marginBottom: 4, fontWeight: '700' },
+  columnItem: { alignItems: 'center', width: '42%' },
+  columnValue: { fontSize: 11, color: ADMIN_COLORS.textSecondary, marginBottom: 5, fontWeight: '700' },
   columnTrack: {
     height: CHART_MAX_HEIGHT,
-    width: 34,
-    backgroundColor: '#EEF2F7',
+    width: 36,
+    backgroundColor: '#E2E8F0',
     borderRadius: 999,
     justifyContent: 'flex-end',
     overflow: 'hidden',
   },
-  columnFill: {
-    width: 34,
-    borderRadius: 999,
-  },
-  columnLabel: { marginTop: 6, fontSize: 11, color: '#475569', fontWeight: '700' },
+  columnFill: { width: 36, borderRadius: 999 },
+  columnLabel: { marginTop: 7, fontSize: 11, color: ADMIN_COLORS.textSecondary, fontWeight: '700' },
+
+  // Info rows
   infoRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 7,
+    paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
+    borderBottomColor: ADMIN_COLORS.divider,
   },
-  infoLabel: { fontSize: 13, color: '#475569' },
-  infoValue: { fontSize: 13, color: '#111827', fontWeight: '700' },
-  rateRow: { marginBottom: 10 },
+  infoLabel: { fontSize: 13, color: ADMIN_COLORS.textSecondary },
+  infoValue: { fontSize: 13, color: ADMIN_COLORS.textPrimary, fontWeight: '700' },
+
+  // Progress rows
+  rateRow: { marginBottom: 12 },
   rateLabelWrap: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 6,
+    marginBottom: 7,
   },
   rateTrack: {
     height: 8,
     borderRadius: 999,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: '#E2E8F0',
     overflow: 'hidden',
   },
   rateBar: { height: 8, borderRadius: 999 },
+
+  // Mix chart
   mixTrack: {
     flexDirection: 'row',
-    height: 14,
+    height: 12,
     borderRadius: 999,
     overflow: 'hidden',
     backgroundColor: '#E2E8F0',
   },
-  mixSegment: { height: 14 },
+  mixSegment: { height: 12 },
   mixLegendRow: {
-    marginTop: 10,
+    marginTop: 12,
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'space-around',
   },
-  legendItem: { flexDirection: 'row', alignItems: 'center' },
-  legendDot: { width: 10, height: 10, borderRadius: 5, marginRight: 6 },
-  legendText: { fontSize: 12, color: '#475569', fontWeight: '700' },
-  empty: { fontSize: 13, color: '#6B7280' },
-  activityRow: {
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
-  },
-  timelineRow: {
-    flexDirection: 'row',
-    marginBottom: 10,
-  },
-  timelineRail: { width: 18, alignItems: 'center' },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  legendDot: { width: 10, height: 10, borderRadius: 5 },
+  legendText: { fontSize: 12, color: ADMIN_COLORS.textSecondary, fontWeight: '700' },
+  empty: { fontSize: 13, color: ADMIN_COLORS.textMuted },
+
+  // Timeline
+  timelineRow: { flexDirection: 'row', marginBottom: 12 },
+  timelineRail: { width: 20, alignItems: 'center' },
   timelineDot: {
-    width: 9,
-    height: 9,
+    width: 10,
+    height: 10,
     borderRadius: 5,
-    backgroundColor: '#7C3AED',
+    backgroundColor: ADMIN_COLORS.gradientStart,
     marginTop: 4,
   },
   timelineLine: {
     width: 2,
     flex: 1,
     backgroundColor: '#E2E8F0',
-    marginTop: 3,
+    marginTop: 4,
+    borderRadius: 1,
   },
-  timelineContent: { flex: 1, paddingLeft: 2 },
-  activityText: { fontSize: 13, color: '#111827' },
-  activityTime: { fontSize: 12, color: '#64748B', marginTop: 2 },
+  timelineContent: { flex: 1, paddingLeft: 4 },
+  activityText: { fontSize: 13, color: ADMIN_COLORS.textPrimary, lineHeight: 19 },
+  activityTime: { fontSize: 11, color: ADMIN_COLORS.textMuted, marginTop: 3 },
 });
 
 export default ReportsScreen;

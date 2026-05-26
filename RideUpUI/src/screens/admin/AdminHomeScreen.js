@@ -3,22 +3,24 @@ import {
   View, Text, TouchableOpacity, StyleSheet,
   ScrollView, ActivityIndicator, RefreshControl, Animated, Alert,
 } from 'react-native';
-import { COLORS } from '../../config/config';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
+import { ADMIN_COLORS, ADMIN_SHADOW, GRADIENT_HEADER } from '../../config/AdminTheme';
 import { getAdminStats, getLocationStats, triggerLocationSync } from '../../services/api';
 
 const ACTIVITY_ICONS = {
-  new_booking: '📋',
-  ride_completed: '✅',
-  new_driver: '🚗',
-  payment: '💰',
-  cancelled: '❌',
+  new_booking: 'clipboard-outline',
+  ride_completed: 'checkmark-circle-outline',
+  new_driver: 'car-outline',
+  payment: 'cash-outline',
+  cancelled: 'close-circle-outline',
 };
 
 const QUICK_ACTIONS = [
-  { icon: '✅', label: 'Duyệt\nHồ sơ tài xế', color: '#E8F5E9', iconColor: '#2E7D32', screen: 'AdminDriverApproval' },
-  { icon: '👥', label: 'Quản lý\nNgười dùng', color: '#E3F2FD', iconColor: '#1565C0', screen: 'ManageUsers' },
-  { icon: '📊', label: 'Báo cáo\nThống kê', color: '#FFF3E0', iconColor: '#E65100', screen: 'Reports' },
-  { icon: '⚙️', label: 'Cài đặt\nHệ thống', color: '#F3E5F5', iconColor: '#6A1B9A', screen: 'Settings' },
+  { icon: 'shield-checkmark-outline', label: 'Duyệt hồ sơ\nTài xế', iconBg: '#DCFCE7', iconColor: '#16A34A', screen: 'AdminDriverApproval' },
+  { icon: 'people-outline', label: 'Quản lý\nNgười dùng', iconBg: '#DBEAFE', iconColor: '#2563EB', screen: 'ManageUsers' },
+  { icon: 'bar-chart-outline', label: 'Báo cáo\nThống kê', iconBg: '#FEF3C7', iconColor: '#D97706', screen: 'Reports' },
+  { icon: 'settings-outline', label: 'Cài đặt\nHệ thống', iconBg: '#EDE9FE', iconColor: '#7C3AED', screen: 'Settings' },
 ];
 
 const AdminHomeScreen = ({ user, onLogout, navigation }) => {
@@ -176,8 +178,10 @@ const AdminHomeScreen = ({ user, onLogout, navigation }) => {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={COLORS.adminColor} />
-        <Text style={styles.loadingText}>Đang tải dữ liệu...</Text>
+        <LinearGradient colors={GRADIENT_HEADER} style={styles.loadingGradient}>
+          <ActivityIndicator size="large" color="#fff" />
+          <Text style={styles.loadingText}>Đang tải dữ liệu...</Text>
+        </LinearGradient>
       </View>
     );
   }
@@ -185,52 +189,58 @@ const AdminHomeScreen = ({ user, onLogout, navigation }) => {
   return (
     <ScrollView
       style={styles.container}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadStats(); }} />}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadStats(); }} tintColor={ADMIN_COLORS.gradientStart} />}
     >
       {/* Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.greeting}>Xin chào 👋</Text>
-          <Text style={styles.userName}>{user?.fullName || 'Admin'}</Text>
-          <View style={styles.roleBadge}>
-            <Text style={styles.roleBadgeText}>👑 Quản trị viên</Text>
+      <LinearGradient colors={GRADIENT_HEADER} style={styles.header} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
+        <View style={styles.headerTop}>
+          <View>
+            <Text style={styles.greeting}>Xin chào</Text>
+            <Text style={styles.userName}>{user?.fullName || 'Admin'}</Text>
+            <View style={styles.roleBadge}>
+              <Ionicons name="shield-outline" size={12} color="rgba(255,255,255,0.9)" />
+              <Text style={styles.roleBadgeText}> Quản trị viên</Text>
+            </View>
           </View>
+          <TouchableOpacity style={styles.logoutBtn} onPress={onLogout}>
+            <Text style={styles.logoutText}>Đăng xuất</Text>
+          </TouchableOpacity>
         </View>
-        <TouchableOpacity style={styles.logoutBtn} onPress={onLogout}>
-          <Text style={styles.logoutText}>Đăng xuất</Text>
-        </TouchableOpacity>
-      </View>
 
-      {/* Stats hôm nay */}
+        {/* Date pill */}
+        <View style={styles.datePill}>
+          <Ionicons name="calendar-outline" size={12} color="rgba(255,255,255,0.9)" />
+          <Text style={styles.datePillText}> {new Date().toLocaleDateString('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' })}</Text>
+        </View>
+      </LinearGradient>
+
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>📈 Hôm nay ({new Date().toLocaleDateString('vi-VN')})</Text>
+        <Text style={styles.sectionTitle}>KPI hôm nay</Text>
         <View style={styles.statsGrid}>
-          <StatCard label="Tổng chuyến" value={normalizedStats.today.totalRides} icon="🚗" color="#1565C0" />
-          <StatCard label="Hoàn thành" value={normalizedStats.today.completedRides} icon="✅" color="#2E7D32" />
-          <StatCard label="Đã hủy" value={normalizedStats.today.cancelledRides} icon="❌" color="#C62828" />
-          <StatCard label="Doanh thu" value={formatCurrency(normalizedStats.today.revenue)} icon="💰" color="#E65100" small />
+          <StatCard label="Tổng chuyến" value={normalizedStats.today.totalRides} icon="car-outline" color="#2563EB" />
+          <StatCard label="Hoàn thành" value={normalizedStats.today.completedRides} icon="checkmark-circle-outline" color="#16A34A" />
+          <StatCard label="Đã hủy" value={normalizedStats.today.cancelledRides} icon="close-circle-outline" color="#DC2626" />
+          <StatCard label="Doanh thu" value={formatCurrency(normalizedStats.today.revenue)} icon="cash-outline" color="#D97706" small />
         </View>
       </View>
 
-      {/* Stats tháng */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>📅 Tháng này</Text>
+        <Text style={styles.sectionTitle}>Tháng này</Text>
         <View style={styles.monthCard}>
-          <MonthRow icon="🚗" label="Tổng chuyến xe" value={normalizedStats.thisMonth.totalRides} />
-          <MonthRow icon="💰" label="Doanh thu" value={formatCurrency(normalizedStats.thisMonth.revenue)} />
-          <MonthRow icon="👥" label="Người dùng mới" value={`+${normalizedStats.thisMonth.newUsers} (${normalizedStats.thisMonth.totalUsers} tổng)`} />
-          <MonthRow icon="🚘" label="Tài xế mới" value={`+${normalizedStats.thisMonth.newDrivers} (${normalizedStats.thisMonth.totalDrivers} tổng)`} />
+          <MonthRow icon="car-outline" label="Tổng chuyến xe" value={normalizedStats.thisMonth.totalRides} />
+          <MonthRow icon="cash-outline" label="Doanh thu" value={formatCurrency(normalizedStats.thisMonth.revenue)} />
+          <MonthRow icon="people-outline" label="Người dùng mới" value={`+${normalizedStats.thisMonth.newUsers} (${normalizedStats.thisMonth.totalUsers} tổng)`} />
+          <MonthRow icon="car-sport-outline" label="Tài xế mới" value={`+${normalizedStats.thisMonth.newDrivers} (${normalizedStats.thisMonth.totalDrivers} tổng)`} />
         </View>
       </View>
 
-      {/* Quick Actions */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>⚡ Chức năng</Text>
+        <Text style={styles.sectionTitle}>Chức năng</Text>
         <View style={styles.actionsGrid}>
           {QUICK_ACTIONS.map((action) => (
             <TouchableOpacity
               key={action.screen}
-              style={[styles.actionCard, { backgroundColor: action.color }]}
+              style={styles.actionCard}
               onPress={() => {
                 if (action.screen === 'AdminDriverApproval') {
                   navigation?.navigate('AdminDriverApproval');
@@ -250,21 +260,25 @@ const AdminHomeScreen = ({ user, onLogout, navigation }) => {
                 }
                 Alert.alert('Thông báo', 'Chức năng này đang được phát triển.');
               }}
+              activeOpacity={0.8}
             >
-              <Text style={[styles.actionIcon, { color: action.iconColor }]}>{action.icon}</Text>
+              <View style={[styles.actionIconWrap, { backgroundColor: action.iconBg }]}>
+                <Ionicons name={action.icon} size={26} color={action.iconColor} />
+              </View>
               <Text style={styles.actionLabel}>{action.label}</Text>
             </TouchableOpacity>
           ))}
         </View>
       </View>
 
-      {/* Hoạt động gần đây */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>🕐 Hoạt động gần đây</Text>
+        <Text style={styles.sectionTitle}>Hoạt động gần đây</Text>
         <View style={styles.activityCard}>
           {normalizedStats.recentActivity.length === 0 ? (
             <View style={styles.activityItem}>
-              <Text style={styles.activityIcon}>📌</Text>
+              <View style={styles.activityIconWrap}>
+                <Ionicons name="time-outline" size={18} color={ADMIN_COLORS.textMuted} />
+              </View>
               <View style={styles.activityInfo}>
                 <Text style={styles.activityMsg}>Không có hoạt động gần đây</Text>
                 <Text style={styles.activityTime}>Không có</Text>
@@ -272,9 +286,9 @@ const AdminHomeScreen = ({ user, onLogout, navigation }) => {
             </View>
           ) : normalizedStats.recentActivity.map((item) => (
             <View key={item.id} style={styles.activityItem}>
-              <Text style={styles.activityIcon}>
-                {ACTIVITY_ICONS[item.type] || '📌'}
-              </Text>
+              <View style={styles.activityIconWrap}>
+                <Ionicons name={ACTIVITY_ICONS[item.type] || 'time-outline'} size={18} color={ADMIN_COLORS.gradientStart} />
+              </View>
               <View style={styles.activityInfo}>
                 <Text style={styles.activityMsg}>{item.message || 'Không có nội dung'}</Text>
                 <Text style={styles.activityTime}>{item.time || 'Không có'}</Text>
@@ -284,17 +298,20 @@ const AdminHomeScreen = ({ user, onLogout, navigation }) => {
         </View>
       </View>
 
-      {/* Đồng bộ dữ liệu địa lý */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>🗺️ Dữ liệu Địa lý</Text>
+        <Text style={styles.sectionTitle}>Dữ liệu Địa lý</Text>
 
         {/* Notification banner */}
         {syncNotif && (
           <View style={[styles.notifBanner, syncNotif.type === 'success' ? styles.notifSuccess : styles.notifFailed]}>
-            <Text style={styles.notifIcon}>{syncNotif.type === 'success' ? '✅' : '❌'}</Text>
+            <Ionicons
+              name={syncNotif.type === 'success' ? 'checkmark-circle' : 'close-circle'}
+              size={20}
+              color={syncNotif.type === 'success' ? '#16A34A' : '#DC2626'}
+            />
             <Text style={styles.notifMsg} numberOfLines={3}>{syncNotif.msg}</Text>
             <TouchableOpacity onPress={() => setSyncNotif(null)} style={styles.notifClose}>
-              <Text style={styles.notifCloseText}>✕</Text>
+              <Ionicons name="close" size={16} color={ADMIN_COLORS.textMuted} />
             </TouchableOpacity>
           </View>
         )}
@@ -313,16 +330,17 @@ const AdminHomeScreen = ({ user, onLogout, navigation }) => {
             </View>
             <View style={styles.syncDivider} />
             <View style={styles.syncStat}>
-              <Text style={[
-                styles.syncStatValue,
-                normalizedLocationStats.syncState === 'DONE'    && { color: '#2E7D32' },
-                normalizedLocationStats.syncState === 'RUNNING' && { color: '#E65100' },
-                normalizedLocationStats.syncState === 'FAILED'  && { color: '#C62828' },
-              ]}>
-                {normalizedLocationStats.syncState === 'RUNNING' ? '⏳' :
-                 normalizedLocationStats.syncState === 'DONE'    ? '✅' :
-                 normalizedLocationStats.syncState === 'FAILED'  ? '❌' : '0'}
-              </Text>
+              <View style={styles.syncStatIconWrap}>
+                {normalizedLocationStats.syncState === 'RUNNING' ? (
+                  <ActivityIndicator size="small" color={ADMIN_COLORS.gradientStart} />
+                ) : normalizedLocationStats.syncState === 'DONE' ? (
+                  <Ionicons name="checkmark-circle" size={24} color="#16A34A" />
+                ) : normalizedLocationStats.syncState === 'FAILED' ? (
+                  <Ionicons name="close-circle" size={24} color="#DC2626" />
+                ) : (
+                  <Text style={styles.syncStatValue}>—</Text>
+                )}
+              </View>
               <Text style={styles.syncStatLabel}>Trạng thái</Text>
             </View>
           </View>
@@ -355,7 +373,10 @@ const AdminHomeScreen = ({ user, onLogout, navigation }) => {
           {/* Nút đồng bộ / confirm inline */}
           {showSyncConfirm ? (
             <View style={styles.confirmBox}>
-              <Text style={styles.confirmTitle}>⚠️ Xác nhận đồng bộ</Text>
+              <View style={styles.confirmTitleRow}>
+                <Ionicons name="warning-outline" size={18} color="#92400E" />
+                <Text style={styles.confirmTitle}> Xác nhận đồng bộ</Text>
+              </View>
               <Text style={styles.confirmMsg}>
                 Thao tác này sẽ xóa toàn bộ dữ liệu tỉnh/xã cũ và tải lại từ Overpass API.{'\n'}
                 Quá trình có thể mất 5–15 phút.
@@ -365,7 +386,10 @@ const AdminHomeScreen = ({ user, onLogout, navigation }) => {
                   <Text style={styles.confirmCancelText}>Hủy</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.confirmOk} onPress={doSync}>
-                  <Text style={styles.confirmOkText}>🔄 Đồng bộ ngay</Text>
+                  <View style={styles.confirmOkInner}>
+                    <Ionicons name="refresh-outline" size={15} color="#fff" />
+                    <Text style={styles.confirmOkText}> Đồng bộ ngay</Text>
+                  </View>
                 </TouchableOpacity>
               </View>
             </View>
@@ -384,7 +408,10 @@ const AdminHomeScreen = ({ user, onLogout, navigation }) => {
                   <Text style={styles.syncBtnText}>Đang cào dữ liệu từ Overpass...</Text>
                 </View>
               ) : (
-                <Text style={styles.syncBtnText}>🔄 Đồng bộ từ Overpass API</Text>
+                <View style={styles.syncBtnInner}>
+                  <Ionicons name="refresh-outline" size={16} color="#fff" style={{ marginRight: 6 }} />
+                  <Text style={styles.syncBtnText}>Đồng bộ từ Overpass API</Text>
+                </View>
               )}
             </TouchableOpacity>
           )}
@@ -401,157 +428,206 @@ const AdminHomeScreen = ({ user, onLogout, navigation }) => {
 
 const StatCard = ({ label, value, icon, color, small }) => (
   <View style={[styles.statCard, { borderTopColor: color }]}>
-    <Text style={styles.statIcon}>{icon}</Text>
-    <Text style={[styles.statValue, small && styles.statValueSmall]}>{value ?? 0}</Text>
+    <View style={[styles.statIconWrap, { backgroundColor: color + '22' }]}>
+      <Ionicons name={icon} size={22} color={color} />
+    </View>
+    <Text style={[styles.statValue, small && styles.statValueSmall, { color }]}>{value ?? 0}</Text>
     <Text style={styles.statLabel}>{label}</Text>
   </View>
 );
 
 const MonthRow = ({ icon, label, value }) => (
   <View style={styles.monthRow}>
-    <Text style={styles.monthRowIcon}>{icon}</Text>
+    <View style={styles.monthRowIconWrap}>
+      <Ionicons name={icon} size={16} color={ADMIN_COLORS.gradientStart} />
+    </View>
     <Text style={styles.monthRowLabel}>{label}</Text>
     <Text style={styles.monthRowValue}>{value ?? 'Không có'}</Text>
   </View>
 );
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.background },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background },
-  loadingText: { marginTop: 12, color: COLORS.textLight },
+  container: { flex: 1, backgroundColor: ADMIN_COLORS.pageBg },
+  loadingContainer: { flex: 1 },
+  loadingGradient: {
+    flex: 1, justifyContent: 'center', alignItems: 'center',
+  },
+  loadingText: { marginTop: 12, color: '#fff', fontSize: 14, fontWeight: '600' },
 
   // Header
   header: {
-    backgroundColor: COLORS.adminColor,
-    paddingTop: 56, paddingHorizontal: 20, paddingBottom: 24,
+    paddingTop: 56, paddingHorizontal: 20, paddingBottom: 20,
+  },
+  headerTop: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
   },
-  greeting: { color: 'rgba(255,255,255,0.8)', fontSize: 14 },
-  userName: { color: COLORS.white, fontSize: 22, fontWeight: '800', marginTop: 2 },
+  greeting: { color: 'rgba(255,255,255,0.75)', fontSize: 13, fontWeight: '500' },
+  userName: { color: '#FFFFFF', fontSize: 22, fontWeight: '800', marginTop: 2 },
   roleBadge: {
-    marginTop: 6, backgroundColor: 'rgba(255,255,255,0.2)',
-    borderRadius: 12, paddingHorizontal: 10, paddingVertical: 3, alignSelf: 'flex-start',
+    marginTop: 6, flexDirection: 'row', alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 20, paddingHorizontal: 12, paddingVertical: 4, alignSelf: 'flex-start',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)',
   },
-  roleBadgeText: { color: COLORS.white, fontSize: 12, fontWeight: '600' },
+  roleBadgeText: { color: '#fff', fontSize: 12, fontWeight: '700' },
   logoutBtn: {
-    backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 8,
-    paddingHorizontal: 12, paddingVertical: 7, marginTop: 4,
+    backgroundColor: 'rgba(255,255,255,0.18)', borderRadius: 10,
+    paddingHorizontal: 14, paddingVertical: 8, marginTop: 4,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)',
   },
-  logoutText: { color: COLORS.white, fontSize: 13, fontWeight: '600' },
+  logoutText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  datePill: {
+    marginTop: 14, flexDirection: 'row', alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6, alignSelf: 'flex-start',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)',
+  },
+  datePillText: { color: 'rgba(255,255,255,0.9)', fontSize: 12, fontWeight: '600' },
 
   // Section
   section: { paddingHorizontal: 16, marginTop: 20 },
-  sectionTitle: { fontSize: 16, fontWeight: '700', color: COLORS.text, marginBottom: 12 },
+  sectionTitle: {
+    fontSize: 15, fontWeight: '800', color: ADMIN_COLORS.textPrimary,
+    marginBottom: 12, letterSpacing: 0.3,
+    borderLeftWidth: 4, borderLeftColor: ADMIN_COLORS.gradientStart,
+    paddingLeft: 10, backgroundColor: ADMIN_COLORS.divider,
+    paddingVertical: 6, borderRadius: 6,
+  },
 
   // Stats Grid
   statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   statCard: {
-    flex: 1, minWidth: '45%', backgroundColor: COLORS.surface, borderRadius: 12,
-    padding: 14, borderTopWidth: 3, alignItems: 'center',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
+    flex: 1, minWidth: '45%', backgroundColor: ADMIN_COLORS.cardBg,
+    borderRadius: 16, padding: 14, borderTopWidth: 4, alignItems: 'center',
+    ...ADMIN_SHADOW,
   },
-  statIcon: { fontSize: 24, marginBottom: 6 },
-  statValue: { fontSize: 24, fontWeight: '800', color: COLORS.text },
-  statValueSmall: { fontSize: 15 },
-  statLabel: { fontSize: 12, color: COLORS.textLight, marginTop: 2 },
+  statIconWrap: {
+    width: 44, height: 44, borderRadius: 22, alignItems: 'center',
+    justifyContent: 'center', marginBottom: 8,
+  },
+  statValue: { fontSize: 22, fontWeight: '800' },
+  statValueSmall: { fontSize: 14 },
+  statLabel: { fontSize: 11, color: ADMIN_COLORS.textSecondary, marginTop: 2, textAlign: 'center' },
 
   // Month card
   monthCard: {
-    backgroundColor: COLORS.surface, borderRadius: 12, padding: 16,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
+    backgroundColor: ADMIN_COLORS.cardBg, borderRadius: 16, padding: 4,
+    ...ADMIN_SHADOW,
   },
-  monthRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: COLORS.border },
-  monthRowIcon: { fontSize: 18, width: 28 },
-  monthRowLabel: { flex: 1, fontSize: 14, color: COLORS.textLight },
-  monthRowValue: { fontSize: 14, fontWeight: '700', color: COLORS.text },
+  monthRow: {
+    flexDirection: 'row', alignItems: 'center', paddingVertical: 11,
+    paddingHorizontal: 14, borderBottomWidth: 1, borderBottomColor: ADMIN_COLORS.divider,
+  },
+  monthRowIcon: { fontSize: 18, width: 30 },
+  monthRowLabel: { flex: 1, fontSize: 13, color: ADMIN_COLORS.textSecondary },
+  monthRowValue: { fontSize: 13, fontWeight: '700', color: ADMIN_COLORS.textPrimary },
+  monthRowIconWrap: {
+    width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: ADMIN_COLORS.divider, marginRight: 10,
+  },
 
   // Actions Grid
   actionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   actionCard: {
-    width: '47%', borderRadius: 14, padding: 16,
-    alignItems: 'center', justifyContent: 'center', minHeight: 90,
+    width: '47%', backgroundColor: ADMIN_COLORS.cardBg, borderRadius: 16,
+    padding: 16, alignItems: 'center', justifyContent: 'center', minHeight: 100,
+    ...ADMIN_SHADOW,
   },
-  actionIcon: { fontSize: 30, marginBottom: 8 },
-  actionLabel: { fontSize: 13, fontWeight: '600', color: COLORS.text, textAlign: 'center', lineHeight: 18 },
+  actionIconWrap: {
+    width: 52, height: 52, borderRadius: 26,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 10,
+  },
+  actionLabel: {
+    fontSize: 12, fontWeight: '700', color: ADMIN_COLORS.textPrimary,
+    textAlign: 'center', lineHeight: 17,
+  },
 
   // Activity
   activityCard: {
-    backgroundColor: COLORS.surface, borderRadius: 12, overflow: 'hidden',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
+    backgroundColor: ADMIN_COLORS.cardBg, borderRadius: 16, overflow: 'hidden',
+    ...ADMIN_SHADOW,
   },
   activityItem: {
     flexDirection: 'row', alignItems: 'flex-start',
-    padding: 14, borderBottomWidth: 1, borderBottomColor: COLORS.border,
+    paddingHorizontal: 16, paddingVertical: 12,
+    borderBottomWidth: 1, borderBottomColor: ADMIN_COLORS.divider,
   },
-  activityIcon: { fontSize: 20, marginRight: 12, marginTop: 1 },
+  activityIcon: { fontSize: 18, marginRight: 12, marginTop: 1 },
+  activityIconWrap: {
+    width: 34, height: 34, borderRadius: 17, backgroundColor: ADMIN_COLORS.divider,
+    alignItems: 'center', justifyContent: 'center', marginRight: 12, marginTop: 1,
+  },
   activityInfo: { flex: 1 },
-  activityMsg: { fontSize: 13, color: COLORS.text, lineHeight: 20 },
-  activityTime: { fontSize: 12, color: COLORS.textMuted, marginTop: 2 },
+  activityMsg: { fontSize: 13, color: ADMIN_COLORS.textPrimary, lineHeight: 19 },
+  activityTime: { fontSize: 11, color: ADMIN_COLORS.textMuted, marginTop: 3 },
 
   // Sync card
   syncCard: {
-    backgroundColor: COLORS.surface, borderRadius: 12, padding: 16,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
+    backgroundColor: ADMIN_COLORS.cardBg, borderRadius: 16, padding: 16,
+    ...ADMIN_SHADOW,
   },
-  syncStatsRow: { flexDirection: 'row', justifyContent: 'space-around', marginBottom: 12 },
+  syncStatsRow: { flexDirection: 'row', justifyContent: 'space-around', marginBottom: 14 },
   syncStat: { alignItems: 'center', flex: 1 },
-  syncStatValue: { fontSize: 22, fontWeight: '800', color: COLORS.text },
-  syncStatLabel: { fontSize: 11, color: COLORS.textLight, marginTop: 2 },
-  syncDivider: { width: 1, backgroundColor: COLORS.border, marginVertical: 4 },
-  syncLastTime: { fontSize: 12, color: COLORS.textLight, textAlign: 'center', marginBottom: 10 },
-  syncError: { fontSize: 12, color: '#C62828', textAlign: 'center', marginBottom: 8, paddingHorizontal: 8 },
+  syncStatIconWrap: { height: 30, alignItems: 'center', justifyContent: 'center' },
+  syncStatValue: { fontSize: 22, fontWeight: '800', color: ADMIN_COLORS.textPrimary },
+  syncStatLabel: { fontSize: 11, color: ADMIN_COLORS.textSecondary, marginTop: 2 },
+  syncDivider: { width: 1, backgroundColor: ADMIN_COLORS.border, marginVertical: 4 },
+  syncLastTime: { fontSize: 12, color: ADMIN_COLORS.textMuted, textAlign: 'center', marginBottom: 10 },
+  syncError: { fontSize: 12, color: ADMIN_COLORS.danger, textAlign: 'center', marginBottom: 8, paddingHorizontal: 8 },
   syncBtn: {
-    backgroundColor: COLORS.adminColor, borderRadius: 10,
-    paddingVertical: 13, alignItems: 'center', marginTop: 4,
+    borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 4,
+    backgroundColor: ADMIN_COLORS.gradientStart,
+    ...ADMIN_SHADOW,
   },
-  syncBtnDisabled: { backgroundColor: '#BDBDBD' },
+  syncBtnDisabled: { backgroundColor: '#CBD5E1' },
   syncBtnInner: { flexDirection: 'row', alignItems: 'center' },
   syncBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
-  syncNote: { fontSize: 11, color: COLORS.textLight, textAlign: 'center', marginTop: 8 },
+  syncNote: { fontSize: 11, color: ADMIN_COLORS.textMuted, textAlign: 'center', marginTop: 10 },
 
   // Progress bar
   progressTrack: {
-    height: 6, borderRadius: 3, backgroundColor: '#FFE0B2',
+    height: 5, borderRadius: 3, backgroundColor: '#EDE9FE',
     overflow: 'hidden', marginVertical: 12,
   },
   progressBar: {
-    height: 6, width: '50%', borderRadius: 3,
-    backgroundColor: COLORS.adminColor,
+    height: 5, width: '45%', borderRadius: 3,
+    backgroundColor: ADMIN_COLORS.gradientStart,
   },
 
   // Notification banner
   notifBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
-    borderRadius: 12, padding: 14, marginBottom: 12,
+    borderRadius: 14, padding: 14, marginBottom: 12,
     borderWidth: 1,
   },
-  notifSuccess: { backgroundColor: '#E8F5E9', borderColor: '#66BB6A' },
-  notifFailed:  { backgroundColor: '#FFEBEE', borderColor: '#EF9A9A' },
-  notifIcon: { fontSize: 22 },
-  notifMsg: { flex: 1, fontSize: 13, fontWeight: '600', color: COLORS.text, lineHeight: 18 },
+  notifSuccess: { backgroundColor: ADMIN_COLORS.successBg, borderColor: '#86EFAC' },
+  notifFailed: { backgroundColor: ADMIN_COLORS.dangerBg, borderColor: '#FCA5A5' },
+  notifIcon: { fontSize: 20 },
+  notifMsg: { flex: 1, fontSize: 13, fontWeight: '600', color: ADMIN_COLORS.textPrimary, lineHeight: 18 },
   notifClose: { padding: 4 },
-  notifCloseText: { fontSize: 14, color: COLORS.textLight, fontWeight: '700' },
 
   // Confirm box inline
   confirmBox: {
-    backgroundColor: '#FFF8E1', borderRadius: 12, padding: 16,
-    borderWidth: 1.5, borderColor: '#FFB300', marginTop: 4,
+    backgroundColor: '#FFFBEB', borderRadius: 14, padding: 16,
+    borderWidth: 1.5, borderColor: '#FCD34D', marginTop: 4,
   },
-  confirmTitle: { fontSize: 15, fontWeight: '800', color: '#E65100', marginBottom: 6 },
-  confirmMsg: { fontSize: 13, color: COLORS.text, lineHeight: 20, marginBottom: 14 },
+  confirmTitle: { fontSize: 15, fontWeight: '800', color: '#92400E', marginBottom: 6 },
+  confirmTitleRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
+  confirmMsg: { fontSize: 13, color: ADMIN_COLORS.textPrimary, lineHeight: 20, marginBottom: 14 },
   confirmBtns: { flexDirection: 'row', gap: 10 },
   confirmCancel: {
-    flex: 1, borderRadius: 8, paddingVertical: 10, alignItems: 'center',
-    borderWidth: 1.5, borderColor: COLORS.border, backgroundColor: COLORS.surface,
+    flex: 1, borderRadius: 10, paddingVertical: 11, alignItems: 'center',
+    borderWidth: 1.5, borderColor: ADMIN_COLORS.border, backgroundColor: ADMIN_COLORS.cardBg,
   },
-  confirmCancelText: { fontSize: 14, fontWeight: '600', color: COLORS.textLight },
+  confirmCancelText: { fontSize: 14, fontWeight: '600', color: ADMIN_COLORS.textSecondary },
   confirmOk: {
-    flex: 2, borderRadius: 8, paddingVertical: 10, alignItems: 'center',
-    backgroundColor: '#E65100',
+    flex: 2, borderRadius: 10, paddingVertical: 11, alignItems: 'center',
+    backgroundColor: '#D97706',
   },
+  confirmOkInner: { flexDirection: 'row', alignItems: 'center' },
   confirmOkText: { fontSize: 14, fontWeight: '700', color: '#fff' },
 
-  bottomPad: { height: 32 },
+  bottomPad: { height: 36 },
 });
 
 export default AdminHomeScreen;

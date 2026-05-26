@@ -11,7 +11,9 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { COLORS } from '../../config/config';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
+import { ADMIN_COLORS, ADMIN_SHADOW, ADMIN_SHADOW_SM, GRADIENT_HEADER } from '../../config/AdminTheme';
 import {
   approveDriverProfile,
   getAdminDriverProfiles,
@@ -25,9 +27,9 @@ const STATUS_TEXT = {
 };
 
 const STATUS_COLOR = {
-  PENDING: { bg: '#FFF3E0', text: '#E65100' },
-  APPROVED: { bg: '#E8F5E9', text: '#2E7D32' },
-  REJECTED: { bg: '#FFEBEE', text: '#C62828' },
+  PENDING: { bg: '#FEF3C7', text: '#92400E', dot: '#F59E0B' },
+  APPROVED: { bg: '#DCFCE7', text: '#14532D', dot: '#16A34A' },
+  REJECTED: { bg: '#FEE2E2', text: '#7F1D1D', dot: '#DC2626' },
 };
 
 const AdminDriverApprovalScreen = ({ navigation }) => {
@@ -63,6 +65,13 @@ const AdminDriverApprovalScreen = ({ navigation }) => {
     }
     return profiles.filter((p) => p.status === activeTab);
   }, [profiles, activeTab]);
+
+  const tabCount = useMemo(() => ({
+    PENDING: profiles.filter((p) => p.status === 'PENDING' && p.submitted === true).length,
+    APPROVED: profiles.filter((p) => p.status === 'APPROVED').length,
+    REJECTED: profiles.filter((p) => p.status === 'REJECTED').length,
+    ALL: profiles.length,
+  }), [profiles]);
 
   const onApprove = async (profileId) => {
     setProcessingId(profileId);
@@ -125,19 +134,44 @@ const AdminDriverApprovalScreen = ({ navigation }) => {
     return (
       <View style={styles.card}>
         <View style={styles.cardHead}>
-          <Text style={styles.name}>{item.fullName || 'Tài xế'}</Text>
+          <View style={styles.avatarWrap}>
+            <Text style={styles.avatarText}>{(item.fullName || 'T').charAt(0).toUpperCase()}</Text>
+          </View>
+          <View style={{ flex: 1, marginLeft: 10 }}>
+            <Text style={styles.name}>{item.fullName || 'Tài xế'}</Text>
+            <View style={styles.metaEmailRow}>
+              <Ionicons name="mail-outline" size={12} color={ADMIN_COLORS.textSecondary} />
+              <Text style={styles.metaEmail}>{item.email || 'Chưa có email'}</Text>
+            </View>
+          </View>
           <View style={[styles.badge, { backgroundColor: statusStyle.bg }]}>
+            <View style={[styles.badgeDot, { backgroundColor: statusStyle.dot }]} />
             <Text style={[styles.badgeText, { color: statusStyle.text }]}>
               {displayStatus === 'DRAFT' ? 'Chưa nộp' : (STATUS_TEXT[item.status] || item.status)}
             </Text>
           </View>
         </View>
 
-        <Text style={styles.meta}>📧 {item.email || 'Chưa có email'}</Text>
-        <Text style={styles.meta}>📱 {item.phoneNumber || 'Chưa có số điện thoại'}</Text>
-        <Text style={styles.meta}>🪪 CCCD: {item.cccd || 'Không có'}</Text>
-        <Text style={styles.meta}>📝 GPLX: {item.gplx || 'Không có'}</Text>
-        <Text style={styles.meta}>🚗 {item.vehicleBrand || 'Không có'} {item.vehicleModel || ''} · {item.plateNumber || 'Không có'}</Text>
+        <View style={styles.metaGrid}>
+          <View style={styles.metaItem}>
+            <Text style={styles.metaLabel}>Điện thoại</Text>
+            <Text style={styles.metaValue}>{item.phoneNumber || '—'}</Text>
+          </View>
+          <View style={styles.metaItem}>
+            <Text style={styles.metaLabel}>CCCD</Text>
+            <Text style={styles.metaValue}>{item.cccd || '—'}</Text>
+          </View>
+          <View style={styles.metaItem}>
+            <Text style={styles.metaLabel}>GPLX</Text>
+            <Text style={styles.metaValue}>{item.gplx || '—'}</Text>
+          </View>
+          <View style={styles.metaItem}>
+            <Text style={styles.metaLabel}>Phương tiện</Text>
+            <Text style={styles.metaValue} numberOfLines={1}>
+              {[item.vehicleBrand, item.vehicleModel, item.plateNumber].filter(Boolean).join(' · ') || '—'}
+            </Text>
+          </View>
+        </View>
 
         <View style={styles.docGrid}>
           {renderDocImage(item, 'CCCD mặt trước', item.cccdImageFront, 'cccd-front')}
@@ -149,7 +183,10 @@ const AdminDriverApprovalScreen = ({ navigation }) => {
         </View>
 
         {item.rejectionReason ? (
-          <Text style={styles.rejectReason}>Lý do từ chối: {item.rejectionReason}</Text>
+          <View style={styles.rejectReasonWrap}>
+            <Text style={styles.rejectReasonLabel}>Lý do từ chối:</Text>
+            <Text style={styles.rejectReasonText}>{item.rejectionReason}</Text>
+          </View>
         ) : null}
 
         {item.status === 'PENDING' && (
@@ -158,16 +195,28 @@ const AdminDriverApprovalScreen = ({ navigation }) => {
               style={[styles.btn, styles.btnApprove, processingId === item.driverProfileId && styles.btnDisabled]}
               disabled={processingId === item.driverProfileId}
               onPress={() => onApprove(item.driverProfileId)}
+              activeOpacity={0.8}
             >
-              {processingId === item.driverProfileId ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Duyệt</Text>}
+              {processingId === item.driverProfileId
+                ? <ActivityIndicator color="#fff" size="small" />
+                : (
+                  <View style={styles.btnInner}>
+                    <Ionicons name="checkmark-circle-outline" size={16} color="#fff" />
+                    <Text style={styles.btnText}>Duyệt</Text>
+                  </View>
+                )}
             </TouchableOpacity>
 
             <TouchableOpacity
               style={[styles.btn, styles.btnReject, processingId === item.driverProfileId && styles.btnDisabled]}
               disabled={processingId === item.driverProfileId}
               onPress={() => setRejectingId(item.driverProfileId)}
+              activeOpacity={0.8}
             >
-              <Text style={styles.btnText}>Từ chối</Text>
+              <View style={styles.btnInner}>
+                <Ionicons name="close-circle-outline" size={16} color="#fff" />
+                <Text style={styles.btnText}>Từ chối</Text>
+              </View>
             </TouchableOpacity>
           </View>
         )}
@@ -178,25 +227,43 @@ const AdminDriverApprovalScreen = ({ navigation }) => {
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color={COLORS.adminColor} />
+        <ActivityIndicator size="large" color={ADMIN_COLORS.gradientStart} />
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <LinearGradient colors={GRADIENT_HEADER} style={styles.header} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation?.goBack()}>
-          <Text style={styles.backText}>‹</Text>
+          <Ionicons name="chevron-back" size={24} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.title}>Duyệt hồ sơ tài xế</Text>
+        <View style={{ alignItems: 'center' }}>
+          <Text style={styles.title}>Duyệt hồ sơ tài xế</Text>
+          <View style={styles.headerBadge}>
+            <Text style={styles.headerBadgeText}>{profiles.length} hồ sơ</Text>
+          </View>
+        </View>
         <View style={{ width: 36 }} />
-      </View>
+      </LinearGradient>
 
       <View style={styles.tabs}>
         {['PENDING', 'APPROVED', 'REJECTED', 'ALL'].map((tab) => (
-          <TouchableOpacity key={tab} style={[styles.tab, activeTab === tab && styles.tabActive]} onPress={() => setActiveTab(tab)}>
-            <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>{STATUS_TEXT[tab] || 'Tất cả'}</Text>
+          <TouchableOpacity
+            key={tab}
+            style={[styles.tab, activeTab === tab && styles.tabActive]}
+            onPress={() => setActiveTab(tab)}
+          >
+            <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
+              {STATUS_TEXT[tab] || 'Tất cả'}
+            </Text>
+            {tabCount[tab] > 0 && (
+              <View style={[styles.tabBadge, activeTab === tab && styles.tabBadgeActive]}>
+                <Text style={[styles.tabBadgeText, activeTab === tab && styles.tabBadgeTextActive]}>
+                  {tabCount[tab]}
+                </Text>
+              </View>
+            )}
           </TouchableOpacity>
         ))}
       </View>
@@ -212,16 +279,25 @@ const AdminDriverApprovalScreen = ({ navigation }) => {
 
       {rejectingId && (
         <View style={styles.rejectBox}>
-          <Text style={styles.rejectTitle}>Lý do từ chối</Text>
+          <View style={styles.rejectHandle} />
+          <View style={styles.rejectTitleRow}>
+            <Ionicons name="chatbubble-outline" size={18} color={ADMIN_COLORS.danger} />
+            <Text style={styles.rejectTitle}>Lý do từ chối</Text>
+          </View>
           <TextInput
             style={styles.rejectInput}
             value={rejectionReason}
             onChangeText={setRejectionReason}
-            placeholder="Nhập lý do từ chối"
-            placeholderTextColor="#94A3B8"
+            placeholder="Nhập lý do từ chối hồ sơ..."
+            placeholderTextColor={ADMIN_COLORS.textMuted}
+            multiline
+            numberOfLines={3}
           />
           <View style={styles.rejectActions}>
-            <TouchableOpacity style={[styles.btn, styles.btnGhost]} onPress={() => { setRejectingId(null); setRejectionReason(''); }}>
+            <TouchableOpacity
+              style={[styles.btn, styles.btnGhost]}
+              onPress={() => { setRejectingId(null); setRejectionReason(''); }}
+            >
               <Text style={styles.btnGhostText}>Hủy</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[styles.btn, styles.btnReject]} onPress={onReject}>
@@ -235,115 +311,209 @@ const AdminDriverApprovalScreen = ({ navigation }) => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F6F8FA' },
+  container: { flex: 1, backgroundColor: ADMIN_COLORS.pageBg },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   header: {
-    backgroundColor: COLORS.adminColor,
     paddingTop: 52,
-    paddingBottom: 14,
+    paddingBottom: 16,
     paddingHorizontal: 16,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
   backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     backgroundColor: 'rgba(255,255,255,0.2)',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
   },
-  backText: { color: '#fff', fontSize: 26, lineHeight: 30 },
-  title: { color: '#fff', fontSize: 18, fontWeight: '700' },
+  title: { color: '#fff', fontSize: 17, fontWeight: '800' },
+  headerBadge: {
+    marginTop: 4,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+  },
+  headerBadgeText: { color: '#fff', fontSize: 11, fontWeight: '600' },
+
+  // Tabs
   tabs: {
     flexDirection: 'row',
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     paddingVertical: 10,
     backgroundColor: '#fff',
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    borderBottomColor: ADMIN_COLORS.border,
+    gap: 6,
   },
-  tab: { marginRight: 8, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: '#EEF2FF' },
-  tabActive: { backgroundColor: '#5B21B6' },
-  tabText: { fontSize: 12, color: '#4338CA', fontWeight: '700' },
+  tab: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: '#F1F5F9',
+    gap: 5,
+  },
+  tabActive: { backgroundColor: ADMIN_COLORS.gradientStart },
+  tabText: { fontSize: 12, color: ADMIN_COLORS.textSecondary, fontWeight: '700' },
   tabTextActive: { color: '#fff' },
+  tabBadge: {
+    backgroundColor: ADMIN_COLORS.gradientStart,
+    borderRadius: 999,
+    minWidth: 18,
+    height: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  tabBadgeActive: { backgroundColor: 'rgba(255,255,255,0.3)' },
+  tabBadgeText: { fontSize: 10, color: '#fff', fontWeight: '800' },
+  tabBadgeTextActive: { color: '#fff' },
+
+  // List
   list: { padding: 12, paddingBottom: 120 },
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    padding: 12,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+    backgroundColor: ADMIN_COLORS.cardBg,
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 12,
+    ...ADMIN_SHADOW,
   },
-  cardHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  name: { fontSize: 16, fontWeight: '800', color: '#111827' },
-  badge: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
-  badgeText: { fontSize: 12, fontWeight: '700' },
-  meta: { fontSize: 13, color: '#4B5563', marginBottom: 4 },
-  docGrid: {
-    marginTop: 10,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  docItem: {
-    width: '48%',
-  },
-  docLabel: {
-    fontSize: 11,
-    color: '#6B7280',
-    fontWeight: '700',
-    marginBottom: 4,
-  },
-  docImage: {
-    width: '100%',
-    height: 88,
-    borderRadius: 10,
-    backgroundColor: '#E5E7EB',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  docFallback: {
-    width: '100%',
-    height: 88,
-    borderRadius: 10,
-    backgroundColor: '#F3F4F6',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+  cardHead: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  avatarWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: ADMIN_COLORS.adminPurpleBg,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  docFallbackText: {
-    fontSize: 11,
-    color: '#9CA3AF',
-    fontWeight: '700',
+  avatarText: { fontSize: 18, fontWeight: '800', color: ADMIN_COLORS.adminPurple },
+  name: { fontSize: 15, fontWeight: '800', color: ADMIN_COLORS.textPrimary },
+  metaEmailRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 },
+  metaEmail: { fontSize: 12, color: ADMIN_COLORS.textSecondary },
+  badge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    gap: 5,
   },
-  rejectReason: { fontSize: 12, color: '#B91C1C', marginTop: 6 },
-  actionRow: { flexDirection: 'row', marginTop: 10, gap: 8 },
-  btn: { borderRadius: 10, paddingVertical: 9, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center' },
-  btnApprove: { flex: 1, backgroundColor: '#2E7D32' },
-  btnReject: { flex: 1, backgroundColor: '#C62828' },
-  btnDisabled: { opacity: 0.7 },
+  badgeDot: { width: 7, height: 7, borderRadius: 4 },
+  badgeText: { fontSize: 11, fontWeight: '700' },
+
+  // Meta grid
+  metaGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 12,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: ADMIN_COLORS.divider,
+  },
+  metaItem: { width: '48%' },
+  metaLabel: { fontSize: 10, color: ADMIN_COLORS.textMuted, fontWeight: '700', marginBottom: 2, textTransform: 'uppercase', letterSpacing: 0.4 },
+  metaValue: { fontSize: 13, color: ADMIN_COLORS.textPrimary, fontWeight: '600' },
+
+  // Doc grid
+  docGrid: {
+    marginTop: 4,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    borderTopWidth: 1,
+    borderTopColor: ADMIN_COLORS.divider,
+    paddingTop: 12,
+  },
+  docItem: { width: '48%' },
+  docLabel: { fontSize: 10, color: ADMIN_COLORS.textMuted, fontWeight: '700', marginBottom: 5, textTransform: 'uppercase', letterSpacing: 0.3 },
+  docImage: {
+    width: '100%',
+    height: 90,
+    borderRadius: 12,
+    backgroundColor: '#E2E8F0',
+  },
+  docFallback: {
+    width: '100%',
+    height: 90,
+    borderRadius: 12,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: ADMIN_COLORS.border,
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  docFallbackText: { fontSize: 11, color: ADMIN_COLORS.textMuted, fontWeight: '600' },
+
+  rejectReasonWrap: {
+    marginTop: 10,
+    padding: 10,
+    backgroundColor: ADMIN_COLORS.dangerBg,
+    borderRadius: 10,
+    borderLeftWidth: 3,
+    borderLeftColor: ADMIN_COLORS.danger,
+  },
+  rejectReasonLabel: { fontSize: 11, color: ADMIN_COLORS.danger, fontWeight: '800', marginBottom: 3, textTransform: 'uppercase' },
+  rejectReasonText: { fontSize: 13, color: '#7F1D1D' },
+
+  actionRow: { flexDirection: 'row', marginTop: 12, gap: 8 },
+  btn: { borderRadius: 12, paddingVertical: 11, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center' },
+  btnInner: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  btnApprove: { flex: 1, backgroundColor: '#16A34A', ...ADMIN_SHADOW_SM },
+  btnReject: { flex: 1, backgroundColor: ADMIN_COLORS.danger, ...ADMIN_SHADOW_SM },
+  btnDisabled: { opacity: 0.6 },
   btnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
-  empty: { textAlign: 'center', color: '#6B7280', paddingTop: 40 },
+  empty: { textAlign: 'center', color: ADMIN_COLORS.textMuted, paddingTop: 48, fontSize: 14 },
+
   rejectBox: {
     position: 'absolute',
-    left: 12,
-    right: 12,
-    bottom: 12,
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: '#fff',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    padding: 12,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 16,
+    paddingBottom: 28,
+    ...ADMIN_SHADOW,
   },
-  rejectTitle: { fontSize: 14, fontWeight: '700', color: '#111827', marginBottom: 8 },
-  rejectInput: { borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 9, color: '#111827' },
-  rejectActions: { flexDirection: 'row', gap: 8, marginTop: 10 },
-  btnGhost: { flex: 1, backgroundColor: '#F3F4F6' },
-  btnGhostText: { color: '#111827', fontWeight: '700' },
+  rejectHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: ADMIN_COLORS.border,
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 14,
+  },
+  rejectTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  rejectTitle: { fontSize: 15, fontWeight: '800', color: ADMIN_COLORS.textPrimary },
+  rejectInput: {
+    borderWidth: 1.5,
+    borderColor: ADMIN_COLORS.border,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    color: ADMIN_COLORS.textPrimary,
+    fontSize: 14,
+    minHeight: 80,
+    textAlignVertical: 'top',
+    marginBottom: 12,
+    backgroundColor: '#F8FAFC',
+  },
+  rejectActions: { flexDirection: 'row', gap: 8 },
+  btnGhost: { flex: 1, backgroundColor: '#F1F5F9', borderRadius: 12, paddingVertical: 11 },
+  btnGhostText: { color: ADMIN_COLORS.textPrimary, fontWeight: '700', fontSize: 13, textAlign: 'center' },
 });
 
 export default AdminDriverApprovalScreen;

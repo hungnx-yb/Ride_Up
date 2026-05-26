@@ -109,48 +109,48 @@ public class ChatService {
         String userId = currentUser.getId();
 
         List<ChatThreadDocument> threads = chatThreadRepository.findByParticipantAndStatuses(
-            userId,
-            List.of(ChatThreadStatus.ACTIVE, ChatThreadStatus.CLOSED)
-        );
+                userId,
+                List.of(ChatThreadStatus.ACTIVE, ChatThreadStatus.CLOSED));
 
         if (threads.isEmpty()) {
             return List.of();
         }
 
-        // Defensive de-duplication in case historical records or migrations create duplicates.
+        // Defensive de-duplication in case historical records or migrations create
+        // duplicates.
         List<ChatThreadDocument> uniqueThreads = new ArrayList<>(threads.stream()
-            .collect(Collectors.toMap(ChatThreadDocument::getId, t -> t, (a, b) -> a, java.util.LinkedHashMap::new))
-            .values());
+                .collect(Collectors.toMap(ChatThreadDocument::getId, t -> t, (a, b) -> a, java.util.LinkedHashMap::new))
+                .values());
 
         List<String> bookingIds = uniqueThreads.stream()
-            .map(ChatThreadDocument::getBookingId)
-            .filter(StringUtils::hasText)
-            .distinct()
-            .collect(Collectors.toList());
+                .map(ChatThreadDocument::getBookingId)
+                .filter(StringUtils::hasText)
+                .distinct()
+                .collect(Collectors.toList());
 
         final Map<String, Booking> bookingById = bookingIds.isEmpty()
-            ? Map.of()
-            : bookingRepository.findAllForChatByIdIn(bookingIds).stream()
-                .collect(Collectors.toMap(Booking::getId, b -> b, (a, b) -> a, HashMap::new));
+                ? Map.of()
+                : bookingRepository.findAllForChatByIdIn(bookingIds).stream()
+                        .collect(Collectors.toMap(Booking::getId, b -> b, (a, b) -> a, HashMap::new));
 
         if (bookingById.isEmpty()) {
             return List.of();
         }
 
         List<ChatThreadDocument> normalizedThreads = uniqueThreads.stream()
-            .filter(thread -> bookingById.containsKey(thread.getBookingId()))
-            .map(thread -> {
-                Booking booking = bookingById.get(thread.getBookingId());
-                if (thread.getStatus() == ChatThreadStatus.ACTIVE && !isChatAllowed(booking)) {
-                    closeThread(thread, "Trip ended");
-                }
-                return thread;
-            })
-            .collect(Collectors.toList());
+                .filter(thread -> bookingById.containsKey(thread.getBookingId()))
+                .map(thread -> {
+                    Booking booking = bookingById.get(thread.getBookingId());
+                    if (thread.getStatus() == ChatThreadStatus.ACTIVE && !isChatAllowed(booking)) {
+                        closeThread(thread, "Trip ended");
+                    }
+                    return thread;
+                })
+                .collect(Collectors.toList());
 
         return normalizedThreads.stream()
-            .map(thread -> toThreadResponse(thread, userId, bookingById.get(thread.getBookingId())))
-            .collect(Collectors.toList());
+                .map(thread -> toThreadResponse(thread, userId, bookingById.get(thread.getBookingId())))
+                .collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)
@@ -161,8 +161,7 @@ public class ChatService {
         int pageSize = (limit == null || limit < 1) ? 50 : Math.min(limit, 100);
         List<ChatMessageDocument> rows = chatMessageRepository.findByThreadIdOrderBySentAtDesc(
                 thread.getId(),
-                PageRequest.of(0, pageSize)
-        );
+                PageRequest.of(0, pageSize));
 
         Collections.reverse(rows);
 
@@ -218,9 +217,9 @@ public class ChatService {
                 .bookingId(thread.getBookingId())
                 .senderUserId(currentUser.getId())
                 .senderRole(senderRole)
-            .type(messageType)
-            .content(normalizedContent)
-            .imageUrl(normalizedImageUrl)
+                .type(messageType)
+                .content(normalizedContent)
+                .imageUrl(normalizedImageUrl)
                 .sentAt(now)
                 .createdAt(now)
                 .build();
@@ -257,10 +256,9 @@ public class ChatService {
 
         ChatThreadDocument saved = chatThreadRepository.save(thread);
         return toThreadResponse(
-            saved,
-            currentUser.getId(),
-            bookingRepository.findById(saved.getBookingId()).orElse(null)
-        );
+                saved,
+                currentUser.getId(),
+                bookingRepository.findById(saved.getBookingId()).orElse(null));
     }
 
     @Transactional
@@ -314,9 +312,10 @@ public class ChatService {
 
     private void validateParticipant(Booking booking, String currentUserId) {
         String customerUserId = booking.getCustomer() != null ? booking.getCustomer().getId() : null;
-        String driverUserId = (booking.getTrip() != null && booking.getTrip().getDriver() != null && booking.getTrip().getDriver().getUser() != null)
-                ? booking.getTrip().getDriver().getUser().getId()
-                : null;
+        String driverUserId = (booking.getTrip() != null && booking.getTrip().getDriver() != null
+                && booking.getTrip().getDriver().getUser() != null)
+                        ? booking.getTrip().getDriver().getUser().getId()
+                        : null;
 
         if (!Objects.equals(customerUserId, currentUserId) && !Objects.equals(driverUserId, currentUserId)) {
             throw new AppException(ErrorCode.CHAT_FORBIDDEN);
@@ -384,7 +383,7 @@ public class ChatService {
         chatThreadRepository.save(thread);
     }
 
-        private ChatThreadResponse toThreadResponse(ChatThreadDocument thread, String currentUserId, Booking booking) {
+    private ChatThreadResponse toThreadResponse(ChatThreadDocument thread, String currentUserId, Booking booking) {
         int myUnread = Objects.equals(thread.getCustomerUserId(), currentUserId)
                 ? safeInt(thread.getCustomerUnreadCount())
                 : safeInt(thread.getDriverUnreadCount());
@@ -393,7 +392,7 @@ public class ChatService {
                 .id(thread.getId())
                 .bookingId(thread.getBookingId())
                 .tripId(thread.getTripId())
-            .chatTitle(buildChatTitle(booking, currentUserId))
+                .chatTitle(buildChatTitle(booking, currentUserId))
                 .customerUserId(thread.getCustomerUserId())
                 .driverUserId(thread.getDriverUserId())
                 .status(thread.getStatus())
@@ -472,7 +471,8 @@ public class ChatService {
         }
 
         TripPickupPoint first = points.stream()
-                .sorted(Comparator.comparing(TripPickupPoint::getSortOrder, Comparator.nullsLast(Comparator.naturalOrder())))
+                .sorted(Comparator.comparing(TripPickupPoint::getSortOrder,
+                        Comparator.nullsLast(Comparator.naturalOrder())))
                 .findFirst()
                 .orElse(points.get(0));
 
@@ -488,7 +488,8 @@ public class ChatService {
         }
 
         TripDropoffPoint first = points.stream()
-                .sorted(Comparator.comparing(TripDropoffPoint::getSortOrder, Comparator.nullsLast(Comparator.naturalOrder())))
+                .sorted(Comparator.comparing(TripDropoffPoint::getSortOrder,
+                        Comparator.nullsLast(Comparator.naturalOrder())))
                 .findFirst()
                 .orElse(points.get(0));
 
@@ -509,8 +510,8 @@ public class ChatService {
         String driverName = (booking.getTrip() != null
                 && booking.getTrip().getDriver() != null
                 && booking.getTrip().getDriver().getUser() != null)
-                ? booking.getTrip().getDriver().getUser().getFullName()
-                : null;
+                        ? booking.getTrip().getDriver().getUser().getFullName()
+                        : null;
 
         boolean isCustomer = booking.getCustomer() != null
                 && Objects.equals(booking.getCustomer().getId(), currentUserId);
@@ -528,7 +529,7 @@ public class ChatService {
                 .bookingId(message.getBookingId())
                 .senderUserId(message.getSenderUserId())
                 .senderRole(message.getSenderRole())
-            .type(normalizeMessageType(message.getType()))
+                .type(normalizeMessageType(message.getType()))
                 .content(message.getContent())
                 .imageUrl(message.getImageUrl())
                 .sentAt(message.getSentAt())
