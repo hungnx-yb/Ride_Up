@@ -103,35 +103,3 @@ public class AdminDriverProfileController {
                 .build();
     }
 }
-
-    @GetMapping
-    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
-    public ApiResponse<List<AdminDriverProfileResponse>> getAllDriverProfiles() {
-        List<AdminDriverProfileResponse> data = adminDriverProfileService.getAllProfiles();
-        return ApiResponse.<List<AdminDriverProfileResponse>>builder()
-                .result(data)
-                .count(data.size())
-                .build();
-    }
-
-    @PutMapping("/{profileId}/approve")
-    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
-    public ApiResponse<AdminDriverProfileResponse> approveProfile(@PathVariable String profileId) {
-        return ApiResponse.<AdminDriverProfileResponse>builder()
-                .result(adminDriverProfileService.approveProfile(profileId))
-                .message("Approved")
-                .build();
-    }
-
-    @PutMapping("/{profileId}/reject")
-    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
-    public ApiResponse<AdminDriverProfileResponse> rejectProfile(
-            @PathVariable String profileId,
-            @RequestBody(required = false) DriverProfileRejectRequest request) {
-
-        return ApiResponse.<AdminDriverProfileResponse>builder()
-                .result(adminDriverProfileService.rejectProfile(profileId, request != null ? request.getRejectionReason() : null))
-                .message("Rejected")
-                .build();
-    }
-}
