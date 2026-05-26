@@ -1,9 +1,15 @@
+/**
+ * @fileoverview Màn hình duyệt/từ chối hồ sơ tài xế dành cho Admin.
+ *
+ * Hiển thị danh sách hồ sơ phân theo tab trạng thái (PENDING/APPROVED/REJECTED/ALL).
+ * Admin có thể xem ảnh tài liệu (CCCD, GPLX, xe), duyệt hoặc từ chối với lý do.
+ *
+ * API được gọi:
+ *  - getAdminDriverProfiles()         → GET /admin/driver-profiles      (không cache)
+ *  - approveDriverProfile(id)         → PUT /admin/driver-profiles/{id}/approve
+ *  - rejectDriverProfile(id, reason)  → PUT /admin/driver-profiles/{id}/reject
+ */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  Image,
   RefreshControl,
   StyleSheet,
   Text,
@@ -20,28 +26,40 @@ import {
   rejectDriverProfile,
 } from '../../services/api';
 
+/** Map trạng thái hồ sơ → text hiển thị tiếng Việt. */
 const STATUS_TEXT = {
   PENDING: 'Chờ duyệt',
   APPROVED: 'Đã duyệt',
   REJECTED: 'Từ chối',
 };
 
+/** Map trạng thái → style badge (màu nền, màu chữ, màu chấm tròn). */
 const STATUS_COLOR = {
   PENDING: { bg: '#FEF3C7', text: '#92400E', dot: '#F59E0B' },
   APPROVED: { bg: '#DCFCE7', text: '#14532D', dot: '#16A34A' },
   REJECTED: { bg: '#FEE2E2', text: '#7F1D1D', dot: '#DC2626' },
 };
 
+/** @param {{ navigation: object }} props */
 const AdminDriverApprovalScreen = ({ navigation }) => {
+  /** Danh sách tất cả hồ sơ tài xế từ API (chưa lọc). */
   const [profiles, setProfiles] = useState([]);
+  /** true khi đang load lần đầu. */
   const [loading, setLoading] = useState(true);
+  /** true khi đang pull-to-refresh. */
   const [refreshing, setRefreshing] = useState(false);
+  /** Tab đang hiển thị: 'PENDING' | 'APPROVED' | 'REJECTED' | 'ALL' */
   const [activeTab, setActiveTab] = useState('PENDING');
+  /** ID hồ sơ đang được xử lý – disable button để tránh double-click. */
   const [processingId, setProcessingId] = useState(null);
+  /** ID hồ sơ đang mở form nhập lý do từ chối. */
   const [rejectingId, setRejectingId] = useState(null);
+  /** Nội dung lý do từ chối admin đang nhập. */
   const [rejectionReason, setRejectionReason] = useState('');
+  /** Map { "profileId:imageKey": true } – theo dõi ảnh lỗi để hiển thị fallback. */
   const [failedImages, setFailedImages] = useState({});
 
+  /** Fetch danh sách hồ sơ tài xế từ GET /admin/driver-profiles (không cache). */
   const loadData = useCallback(async () => {
     try {
       const data = await getAdminDriverProfiles();
@@ -58,6 +76,11 @@ const AdminDriverApprovalScreen = ({ navigation }) => {
     loadData();
   }, [loadData]);
 
+  /**
+   * Danh sách hồ sơ đã lọc theo tab.
+   * Quy tắc PENDING: chỉ hiển thị status=PENDING AND submitted=true
+   * (loại bỏ bản nháp chưa nộp chính thức).
+   */
   const filtered = useMemo(() => {
     if (activeTab === 'ALL') return profiles;
     if (activeTab === 'PENDING') {
@@ -66,6 +89,7 @@ const AdminDriverApprovalScreen = ({ navigation }) => {
     return profiles.filter((p) => p.status === activeTab);
   }, [profiles, activeTab]);
 
+  /** Đếm số hồ sơ cho từng tab để hiển thị badge số lượng. */
   const tabCount = useMemo(() => ({
     PENDING: profiles.filter((p) => p.status === 'PENDING' && p.submitted === true).length,
     APPROVED: profiles.filter((p) => p.status === 'APPROVED').length,
@@ -73,6 +97,12 @@ const AdminDriverApprovalScreen = ({ navigation }) => {
     ALL: profiles.length,
   }), [profiles]);
 
+  /**
+   * Duyệt hồ sơ tài xế via PUT /admin/driver-profiles/{id}/approve.
+   * Set processingId để disable button tránh double-click trong khi đang xử lý.
+   *
+   * @param {string} profileId - UUID của hồ sơ cần duyệt
+   */
   const onApprove = async (profileId) => {
     setProcessingId(profileId);
     try {
@@ -86,6 +116,10 @@ const AdminDriverApprovalScreen = ({ navigation }) => {
     }
   };
 
+  /**
+   * Từ chối hồ sơ tài xế via PUT /admin/driver-profiles/{id}/reject.
+   * Yêu cầu rejectingId phải được set trước (qua nút "Từ chối" trên card).
+   */
   const onReject = async () => {
     if (!rejectingId) return;
     setProcessingId(rejectingId);
@@ -102,11 +136,26 @@ const AdminDriverApprovalScreen = ({ navigation }) => {
     }
   };
 
+  /**
+   * Đánh dấu ảnh lỗi để hiển thị fallback placeholder thay vì ảnh hỏng.
+   *
+   * @param {string} key - Key duy nhất: "{profileId}:{imageType}"
+   */
   const markImageFailed = (key) => {
     setFailedImages((prev) => ({ ...prev, [key]: true }));
   };
 
+  /**
+   * Render ô ảnh tài liệu với fallback nếu load lỗi.
+   * Key = "{profileId}:{keySuffix}" để xác định duy nhất mỗi ảnh trong danh sách.
+   *
+   * @param {object} item - DriverProfile object
+   * @param {string} label - Nhãn hiển thị (VD: "CCCD mặt trước")
+   * @param {string} value - Supabase public URL
+   * @param {string} keySuffix - Hậu tố key phân biệt ảnh: "cccd-front", "gplx", v.v.
+   */
   const renderDocImage = (item, label, value, keySuffix) => {
+    // Key duy nhất để theo dõi lỗi độc lập cho từng ảnh của từng hồ sơ
     const key = `${item.driverProfileId || 'unknown'}:${keySuffix}`;
     const hasImage = !!value && !failedImages[key];
     return (
@@ -128,7 +177,12 @@ const AdminDriverApprovalScreen = ({ navigation }) => {
     );
   };
 
+  /**
+   * Render card hồ sơ tài xế trong FlatList.
+   * Hồ sơ PENDING + submitted=false hiển thị badge "Chưa nộp" thay vì "Chờ duyệt".
+   */
   const renderItem = ({ item }) => {
+    // Business rule: phân biệt hồ sơ đã nộp (PENDING) vs bản nháp (DRAFT)
     const displayStatus = !item.submitted && item.status === 'PENDING' ? 'DRAFT' : item.status;
     const statusStyle = STATUS_COLOR[item.status] || STATUS_COLOR.PENDING;
     return (

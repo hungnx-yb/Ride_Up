@@ -835,6 +835,18 @@ export const getMyOffers = async () => {
 // ADMIN
 // ==============================
 
+// ==============================
+// ADMIN
+// ==============================
+
+/**
+ * Lấy tổng hợp số liệu dashboard dành cho Admin.
+ *
+ * @endpoint GET /admin/stats
+ * @auth     JWT Bearer — yêu cầu ROLE_ADMIN
+ * @cache    admin:stats — TTL {API_CACHE_TTL.ADMIN_STATS} (15s)
+ * @returns  {Promise<AdminStatsDto>} today, thisMonth, recentActivity, pendingDriverApprovals, …
+ */
 export const getAdminStats = async () => {
   if (USE_MOCK_DATA) {
     await mockApiDelay();
@@ -846,6 +858,14 @@ export const getAdminStats = async () => {
   });
 };
 
+/**
+ * Lấy danh sách tất cả người dùng (không phân trang).
+ *
+ * @endpoint GET /admin/users
+ * @auth     JWT Bearer — yêu cầu ROLE_ADMIN
+ * @cache    admin:users — TTL {API_CACHE_TTL.USERS} (20s)
+ * @returns  {Promise<UserResponse[]>} id, fullName, email, roles, createdAt, …
+ */
 export const getAllUsers = async () => {
   if (USE_MOCK_DATA) {
     await mockApiDelay();
@@ -857,17 +877,46 @@ export const getAllUsers = async () => {
   });
 };
 
+/**
+ * Lấy tất cả hồ sơ tài xế (mọi trạng thái) để Admin xem xét.
+ * Không cache — luôn lấy dữ liệu mới nhất để phản ánh trạng thái duyệt.
+ *
+ * @endpoint GET /admin/driver-profiles
+ * @auth     JWT Bearer — yêu cầu ROLE_ADMIN
+ * @returns  {Promise<AdminDriverProfileResponse[]>} profileId, userId, status, submitted, …
+ */
 export const getAdminDriverProfiles = async () => {
   const res = await apiClient.get('/admin/driver-profiles');
   return res.data?.result || [];
 };
 
+/**
+ * Duyệt hồ sơ tài xế (chuyển status PENDING → APPROVED).
+ * Invalidate admin:stats cache vì pendingDriverApprovals count thay đổi.
+ *
+ * @endpoint PUT /admin/driver-profiles/{profileId}/approve
+ * @auth     JWT Bearer — yêu cầu ROLE_ADMIN
+ * @param    {number|string} profileId - ID của DriverProfile cần duyệt
+ * @returns  {Promise<AdminDriverProfileResponse>} hồ sơ đã cập nhật
+ * @sideEffect invalidateCacheByPrefix('admin:stats')
+ */
 export const approveDriverProfile = async (profileId) => {
   const res = await apiClient.put(`/admin/driver-profiles/${profileId}/approve`);
   invalidateCacheByPrefix('admin:stats');
   return res.data?.result;
 };
 
+/**
+ * Từ chối hồ sơ tài xế (chuyển status PENDING → REJECTED).
+ * Invalidate admin:stats cache vì pendingDriverApprovals count thay đổi.
+ *
+ * @endpoint PUT /admin/driver-profiles/{profileId}/reject
+ * @auth     JWT Bearer — yêu cầu ROLE_ADMIN
+ * @param    {number|string} profileId - ID của DriverProfile cần từ chối
+ * @param    {string} [rejectionReason] - Lý do từ chối (optional, backend dùng default nếu null)
+ * @returns  {Promise<AdminDriverProfileResponse>} hồ sơ đã cập nhật
+ * @sideEffect invalidateCacheByPrefix('admin:stats')
+ */
 export const rejectDriverProfile = async (profileId, rejectionReason) => {
   const res = await apiClient.put(`/admin/driver-profiles/${profileId}/reject`, { rejectionReason });
   invalidateCacheByPrefix('admin:stats');
@@ -1501,7 +1550,14 @@ export const prefetchDriverBootstrapData = async (options = {}) => {
 
 // ── Admin: đồng bộ dữ liệu địa lý ──────────────────────────────────────
 
-/** Lấy trạng thái đồng bộ và số lượng tỉnh/xã trong DB */
+/**
+ * Lấy trạng thái đồng bộ địa lý: số tỉnh/huyện/xã đã có trong DB.
+ *
+ * @endpoint GET /api/locations/admin/stats
+ * @auth     JWT Bearer — yêu cầu ROLE_ADMIN
+ * @cache    admin:location-stats — TTL {API_CACHE_TTL.LOCATION_STATS}
+ * @returns  {Promise<LocationStatsDto>} totalProvinces, totalDistricts, totalWards, lastSync
+ */
 export const getLocationStats = async () => {
   return getCached('admin:location-stats', API_CACHE_TTL.LOCATION_STATS, async () => {
     const res = await apiClient.get('/api/locations/admin/stats');
@@ -1509,7 +1565,15 @@ export const getLocationStats = async () => {
   });
 };
 
-/** Kích hoạt đồng bộ lại dữ liệu tỉnh/xã từ Overpass (chạy nền) */
+/**
+ * Kích hoạt đồng bộ lại dữ liệu tỉnh/xã từ nguồn Overpass (chạy nền ở backend).
+ * Invalidate cả hai cache liên quan sau khi trigger thành công.
+ *
+ * @endpoint POST /api/locations/admin/sync
+ * @auth     JWT Bearer — yêu cầu ROLE_ADMIN
+ * @returns  {Promise<object>} { message, jobId, … }
+ * @sideEffect invalidateCacheByPrefix('admin:location-stats'), invalidateCacheByPrefix('admin:stats')
+ */
 export const triggerLocationSync = async () => {
   const res = await apiClient.post('/api/locations/admin/sync');
   invalidateCacheByPrefix('admin:location-stats');

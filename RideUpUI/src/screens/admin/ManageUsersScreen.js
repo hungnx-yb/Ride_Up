@@ -1,3 +1,12 @@
+/**
+ * @fileoverview Màn hình quản lý người dùng dành cho Admin.
+ *
+ * Hiển thị danh sách toàn bộ người dùng với thẻ tóm tắt và bộ đếm phân loại
+ * (Tổng / Admin / Tài xế / Khách hàng).
+ *
+ * API được gọi:
+ *  - getAllUsers() → GET /admin/users (cache 20s)
+ */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -13,23 +22,30 @@ import { Ionicons } from '@expo/vector-icons';
 import { ADMIN_COLORS, ADMIN_SHADOW, ADMIN_SHADOW_SM, GRADIENT_HEADER } from '../../config/AdminTheme';
 import { getAllUsers } from '../../services/api';
 
+/** Map role code → nhãn tiếng Việt. */
 const ROLE_TEXT = {
   ADMIN: 'Quản trị viên',
   DRIVER: 'Tài xế',
   CUSTOMER: 'Khách hàng',
 };
 
+/** Map role code → style badge (màu nền, màu chữ, icon). */
 const ROLE_STYLE = {
   ADMIN: { bg: ADMIN_COLORS.adminPurpleBg, text: ADMIN_COLORS.adminPurple, icon: 'shield-outline' },
   DRIVER: { bg: ADMIN_COLORS.driverCyanBg, text: ADMIN_COLORS.driverCyan, icon: 'car-outline' },
   CUSTOMER: { bg: ADMIN_COLORS.customerGreenBg, text: ADMIN_COLORS.customerGreen, icon: 'person-outline' },
 };
 
+/** @param {{ navigation: object }} props */
 const ManageUsersScreen = ({ navigation }) => {
+  /** Danh sách UserResponse từ /admin/users. */
   const [users, setUsers] = useState([]);
+  /** true khi đang load lần đầu. */
   const [loading, setLoading] = useState(true);
+  /** true khi đang pull-to-refresh. */
   const [refreshing, setRefreshing] = useState(false);
 
+  /** Fetch danh sách người dùng từ GET /admin/users (cache 20s). */
   const loadData = useCallback(async () => {
     try {
       const data = await getAllUsers();
@@ -46,6 +62,10 @@ const ManageUsersScreen = ({ navigation }) => {
     loadData();
   }, [loadData]);
 
+  /**
+   * Thống kê phân loại người dùng theo role (client-side, không gọi thêm API).
+   * Một user có thể có nhiều role nên tổng có thể > total.
+   */
   const summary = useMemo(() => {
     const total = users.length;
     const adminCount = users.filter((u) => Array.isArray(u?.roles) && u.roles.includes('ADMIN')).length;
@@ -54,11 +74,25 @@ const ManageUsersScreen = ({ navigation }) => {
     return { total, adminCount, driverCount, customerCount };
   }, [users]);
 
+  /**
+   * Chuyển mảng role codes thành chuỗi nhãn tiếng Việt.
+   * VD: ['DRIVER', 'CUSTOMER'] → "Tài xế, Khách hàng"
+   *
+   * @param {string[]} roles
+   * @returns {string}
+   */
   const roleLabel = (roles) => {
     if (!Array.isArray(roles) || roles.length === 0) return 'Không có';
     return roles.map((role) => ROLE_TEXT[role] || role).join(', ');
   };
 
+  /**
+   * Lấy chữ viết tắt từ tên để hiển thị avatar chữ.
+   * VD: "Nguyễn Văn An" → "NA", "Admin" → "A"
+   *
+   * @param {string} name - Họ tên đầy đủ
+   * @returns {string} 1-2 ký tự hoa
+   */
   const getInitials = (name) => {
     if (!name) return '?';
     const parts = name.trim().split(' ');
@@ -67,6 +101,12 @@ const ManageUsersScreen = ({ navigation }) => {
       : parts[0].charAt(0).toUpperCase();
   };
 
+  /**
+   * Lấy style (màu sắc, icon) dựa trên role đầu tiên của user.
+   *
+   * @param {string[]} roles - Mảng role codes
+   * @returns {{ bg: string, text: string, icon: string } | null}
+   */
   const getRoleStyle = (roles) => {
     if (!Array.isArray(roles) || roles.length === 0) return null;
     return ROLE_STYLE[roles[0]] || null;

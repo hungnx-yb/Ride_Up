@@ -1,3 +1,14 @@
+/**
+ * @fileoverview Màn hình Dashboard chính của Admin trong ứng dụng RideUp.
+ *
+ * Hiển thị KPI hôm nay, KPI tháng, dữ liệu địa lý (tỉnh/xã) và feed hoạt động gần đây.
+ * Tích hợp polling tự động để theo dõi tiến độ đồng bộ địa lý khi đang chạy.
+ *
+ * API được gọi:
+ *  - getAdminStats()       → GET /admin/stats               (cache 15s)
+ *  - getLocationStats()    → GET /api/locations/admin/stats (cache 10s)
+ *  - triggerLocationSync() → POST /api/locations/admin/sync
+ */
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
@@ -8,6 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { ADMIN_COLORS, ADMIN_SHADOW, GRADIENT_HEADER } from '../../config/AdminTheme';
 import { getAdminStats, getLocationStats, triggerLocationSync } from '../../services/api';
 
+/** Map type activity → tên icon Ionicons tương ứng để hiển thị trong feed. */
 const ACTIVITY_ICONS = {
   new_booking: 'clipboard-outline',
   ride_completed: 'checkmark-circle-outline',
@@ -16,6 +28,7 @@ const ACTIVITY_ICONS = {
   cancelled: 'close-circle-outline',
 };
 
+/** Cấu hình 4 nút Quick Action: icon, label, màu sắc và màn hình đích. */
 const QUICK_ACTIONS = [
   { icon: 'shield-checkmark-outline', label: 'Duyệt hồ sơ\nTài xế', iconBg: '#DCFCE7', iconColor: '#16A34A', screen: 'AdminDriverApproval' },
   { icon: 'people-outline', label: 'Quản lý\nNgười dùng', iconBg: '#DBEAFE', iconColor: '#2563EB', screen: 'ManageUsers' },
@@ -23,20 +36,40 @@ const QUICK_ACTIONS = [
   { icon: 'settings-outline', label: 'Cài đặt\nHệ thống', iconBg: '#EDE9FE', iconColor: '#7C3AED', screen: 'Settings' },
 ];
 
+/**
+ * Màn hình Dashboard chính của Admin.
+ *
+ * @param {{ user: object, onLogout: Function, navigation: object }} props
+ */
 const AdminHomeScreen = ({ user, onLogout, navigation }) => {
+  /** Dữ liệu thống kê từ /admin/stats (today, thisMonth, recentActivity). */
   const [stats, setStats] = useState(null);
+  /** true khi đang load lần đầu tiên (hiển thị spinner toàn màn hình). */
   const [loading, setLoading] = useState(true);
+  /** true khi đang pull-to-refresh. */
   const [refreshing, setRefreshing] = useState(false);
 
+  /** Dữ liệu địa lý từ /api/locations/admin/stats. */
   const [locationStats, setLocationStats] = useState(null);
+  /** true khi đang gửi yêu cầu trigger sync (disable nút sync). */
   const [syncTriggering, setSyncTriggering] = useState(false);
+  /** Thông báo kết quả sync: { type: 'success'|'failed', msg: string } | null */
   const [syncNotif, setSyncNotif] = useState(null); // { type: 'success'|'failed', msg }
+  /** true khi hiển thị hộp xác nhận inline trước khi đồng bộ. */
   const [showSyncConfirm, setShowSyncConfirm] = useState(false);
+  /** Ref lưu ID setInterval polling – cần để clearInterval khi unmount. */
   const pollRef = useRef(null);
+  /** Ref lưu ID setTimeout ẩn thông báo sau 7 giây. */
   const notifTimerRef = useRef(null);
+  /** Animated.Value cho thanh progress chạy vòng lặp khi sync đang chạy. */
   const progressAnim = useRef(new Animated.Value(0)).current;
+  /** Ref lưu Animated.loop instance để có thể dừng animation. */
   const progressLoop = useRef(null);
 
+  /**
+   * Bắt đầu animation thanh progress chạy vòng lặp liên tục (1800ms/chu kỳ).
+   * Dùng useNativeDriver để animation chạy trên UI thread, không block JS thread.
+   */
   const startProgressAnim = useCallback(() => {
     progressAnim.setValue(0);
     progressLoop.current = Animated.loop(
@@ -49,17 +82,26 @@ const AdminHomeScreen = ({ user, onLogout, navigation }) => {
     progressLoop.current.start();
   }, [progressAnim]);
 
+  /** Dừng animation thanh progress và reset về vị trí ban đầu. */
   const stopProgressAnim = useCallback(() => {
     progressLoop.current?.stop();
     progressAnim.setValue(0);
   }, [progressAnim]);
 
+  /**
+   * Hiển thị thông báo kết quả sync và tự động ẩn sau 7 giây.
+   * Nếu đang có thông báo cũ, reset lại countdown 7s từ đầu.
+   *
+   * @param {'success'|'failed'} type - Loại thông báo
+   * @param {string} msg - Nội dung thông báo
+   */
   const showNotif = useCallback((type, msg) => {
     setSyncNotif({ type, msg });
     if (notifTimerRef.current) clearTimeout(notifTimerRef.current);
     notifTimerRef.current = setTimeout(() => setSyncNotif(null), 7000);
   }, []);
 
+  /** Fetch dữ liệu thống kê Admin từ GET /admin/stats. */
   const loadStats = async () => {
     try {
       const data = await getAdminStats();
@@ -72,6 +114,10 @@ const AdminHomeScreen = ({ user, onLogout, navigation }) => {
     }
   };
 
+  /**
+   * Fetch dữ liệu địa lý từ GET /api/locations/admin/stats.
+   * Nếu syncState là RUNNING (do lần trước trigger, app restart), tự động resume polling.
+   */
   const loadLocationStats = async () => {
     try {
       const data = await getLocationStats();
@@ -80,6 +126,11 @@ const AdminHomeScreen = ({ user, onLogout, navigation }) => {
     } catch (e) { /* BE có thể chưa triển khai – bỏ qua */ }
   };
 
+  /**
+   * Bắt đầu polling trạng thái sync mỗi 10 giây, tối đa 150 lần (25 phút).
+   * Tự dừng khi syncState chuyển sang DONE/FAILED, hết MAX_ATTEMPTS, hoặc mất kết nối.
+   * Dùng pollRef để đảm bảo chỉ có 1 interval chạy tại một thời điểm.
+   */
   const startPolling = useCallback((prevState) => {
     if (pollRef.current) return;
     startProgressAnim();
@@ -124,10 +175,15 @@ const AdminHomeScreen = ({ user, onLogout, navigation }) => {
     };
   }, []);
 
+  /** Hiển thị hộp xác nhận inline trước khi đồng bộ địa lý. */
   const handleSync = () => {
     setShowSyncConfirm(true);
   };
 
+  /**
+   * Thực thi đồng bộ địa lý sau khi admin đã xác nhận.
+   * Luồng: ẩn confirm → trigger sync → fetch trạng thái mới → bắt đầu polling.
+   */
   const doSync = async () => {
     setShowSyncConfirm(false);
     try {
@@ -145,11 +201,14 @@ const AdminHomeScreen = ({ user, onLogout, navigation }) => {
     }
   };
 
+  /** Format số tiền thành chuỗi VND. VD: 1500000 → "1.500.000₫" */
   const formatCurrency = (amount) =>
     new Intl.NumberFormat('vi-VN').format(amount) + '₫';
 
+  /** Đảm bảo giá trị là số hữu hạn, tránh NaN/undefined làm hỏng UI. */
   const safeNumber = (value) => (typeof value === 'number' && Number.isFinite(value) ? value : 0);
 
+  // Normalize dữ liệu trước khi render – tránh crash khi stats chưa load
   const normalizedStats = {
     today: {
       totalRides: safeNumber(stats?.today?.totalRides),

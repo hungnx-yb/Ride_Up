@@ -1,3 +1,15 @@
+/**
+ * @fileoverview Màn hình Báo cáo & Thống kê dành cho Admin.
+ *
+ * Trực quan hóa KPI từ /admin/stats: tỷ lệ hoàn thành/hủy, điểm vận hành,
+ * biểu đồ cột so sánh hôm nay vs trung bình ngày, cơ cấu người dùng.
+ *
+ * API được gọi:
+ *  - getAdminStats() → GET /admin/stats (cache 15s, dùng chung với AdminHomeScreen)
+ *
+ * Công thức điểm vận hành (0–100):
+ *   operationScore = completionRate×0.7 - cancelRate×0.5 + min(totalRides×2, 20)
+ */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -15,15 +27,22 @@ import { ADMIN_COLORS, ADMIN_SHADOW, ADMIN_SHADOW_SM, GRADIENT_HEADER } from '..
 import { getAdminStats } from '../../services/api';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+/** Chiều cao tối đa của cột biểu đồ (px). */
 const CHART_MAX_HEIGHT = 90;
 
+/** @param {{ navigation: object }} props */
 const ReportsScreen = ({ navigation }) => {
+  /** Dữ liệu thống kê thô từ /admin/stats. */
   const [stats, setStats] = useState(null);
+  /** true khi đang load lần đầu. */
   const [loading, setLoading] = useState(true);
+  /** true khi đang pull-to-refresh. */
   const [refreshing, setRefreshing] = useState(false);
 
+  /** Đảm bảo giá trị là số hữu hạn hợp lệ, tránh NaN làm hỏng UI. */
   const safeNumber = (value) => (typeof value === 'number' && Number.isFinite(value) ? value : 0);
 
+  /** Fetch dữ liệu thống kê từ GET /admin/stats (cache 15s). */
   const loadData = useCallback(async () => {
     try {
       const data = await getAdminStats();
@@ -40,6 +59,14 @@ const ReportsScreen = ({ navigation }) => {
     loadData();
   }, [loadData]);
 
+  /**
+   * Chuẩn hoá và tính toán tất cả chỉ số báo cáo từ dữ liệu thô `stats`.
+   *
+   * Công thức điểm vận hành (operationScore, 0–100):
+   *   operationScore = completionRate×0.7 − cancelRate×0.5 + min(totalRides×2, 20)
+   * Công thức này ưu tiên tỷ lệ hoàn thành, phạt hủy chuyến,
+   * và cộng thưởng khối lượng (tối đa +20 điểm) để khuyến khích tăng trưởng.
+   */
   const normalized = useMemo(() => {
     const today = {
       totalRides: safeNumber(stats?.today?.totalRides),
@@ -112,6 +139,13 @@ const ReportsScreen = ({ navigation }) => {
     };
   }, [stats]);
 
+  /**
+   * Định dạng số tiền theo locale vi-VN.
+   * VD: 150000 → "150.000₫"
+   *
+   * @param {number} amount
+   * @returns {string}
+   */
   const formatCurrency = (amount) => `${new Intl.NumberFormat('vi-VN').format(amount)}₫`;
 
   if (loading) {

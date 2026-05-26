@@ -1,3 +1,15 @@
+/**
+ * @fileoverview Màn hình Cài đặt hệ thống dành cho Admin.
+ *
+ * Cung cấp:
+ *  - Toggle tùy chọn quản trị (tự làm mới, xác nhận đồng bộ) lưu vào AsyncStorage
+ *  - Kiểm tra sức khỏe server (ping /admin/stats + /location/stats song song)
+ *  - Xóa cache cài đặt cục bộ
+ *  - Điều hướng nhanh đến các màn hình Admin khác
+ *  - Thông tin phiên bản app & môi trường
+ *
+ * Không gọi API write — đây là màn hình đọc/cấu hình thuần túy.
+ */
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -16,17 +28,29 @@ import { API_CONFIG, APP_CONFIG } from '../../config/config';
 import { ADMIN_COLORS, ADMIN_SHADOW, ADMIN_SHADOW_SM, GRADIENT_HEADER } from '../../config/AdminTheme';
 import { USE_MOCK_DATA, getAdminStats, getLocationStats } from '../../services/api';
 
+/** AsyncStorage key constants cho cài đặt admin cục bộ. */
 const SETTINGS_KEYS = {
+  /** Bật/tắt tự làm mới khi mở màn hình Admin. */
   AUTO_REFRESH: '@admin_auto_refresh',
+  /** Bật/tắt hộp xác nhận trước khi đồng bộ dữ liệu. */
   SYNC_CONFIRM: '@admin_sync_confirm',
 };
 
+/** @param {{ navigation: object }} props */
 const SettingsScreen = ({ navigation }) => {
+  /** Cài đặt tự làm mới dữ liệu khi mở admin (default: true). */
   const [autoRefresh, setAutoRefresh] = useState(true);
+  /** Cài đặt xác nhận trước khi đồng bộ (default: true). */
   const [syncConfirm, setSyncConfirm] = useState(true);
+  /** true trong khi đang ping server. */
   const [checking, setChecking] = useState(false);
+  /** Kết quả text của lần kiểm tra server gần nhất. */
   const [healthText, setHealthText] = useState('Chưa kiểm tra');
 
+  /**
+   * Đọc song song hai key AsyncStorage để restore cài đặt cục bộ.
+   * Mặc định là `true` nếu key chưa tồn tại hoặc đọc lỗi.
+   */
   const loadLocalSettings = useCallback(async () => {
     try {
       const [storedAutoRefresh, storedSyncConfirm] = await Promise.all([
@@ -46,6 +70,14 @@ const SettingsScreen = ({ navigation }) => {
     loadLocalSettings();
   }, [loadLocalSettings]);
 
+  /**
+   * Áp dụng optimistic update (cập nhật state ngay) rồi ghi vào AsyncStorage.
+   * Nếu ghi thất bại sẽ hiển thị Alert — state vẫn giữ giá trị mới (acceptable UX).
+   *
+   * @param {string} key - SETTINGS_KEYS constant
+   * @param {boolean} value - Giá trị mới
+   * @param {Function} setter - setState cho toggle tương ứng
+   */
   const saveToggle = async (key, value, setter) => {
     setter(value);
     try {
@@ -55,6 +87,11 @@ const SettingsScreen = ({ navigation }) => {
     }
   };
 
+  /**
+   * Ping song song hai endpoint để kiểm tra sức khỏe server.
+   * Dùng Promise.all — nếu bất kỳ endpoint nào fail thì toàn bộ được coi là fail.
+   * Kết quả ghi vào `healthText` và hiển thị Alert.
+   */
   const checkSystemHealth = async () => {
     setChecking(true);
     try {
@@ -69,6 +106,10 @@ const SettingsScreen = ({ navigation }) => {
     }
   };
 
+  /**
+   * Xóa tất cả key SETTINGS_KEYS khỏi AsyncStorage và reset state về mặc định.
+   * Dùng multiRemove thay vì removeItem từng key để atomic hơn.
+   */
   const clearLocalAdminCache = async () => {
     try {
       await AsyncStorage.multiRemove([SETTINGS_KEYS.AUTO_REFRESH, SETTINGS_KEYS.SYNC_CONFIRM]);
@@ -213,6 +254,11 @@ const SettingsScreen = ({ navigation }) => {
   );
 };
 
+/**
+ * Sub-component hàng toggle cài đặt có icon + label + mô tả + Switch.
+ *
+ * @param {{ icon: string, label: string, desc: string, value: boolean, onValueChange: Function }} props
+ */
 const SettingRow = ({ icon, label, desc, value, onValueChange }) => (
   <View style={styles.settingRow}>
     <View style={styles.settingIconWrap}>
@@ -231,6 +277,11 @@ const SettingRow = ({ icon, label, desc, value, onValueChange }) => (
   </View>
 );
 
+/**
+ * Sub-component hàng thông tin hiển thị (icon + nhãn + giá trị, read-only).
+ *
+ * @param {{ icon: string, label: string, value: string, valueStyle?: object }} props
+ */
 const InfoRow = ({ icon, label, value, valueStyle }) => (
   <View style={styles.infoRow}>
     <View style={styles.infoIconWrap}>
