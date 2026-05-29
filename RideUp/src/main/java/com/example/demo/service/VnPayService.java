@@ -28,6 +28,9 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
+/**
+ * Tích hợp VNPAY: tạo URL thanh toán, xác thực callback, refund, query.
+ */
 @Service
 @RequiredArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE)
@@ -61,9 +64,15 @@ public class VnPayService {
 
     HttpClient httpClient = HttpClient.newHttpClient();
 
+    /**
+     * Kết quả refund từ VNPAY.
+     */
     public record RefundResult(boolean success, String responseCode, String message) {
     }
 
+    /**
+     * Kết quả query giao dịch từ VNPAY.
+     */
     public record QueryResult(boolean success,
                               String responseCode,
                               String message,
@@ -71,6 +80,9 @@ public class VnPayService {
                               String payDate) {
     }
 
+    /**
+     * Kiểm tra cấu hình VNPAY có đầy đủ hay chưa.
+     */
     public boolean isConfigured() {
         return StringUtils.hasText(tmnCode)
                 && StringUtils.hasText(hashSecret)
@@ -78,6 +90,9 @@ public class VnPayService {
                 && StringUtils.hasText(returnUrl);
     }
 
+    /**
+     * Tạo mã giao dịch duy nhất theo booking.
+     */
     public String generateTxnRef(String bookingId) {
         String compactBookingId = StringUtils.hasText(bookingId)
                 ? bookingId.replace("-", "")
@@ -87,6 +102,9 @@ public class VnPayService {
         return candidate.length() > 96 ? candidate.substring(0, 96) : candidate;
     }
 
+    /**
+     * Tạo URL thanh toán VNPAY (đã ký hash).
+     */
     public String buildPaymentUrl(String txnRef,
                                   BigDecimal amount,
                                   String ipAddress,
@@ -116,6 +134,9 @@ public class VnPayService {
         return payUrl + "?" + queryString + "&vnp_SecureHash=" + secureHash;
     }
 
+    /**
+     * Xác thực callback VNPAY bằng secure hash.
+     */
     public boolean verifyReturn(Map<String, String> requestParams) {
         if (requestParams == null || requestParams.isEmpty() || !StringUtils.hasText(hashSecret)) {
             return false;
@@ -137,6 +158,9 @@ public class VnPayService {
         return expectedHash.equalsIgnoreCase(providedHash);
     }
 
+    /**
+     * Gọi API refund VNPAY.
+     */
     public RefundResult refund(String txnRef,
                                String providerTransactionId,
                                BigDecimal amount,
@@ -224,6 +248,9 @@ public class VnPayService {
         }
     }
 
+    /**
+     * Gọi API query giao dịch VNPAY.
+     */
     public QueryResult queryTransaction(String txnRef,
                                         LocalDateTime transactionDate,
                                         String ipAddress,
@@ -299,6 +326,9 @@ public class VnPayService {
         }
     }
 
+    /**
+     * Đổi số tiền sang đơn vị VNPAY (nhân 100, không thập phân).
+     */
     private String toVnpAmount(BigDecimal amount) {
         BigDecimal normalized = amount == null ? BigDecimal.ZERO : amount;
         return normalized
@@ -307,6 +337,9 @@ public class VnPayService {
                 .toPlainString();
     }
 
+    /**
+     * Build query string để ký hash/tạo URL.
+     */
     private String buildQuery(Map<String, String> data) {
         List<Map.Entry<String, String>> entries = new ArrayList<>(data.entrySet());
         entries.sort(Comparator.comparing(Map.Entry::getKey));
@@ -330,6 +363,9 @@ public class VnPayService {
         return URLEncoder.encode(value, StandardCharsets.US_ASCII);
     }
 
+    /**
+     * Ký HMAC SHA512 cho payload VNPAY.
+     */
     private String hmacSha512(String key, String data) {
         try {
             Mac hmac = Mac.getInstance("HmacSHA512");
@@ -355,6 +391,9 @@ public class VnPayService {
                 .replace("\"", "\\\"");
     }
 
+    /**
+     * Trích xuất field đơn giản từ JSON response.
+     */
     private String extractJsonField(String json, String fieldName) {
         if (!StringUtils.hasText(json) || !StringUtils.hasText(fieldName)) {
             return "";

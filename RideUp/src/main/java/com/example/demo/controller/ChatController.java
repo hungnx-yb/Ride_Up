@@ -21,13 +21,16 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 /**
- * Controller for handling chat functionality between users, drivers, and the support chatbot.
- * 
- * Controller quản lý các chức năng nhắn tin/chat, bao gồm:
- * - Mở luồng chat (thread) cho các chuyến đi
- * - Lấy danh sách cuộc trò chuyện
- * - Gửi tin nhắn và đánh dấu đã đọc
- * Có thể tích hợp tin nhắn cho Chatbot chăm sóc khách hàng (AI Support).
+ * Controller quản lý các chức năng chat giữa hành khách, tài xế và hệ thống hỗ trợ.
+ *
+ * <p>Phạm vi API gồm:
+ * <ul>
+ *   <li>Mở hoặc lấy lại luồng chat (thread) gắn với booking</li>
+ *   <li>Lấy danh sách các thread của người dùng hiện tại</li>
+ *   <li>Gửi tin nhắn mới (text/ảnh) và trả về tin vừa gửi</li>
+ *   <li>Đánh dấu thread đã đọc để reset unread</li>
+ * </ul>
+ * </p>
  */
 @RestController
 @RequestMapping("/chat")
@@ -38,12 +41,13 @@ public class ChatController {
     ChatService chatService;
 
     /**
-     * Open or retrieve an existing chat thread (e.g., related to a booking).
-     * 
-     * API Mở một luồng chat mới hoặc lấy luồng chat đã có (ví dụ: liên kết với một đơn đặt xe).
-     * 
-     * @param request Yêu cầu chứa thông tin mã chuyến đi (bookingId)
-     * @return Thông tin luồng chat (ChatThreadResponse)
+     * Mở hoặc lấy lại thread chat gắn với booking.
+     *
+     * <p>Nếu thread đã tồn tại thì trả về dữ liệu hiện có; nếu chưa có thì tạo mới.
+     * Chỉ user là hành khách/tài xế của booking mới được phép truy cập.</p>
+     *
+     * @param request yêu cầu chứa bookingId
+     * @return thông tin thread chat tương ứng
      */
     @PostMapping("/threads/open")
     @PreAuthorize("isAuthenticated()")
@@ -54,6 +58,11 @@ public class ChatController {
                 .build();
     }
 
+    /**
+     * Lấy danh sách thread chat của user hiện tại.
+     *
+     * <p>Kết quả đã được chuẩn hóa theo trạng thái và số lượng unread.</p>
+     */
     @GetMapping("/threads")
     @PreAuthorize("isAuthenticated()")
     public ApiResponse<List<ChatThreadResponse>> getMyThreads() {
@@ -64,6 +73,11 @@ public class ChatController {
                 .build();
     }
 
+    /**
+     * Lấy danh sách tin nhắn của một thread.
+     *
+     * <p>Mặc định trả tối đa 50 tin mới nhất, có thể giới hạn bằng param limit.</p>
+     */
     @GetMapping("/threads/{threadId}/messages")
     @PreAuthorize("isAuthenticated()")
     public ApiResponse<List<ChatMessageResponse>> getMessages(
@@ -78,14 +92,13 @@ public class ChatController {
     }
 
     /**
-     * Send a new message to a specific chat thread.
-     * 
-     * API Gửi tin nhắn mới vào một luồng chat. 
-     * Nếu luồng chat là với AI, Chatbot chăm sóc khách hàng sẽ tự động xử lý và phản hồi.
-     * 
-     * @param threadId Mã luồng chat
-     * @param request Nội dung tin nhắn
-     * @return Thông tin tin nhắn vừa gửi
+     * Gửi tin nhắn mới vào một thread cụ thể.
+     *
+     * <p>Nội dung có thể là text hoặc ảnh; sau khi lưu sẽ phát realtime qua STOMP.</p>
+     *
+     * @param threadId mã thread
+     * @param request payload tin nhắn
+     * @return thông tin tin nhắn vừa gửi
      */
     @PostMapping("/threads/{threadId}/messages")
     @PreAuthorize("isAuthenticated()")
@@ -99,6 +112,11 @@ public class ChatController {
                 .build();
     }
 
+    /**
+     * Đánh dấu thread đã đọc cho user hiện tại.
+     *
+     * <p>Reset unread count theo vai trò (customer/driver).</p>
+     */
     @PostMapping("/threads/{threadId}/read")
     @PreAuthorize("isAuthenticated()")
     public ApiResponse<ChatThreadResponse> markRead(@PathVariable String threadId) {

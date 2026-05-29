@@ -365,9 +365,7 @@ const DriverMessagesScreen = ({ navigation }) => {
                   </View>
                 )}
               </>
-            ) : (
-              <Text style={styles.chatLockedHint}>Cuộc trò chuyện đã khóa vì chuyến đã kết thúc hoặc bị hủy.</Text>
-            )}
+            ) : null}
 
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.closeBtn} onPress={closeChatModal}>

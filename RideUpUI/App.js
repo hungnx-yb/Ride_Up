@@ -66,6 +66,7 @@ export default function App() {
     title: '',
     message: '',
   });
+  const isCustomerUser = (user?.roles || []).includes(ROLES.CUSTOMER);
 
   const closePaymentNoticeModal = () => {
     setPaymentNoticeModal({ visible: false, title: '', message: '' });
@@ -203,20 +204,21 @@ export default function App() {
         const message = payload?.message || 'Bạn có cập nhật mới.';
 
         if (isVnpayPaymentNotice(payload)) {
-          const isCustomer = (user?.roles || []).includes(ROLES.CUSTOMER);
           const isSuccess = isPaymentSuccessNotice(payload);
 
-          if (isCustomer && isSuccess) {
+          if (isCustomerUser && isSuccess) {
             triggerCustomerTripsReload();
           }
 
-          setPaymentNoticeModal({
-            visible: true,
-            title: isSuccess ? 'Thanh toán thành công' : title,
-            message: isSuccess
-              ? 'Giao dịch VNPAY đã thành công. Danh sách chuyến đã được cập nhật tự động.'
-              : message,
-          });
+          if (isCustomerUser) {
+            setPaymentNoticeModal({
+              visible: true,
+              title: isSuccess ? 'Thanh toán thành công' : title,
+              message: isSuccess
+                ? 'Giao dịch VNPAY đã thành công. Danh sách chuyến đã được cập nhật tự động.'
+                : message,
+            });
+          }
           return;
         }
 
@@ -331,14 +333,12 @@ export default function App() {
           </>
         );
       default:
-        // Không có role hợp lệ → quay về Login
         return null;
     }
   };
 
   return (
     <>
-      <StatusBar style="light" />
       <NavigationContainer
         ref={navRef}
         onStateChange={() => {
@@ -349,7 +349,6 @@ export default function App() {
       >
         <Stack.Navigator screenOptions={{ headerShown: false }}>
           {user === null ? (
-            // ── Chưa đăng nhập: hiển thị Auth stack ──
             <>
               <Stack.Screen name="Login">
                 {(props) => <LoginScreen {...props} onLoginSuccess={handleLoginSuccess} />}
@@ -357,7 +356,6 @@ export default function App() {
               <Stack.Screen name="Register" component={RegisterScreen} />
             </>
           ) : (
-            // ── Đã đăng nhập: hiển thị màn hình theo role ──
             getRoleHome()
           )}
         </Stack.Navigator>
@@ -366,26 +364,26 @@ export default function App() {
         visible={loginTransitionVisible}
         userName={transitionUserName}
       />
-      <Modal
-        visible={paymentNoticeModal.visible}
-        transparent
-        animationType="fade"
-        onRequestClose={closePaymentNoticeModal}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalBadge}>VNPAY</Text>
-            <Text style={styles.modalTitle}>{paymentNoticeModal.title || 'Thông báo thanh toán'}</Text>
-            <Text style={styles.modalMessage}>{paymentNoticeModal.message || 'Giao dịch của bạn đã được cập nhật.'}</Text>
-            <View style={styles.modalActionRow}>
-              <TouchableOpacity
-                style={styles.modalGhostButton}
-                onPress={closePaymentNoticeModal}
-                activeOpacity={0.9}
-              >
-                <Text style={styles.modalGhostButtonText}>Đã hiểu</Text>
-              </TouchableOpacity>
-              {(user?.roles || []).includes(ROLES.CUSTOMER) && (
+      {isCustomerUser && (
+        <Modal
+          visible={paymentNoticeModal.visible}
+          transparent
+          animationType="fade"
+          onRequestClose={closePaymentNoticeModal}
+        >
+          <View style={styles.modalBackdrop}>
+            <View style={styles.modalCard}>
+              <Text style={styles.modalBadge}>VNPAY</Text>
+              <Text style={styles.modalTitle}>{paymentNoticeModal.title || 'Thông báo thanh toán'}</Text>
+              <Text style={styles.modalMessage}>{paymentNoticeModal.message || 'Giao dịch của bạn đã được cập nhật.'}</Text>
+              <View style={styles.modalActionRow}>
+                <TouchableOpacity
+                  style={styles.modalGhostButton}
+                  onPress={closePaymentNoticeModal}
+                  activeOpacity={0.9}
+                >
+                  <Text style={styles.modalGhostButtonText}>Đã hiểu</Text>
+                </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.modalButton}
                   onPress={goToCustomerMyTrips}
@@ -393,11 +391,11 @@ export default function App() {
                 >
                   <Text style={styles.modalButtonText}>Chuyến của tôi</Text>
                 </TouchableOpacity>
-              )}
+              </View>
             </View>
           </View>
-        </View>
-      </Modal>
+        </Modal>
+      )}
     </>
   );
 }

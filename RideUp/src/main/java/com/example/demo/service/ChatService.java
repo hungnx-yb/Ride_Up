@@ -39,6 +39,9 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
+/**
+ * Xử lý luồng chat realtime: thread, tin nhắn, đọc/chưa đọc.
+ */
 @Service
 @RequiredArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
@@ -53,6 +56,9 @@ public class ChatService {
     ChatRealtimePublisher chatRealtimePublisher;
     FileService fileService;
 
+    /**
+     * Mở (hoặc tạo) thread theo booking cho user hợp lệ.
+     */
     @Transactional
     public ChatThreadResponse openThreadByBooking(String bookingId) {
         if (!StringUtils.hasText(bookingId)) {
@@ -79,6 +85,9 @@ public class ChatService {
         return toThreadResponse(thread, currentUser.getId(), booking);
     }
 
+    /**
+     * Đảm bảo thread tồn tại khi booking đã xác nhận.
+     */
     @Transactional
     public void ensureThreadForConfirmedBooking(String bookingId) {
         if (!StringUtils.hasText(bookingId)) {
@@ -103,7 +112,7 @@ public class ChatService {
         }
     }
 
-    @Transactional
+    @Transactional(readOnly = true)
     public List<ChatThreadResponse> getMyThreads() {
         User currentUser = userService.getCurrentUser();
         String userId = currentUser.getId();
@@ -116,8 +125,7 @@ public class ChatService {
             return List.of();
         }
 
-        // Defensive de-duplication in case historical records or migrations create
-        // duplicates.
+        // Loại trùng phòng trường hợp dữ liệu lịch sử/migration tạo bản ghi lặp.
         List<ChatThreadDocument> uniqueThreads = new ArrayList<>(threads.stream()
                 .collect(Collectors.toMap(ChatThreadDocument::getId, t -> t, (a, b) -> a, java.util.LinkedHashMap::new))
                 .values());
@@ -153,6 +161,9 @@ public class ChatService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Lấy tin nhắn theo thread, sắp xếp cũ -> mới.
+     */
     @Transactional(readOnly = true)
     public List<ChatMessageResponse> getMessages(String threadId, Integer limit) {
         User currentUser = userService.getCurrentUser();
@@ -170,6 +181,9 @@ public class ChatService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Gửi tin nhắn (text/ảnh) và phát realtime qua STOMP.
+     */
     @Transactional
     public ChatMessageResponse sendMessage(String threadId, SendChatMessageRequest request) {
         String content = request != null ? request.getContent() : null;
@@ -241,6 +255,9 @@ public class ChatService {
         return response;
     }
 
+    /**
+     * Reset unread count cho user hiện tại.
+     */
     @Transactional
     public ChatThreadResponse markThreadRead(String threadId) {
         User currentUser = userService.getCurrentUser();
@@ -261,6 +278,9 @@ public class ChatService {
                 bookingRepository.findById(saved.getBookingId()).orElse(null));
     }
 
+    /**
+     * Đóng tất cả thread theo trip.
+     */
     @Transactional
     public void closeThreadsByTripId(String tripId, String reason) {
         if (!StringUtils.hasText(tripId)) {
@@ -277,6 +297,9 @@ public class ChatService {
         }
     }
 
+    /**
+     * Đóng thread theo booking.
+     */
     @Transactional
     public void closeThreadByBookingId(String bookingId, String reason) {
         if (!StringUtils.hasText(bookingId)) {
@@ -291,6 +314,9 @@ public class ChatService {
                 });
     }
 
+    /**
+     * Tạo mới thread từ booking.
+     */
     private ChatThreadDocument createThread(Booking booking) {
         LocalDateTime now = LocalDateTime.now();
         return chatThreadRepository.save(ChatThreadDocument.builder()
@@ -310,6 +336,9 @@ public class ChatService {
                 .build());
     }
 
+    /**
+     * Kiểm tra user có quyền tham gia thread.
+     */
     private void validateParticipant(Booking booking, String currentUserId) {
         String customerUserId = booking.getCustomer() != null ? booking.getCustomer().getId() : null;
         String driverUserId = (booking.getTrip() != null && booking.getTrip().getDriver() != null
@@ -322,12 +351,18 @@ public class ChatService {
         }
     }
 
+    /**
+     * Kiểm tra điều kiện cho phép chat.
+     */
     private void validateChatAllowed(Booking booking) {
         if (!isChatAllowed(booking)) {
             throw new AppException(ErrorCode.CHAT_NOT_ALLOWED);
         }
     }
 
+    /**
+     * Xác định booking/trip có đủ điều kiện chat.
+     */
     private boolean isChatAllowed(Booking booking) {
         if (booking == null || booking.getTrip() == null) {
             return false;
@@ -345,6 +380,9 @@ public class ChatService {
         return tripStatus != TripStatus.COMPLETED && tripStatus != TripStatus.CANCELLED;
     }
 
+    /**
+     * Lấy thread và đảm bảo user là participant.
+     */
     private ChatThreadDocument getOwnedThread(String threadId, String userId) {
         if (!StringUtils.hasText(threadId)) {
             throw new AppException(ErrorCode.INVALID_KEY);
@@ -361,6 +399,9 @@ public class ChatService {
         return thread;
     }
 
+    /**
+     * Xác định vai trò người gửi.
+     */
     private Role resolveSenderRole(ChatThreadDocument thread, String userId) {
         if (Objects.equals(thread.getCustomerUserId(), userId)) {
             return Role.CUSTOMER;
@@ -371,6 +412,9 @@ public class ChatService {
         throw new AppException(ErrorCode.CHAT_FORBIDDEN);
     }
 
+    /**
+     * Đóng thread và cập nhật lý do.
+     */
     private void closeThread(ChatThreadDocument thread, String reason) {
         LocalDateTime now = LocalDateTime.now();
         thread.setStatus(ChatThreadStatus.CLOSED);
@@ -522,6 +566,9 @@ public class ChatService {
         return StringUtils.hasText(customerName) ? customerName : "Khách hàng RideUp";
     }
 
+    /**
+     * Map message sang DTO.
+     */
     private ChatMessageResponse toMessageResponse(ChatMessageDocument message, String currentUserId) {
         return ChatMessageResponse.builder()
                 .id(message.getId())
@@ -560,6 +607,9 @@ public class ChatService {
         return trimmed.substring(0, 120);
     }
 
+    /**
+     * Chuan hoa URL anh (file token -> URL day du).
+     */
     private String normalizeImageUrl(String imageUrl) {
         String trimmed = imageUrl == null ? "" : imageUrl.trim();
         if (!StringUtils.hasText(trimmed)) {
@@ -573,6 +623,9 @@ public class ChatService {
         return fileService.getFileUrl(trimmed);
     }
 
+    /**
+     * Xac dinh type message (MESSAGE/MEDIA).
+     */
     private ChatMessageType resolveMessageType(boolean hasContent, boolean hasImage, ChatMessageType requestedType) {
         ChatMessageType normalizedRequested = normalizeMessageType(requestedType);
 
@@ -593,6 +646,9 @@ public class ChatService {
         return hasImage ? ChatMessageType.MEDIA : ChatMessageType.MESSAGE;
     }
 
+    /**
+     * Quy doi cac alias ve MESSAGE/MEDIA.
+     */
     private ChatMessageType normalizeMessageType(ChatMessageType type) {
         if (type == null) {
             return null;

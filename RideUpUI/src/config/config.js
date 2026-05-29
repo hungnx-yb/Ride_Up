@@ -5,10 +5,12 @@ import Constants from 'expo-constants';
 // ========================================
 // CẤU HÌNH API
 // ========================================
+const BACKEND_PORT = 8080;
+const BACKEND_CONTEXT_PATH = '/rideUp';
 const ENV_BASE_URL = (process.env.EXPO_PUBLIC_API_BASE_URL || '').trim();
 const WEB_HOSTNAME = typeof window !== 'undefined' && window.location ? window.location.hostname : '';
 const WEB_AUTO_BASE_URL = WEB_HOSTNAME && WEB_HOSTNAME !== 'localhost' && WEB_HOSTNAME !== '127.0.0.1'
-  ? `http://${WEB_HOSTNAME}:8080/rideUp`
+  ? `http://${WEB_HOSTNAME}:${BACKEND_PORT}${BACKEND_CONTEXT_PATH}`
   : '';
 const EXPO_HOST_URI =
   Constants?.expoConfig?.hostUri
@@ -30,10 +32,11 @@ const getHostnameFromHostUri = (hostUri) => {
 
 const EXPO_HOSTNAME = getHostnameFromHostUri(EXPO_HOST_URI);
 const EXPO_AUTO_BASE_URL = EXPO_HOSTNAME && EXPO_HOSTNAME !== 'localhost' && EXPO_HOSTNAME !== '127.0.0.1'
-  ? `http://${EXPO_HOSTNAME}:8080/rideUp`
+  ? `http://${EXPO_HOSTNAME}:${BACKEND_PORT}${BACKEND_CONTEXT_PATH}`
   : '';
-const WEB_LOCAL_BASE_URL = 'http://localhost:8080/rideUp';
-const FALLBACK_NATIVE_BASE_URL = 'http://[IP_ADDRESS]/rideUp';
+const WEB_LOCAL_BASE_URL = `http://localhost:${BACKEND_PORT}${BACKEND_CONTEXT_PATH}`;
+const ANDROID_EMULATOR_BASE_URL = `http://10.0.2.2:${BACKEND_PORT}${BACKEND_CONTEXT_PATH}`;
+const IOS_SIMULATOR_BASE_URL = `http://localhost:${BACKEND_PORT}${BACKEND_CONTEXT_PATH}`;
 
 const resolveBaseUrl = () => {
   if (ENV_BASE_URL) {
@@ -49,13 +52,25 @@ const resolveBaseUrl = () => {
     }
   }
 
-  return EXPO_AUTO_BASE_URL || FALLBACK_NATIVE_BASE_URL;
+  if (EXPO_AUTO_BASE_URL) {
+    return EXPO_AUTO_BASE_URL;
+  }
+
+  if (Platform.OS === 'android') {
+    return ANDROID_EMULATOR_BASE_URL;
+  }
+
+  if (Platform.OS === 'ios') {
+    return IOS_SIMULATOR_BASE_URL;
+  }
+
+  return WEB_LOCAL_BASE_URL;
 };
 
 export const API_CONFIG = {
   // Backend context-path: /rideUp, port: 8080
-  // Ưu tiên EXPO_PUBLIC_API_BASE_URL để tránh sửa code mỗi lần đổi mạng.
-  // Ví dụ: EXPO_PUBLIC_API_BASE_URL=http://localhost:8080/rideUp
+  // Ưu tiên EXPO_PUBLIC_API_BASE_URL để không phải sửa code mỗi lần đổi Wi-Fi.
+  // Ví dụ: EXPO_PUBLIC_API_BASE_URL=http://192.168.1.50:8080/rideUp
   BASE_URL: resolveBaseUrl(),
   TIMEOUT: 30000,
 };

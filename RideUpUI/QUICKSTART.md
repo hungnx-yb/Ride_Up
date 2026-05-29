@@ -2,11 +2,11 @@
 
 ## Yêu cầu
 
-| Tool | Version | Link |
-|------|---------|------|
-| Node.js | ≥ 18 | https://nodejs.org |
-| Expo CLI | latest | `npm install -g expo-cli` |
-| Expo Go (điện thoại) | latest | App Store / Google Play |
+| Tool                 | Version | Link                      |
+| -------------------- | ------- | ------------------------- |
+| Node.js              | ≥ 18    | https://nodejs.org        |
+| Expo CLI             | latest  | `npm install -g expo-cli` |
+| Expo Go (điện thoại) | latest  | App Store / Google Play   |
 
 > Điện thoại và máy tính phải **cùng mạng Wi-Fi**.
 
@@ -35,11 +35,14 @@ Sau khi chạy, terminal hiển thị **QR code**.
 - **Android**: Mở app **Expo Go** → quét QR code
 - **iOS**: Mở camera → quét QR code
 
+Nếu điện thoại không còn cùng Wi-Fi với máy chạy Expo, dùng `npm run start:tunnel`. Còn backend thì vẫn phải trỏ tới một URL mà điện thoại truy cập được, không thể dùng `localhost` của máy dev.
+
 ### Tuỳ chọn khởi động
 
 ```bash
+npm start                     # Chạy app và bỏ qua kiểm tra mạng của Expo
+npm run start:tunnel          # Dùng khi điện thoại và máy tính không cùng Wi-Fi
 npx expo start --clear        # Xóa cache, dùng khi gặp lỗi lạ
-npx expo start --tunnel       # Dùng khi khác mạng (chậm hơn)
 npx expo start --android      # Mở emulator Android (cần cài Android Studio)
 npx expo start --ios          # Mở simulator iOS (chỉ trên macOS)
 ```
@@ -50,11 +53,11 @@ npx expo start --ios          # Mở simulator iOS (chỉ trên macOS)
 
 Khi `USE_MOCK_DATA = true` trong `src/services/api.js`, dùng các tài khoản sau:
 
-| Role | Số điện thoại | Mật khẩu |
-|------|--------------|----------|
-| 👑 Admin | `0900000001` | `123456` |
-| 🚗 Tài xế | `0900000002` | `123456` |
-| 👤 Khách hàng | `0900000003` | `123456` |
+| Role          | Số điện thoại | Mật khẩu |
+| ------------- | ------------- | -------- |
+| 👑 Admin      | `0900000001`  | `123456` |
+| 🚗 Tài xế     | `0900000002`  | `123456` |
+| 👤 Khách hàng | `0900000003`  | `123456` |
 
 Màn hình Login có 3 nút gợi ý để điền nhanh tài khoản test.
 
@@ -70,7 +73,7 @@ Màn hình Login có 3 nút gợi ý để điền nhanh tài khoản test.
 ```js
 // src/config/config.js
 export const API_CONFIG = {
-  BASE_URL: 'http://<IP_SERVER>:8000/api',
+  BASE_URL: "http://<IP_SERVER>:8000/api",
   TIMEOUT: 10000,
 };
 ```
@@ -79,12 +82,12 @@ export const API_CONFIG = {
 
 ## Xử lý lỗi thường gặp
 
-| Lỗi | Nguyên nhân | Cách sửa |
-|-----|------------|---------|
-| `Unable to connect` | Khác mạng Wi-Fi | Dùng `--tunnel` hoặc cùng mạng |
-| `Module not found` | Thiếu package | Chạy `npm install` |
-| App trắng / crash | Cache cũ | Chạy `npx expo start --clear` |
-| `Network request failed` | Sai IP backend | Kiểm tra `BASE_URL` trong config |
+| Lỗi                      | Nguyên nhân     | Cách sửa                                   |
+| ------------------------ | --------------- | ------------------------------------------ |
+| `Unable to connect`      | Khác mạng Wi-Fi | Dùng `npm run start:tunnel` hoặc cùng mạng |
+| `Module not found`       | Thiếu package   | Chạy `npm install`                         |
+| App trắng / crash        | Cache cũ        | Chạy `npx expo start --clear`              |
+| `Network request failed` | Sai IP backend  | Kiểm tra `BASE_URL` trong config           |
 
 ---
 

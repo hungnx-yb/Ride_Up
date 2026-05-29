@@ -3794,9 +3794,7 @@ const CustomerHomeScreen = ({ user, onLogout, navigation, route }) => {
                   <Ionicons name="send" size={16} color="#FFFFFF" />
                 </TouchableOpacity>
               </View>
-            ) : (
-              <Text style={styles.chatLockedHint}>Cuộc trò chuyện đã khóa vì chuyến đã kết thúc hoặc bị hủy.</Text>
-            )}
+            ) : null}
 
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.cancelBtn} onPress={closeChatModal}>

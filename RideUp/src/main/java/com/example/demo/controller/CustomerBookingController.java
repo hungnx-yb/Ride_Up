@@ -113,14 +113,13 @@ public class CustomerBookingController {
     }
 
     /**
-     * Generate a VNPay payment URL for a specific booking.
-     * 
-     * API Tạo URL thanh toán VNPay cho đơn đặt xe.
-     * Gọi qua cổng thanh toán VNPay (External API) để lấy link thanh toán.
-     * 
-     * @param bookingId Mã đơn đặt xe cần thanh toán
+     * Tạo URL thanh toán VNPay cho một booking.
+     *
+     * <p>Hệ thống ký hash và trả về link để client điều hướng sang cổng VNPay.</p>
+     *
+     * @param bookingId mã booking cần thanh toán
      * @param httpServletRequest HttpServletRequest để lấy IP client (bắt buộc cho VNPay)
-     * @return Map chứa URL thanh toán VNPay
+     * @return map chứa URL thanh toán VNPay
      */
     @PostMapping("/customer/bookings/{bookingId}/payment/vnpay-url")
     @PreAuthorize("isAuthenticated()")
@@ -151,6 +150,9 @@ public class CustomerBookingController {
         return customerBookingService.createBookingReview(bookingId, request);
     }
 
+    /**
+     * Callback return URL từ VNPAY (trả về HTML thông báo kết quả thanh toán).
+     */
     @GetMapping("/payments/vnpay/return")
     public ResponseEntity<String> vnpayReturnCallback(@RequestParam Map<String, String> params) {
         Map<String, String> result = customerBookingService.handleVnpayGatewayCallback(params, false);
@@ -278,11 +280,17 @@ public class CustomerBookingController {
                 .body(html);
     }
 
+    /**
+     * Callback IPN từ VNPAY (server-to-server).
+     */
     @GetMapping("/payments/vnpay/ipn")
     public Map<String, String> vnpayIpnCallback(@RequestParam Map<String, String> params) {
         return customerBookingService.handleVnpayGatewayCallback(params, true);
     }
 
+    /**
+     * Trang HTML đơn giản để điều hướng sau thanh toán.
+     */
     @GetMapping("/payments/vnpay/home")
     public ResponseEntity<String> vnpayHomePage() {
         String html = """

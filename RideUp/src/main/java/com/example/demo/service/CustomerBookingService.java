@@ -265,11 +265,13 @@ public class CustomerBookingService {
         trip.setStatus(newAvailable == 0 ? TripStatus.FULL : TripStatus.OPEN);
 
         Booking saved = bookingRepository.save(booking);
+        // Tạo thread chat cho booking đã xác nhận.
         chatService.ensureThreadForConfirmedBooking(saved.getId());
 
         String routeLabel = buildRouteLabel(saved);
         String driverUserId = extractDriverUserId(saved);
         if (StringUtils.hasText(driverUserId)) {
+                // Thông báo realtime cho tài xế về booking mới.
                 notificationRealtimePublisher.notifyUser(
                                 driverUserId,
                                 "NEW_BOOKING",
@@ -286,6 +288,9 @@ public class CustomerBookingService {
         return toCustomerBookingResponse(saved, paymentUrl);
     }
 
+        /**
+         * Tạo lại link VNPAY cho booking chưa thanh toán.
+         */
         @Transactional
         public Map<String, String> createVnpayPaymentUrl(String bookingId, String ipAddress) {
                 if (!StringUtils.hasText(bookingId)) {
@@ -308,6 +313,9 @@ public class CustomerBookingService {
                 return result;
         }
 
+        /**
+         * Xử lý callback VNPAY (return/ipn), verify signature và cập nhật payment.
+         */
         @Transactional
         public Map<String, String> handleVnpayGatewayCallback(Map<String, String> params, boolean ipnRequest) {
                 if (params == null || params.isEmpty()) {
@@ -453,12 +461,14 @@ public class CustomerBookingService {
 
                 restoreTripSeatAfterCancellation(trip, booking.getSeatCount());
                 tryAutoRefundVnPay(booking, ipAddress, "Customer cancellation refund " + booking.getId());
+                // Đóng thread chat khi booking bị hủy.
                 chatService.closeThreadByBookingId(booking.getId(), "Booking was cancelled");
 
                 Booking saved = bookingRepository.save(booking);
 
                 String routeLabel = buildRouteLabel(saved);
                 String customerUserId = saved.getCustomer() != null ? saved.getCustomer().getId() : null;
+                // Thông báo realtime cho khách về việc hủy booking.
                 notificationRealtimePublisher.notifyUser(
                                 customerUserId,
                                 "BOOKING_CANCELLED_BY_CUSTOMER",
@@ -469,6 +479,7 @@ public class CustomerBookingService {
 
                 String driverUserId = extractDriverUserId(saved);
                 if (StringUtils.hasText(driverUserId)) {
+                        // Thông báo realtime cho tài xế về việc khách hủy.
                         notificationRealtimePublisher.notifyUser(
                                         driverUserId,
                                         "BOOKING_CANCELLED_BY_CUSTOMER",
@@ -657,6 +668,9 @@ public class CustomerBookingService {
                 .build();
     }
 
+        /**
+         * Tự động hủy booking VNPAY quá hạn (UNPAID > 10 phút) và thông báo realtime.
+         */
         @Scheduled(fixedDelayString = "${rideup.booking.vnpay-auto-cancel-fixed-delay-ms:60000}")
         @Transactional
         public void autoCancelExpiredUnpaidVnpayBookings() {
@@ -677,7 +691,7 @@ public class CustomerBookingService {
                                 continue;
                         }
 
-                        // Double-check to avoid race with payment callback that may happen at the same time.
+                        // Kiểm tra lại để tránh race với callback thanh toán cùng thời điểm.
                         if (booking.getStatus() != BookingStatus.PENDING
                                         || booking.getPayment().getMethod() != PaymentMethod.VNPAY
                                         || booking.getPayment().getStatus() != PaymentStatus.UNPAID) {
@@ -690,12 +704,14 @@ public class CustomerBookingService {
                         booking.setCompletedAt(null);
 
                         restoreTripSeatAfterCancellation(booking.getTrip(), booking.getSeatCount());
+                        // Đóng thread chat khi VNPAY quá hạn.
                         chatService.closeThreadByBookingId(booking.getId(), "Booking auto-cancelled because VNPAY payment timed out");
 
                         Booking saved = bookingRepository.save(booking);
 
                         String routeLabel = buildRouteLabel(saved);
                         String customerUserId = saved.getCustomer() != null ? saved.getCustomer().getId() : null;
+                        // Thông báo realtime cho khách về auto-cancel VNPAY.
                         notificationRealtimePublisher.notifyUser(
                                         customerUserId,
                                         "BOOKING_AUTO_CANCELLED_UNPAID",
@@ -706,6 +722,7 @@ public class CustomerBookingService {
 
                         String driverUserId = extractDriverUserId(saved);
                         if (StringUtils.hasText(driverUserId)) {
+                                // Thông báo realtime cho tài xế về auto-cancel VNPAY.
                                 notificationRealtimePublisher.notifyUser(
                                                 driverUserId,
                                                 "BOOKING_AUTO_CANCELLED_UNPAID",
@@ -717,6 +734,9 @@ public class CustomerBookingService {
                 }
         }
 
+        /**
+         * Tạo URL thanh toán VNPAY cho booking của khách.
+         */
         private String createVnPayPaymentUrlForBooking(Booking booking, String customerId, String ipAddress) {
                 if (booking == null || !StringUtils.hasText(booking.getId())) {
                         throw new AppException(ErrorCode.BOOKING_NOT_FOUND);
@@ -755,6 +775,9 @@ public class CustomerBookingService {
                 return vnPayService.buildPaymentUrl(txnRef, payment.getAmount(), ipAddress, orderInfo);
         }
 
+        /**
+         * Cap nhat trang thai thanh toan VNPAY va thong bao realtime.
+         */
         private void completeVnpayPayment(Booking booking,
                                           boolean success,
                                           String gatewayTransactionId,
@@ -783,10 +806,12 @@ public class CustomerBookingService {
                         if (booking.getConfirmedAt() == null) {
                                 booking.setConfirmedAt(LocalDateTime.now());
                         }
+                        // Mo lai thread chat sau khi thanh toan VNPAY thanh cong.
                         chatService.ensureThreadForConfirmedBooking(booking.getId());
 
                         String routeLabel = buildRouteLabel(booking);
                         String customerUserId = booking.getCustomer() != null ? booking.getCustomer().getId() : null;
+                        // Thong bao realtime cho khach ve thanh toan thanh cong.
                         notificationRealtimePublisher.notifyUser(
                                         customerUserId,
                                         "PAYMENT_SUCCESS",
@@ -797,6 +822,7 @@ public class CustomerBookingService {
 
                         String driverUserId = extractDriverUserId(booking);
                         if (StringUtils.hasText(driverUserId)) {
+                                // Thong bao realtime cho tai xe ve khach da thanh toan.
                                 notificationRealtimePublisher.notifyUser(
                                                 driverUserId,
                                                 "CUSTOMER_PAYMENT_SUCCESS",
@@ -812,6 +838,9 @@ public class CustomerBookingService {
                 bookingRepository.save(booking);
         }
 
+        /**
+         * Thu hoan tien VNPAY khi huy booking.
+         */
         void tryAutoRefundVnPay(Booking booking, String ipAddress, String refundReason) {
                 if (booking == null || booking.getPayment() == null) {
                         return;
@@ -887,6 +916,9 @@ public class CustomerBookingService {
                 throw new AppException(ErrorCode.PAYMENT_REFUND_FAILED);
         }
 
+        /**
+         * Query VNPAY de bo sung thong tin giao dich thieu.
+         */
         private void resolvePaymentMetadataFromVnPay(Booking booking,
                                                      Payment payment,
                                                      String txnRef,
@@ -932,6 +964,9 @@ public class CustomerBookingService {
                 }
         }
 
+        /**
+         * Parse thoi gian thanh toan VNPAY (yyyyMMddHHmmss).
+         */
         private LocalDateTime parseGatewayPayDate(String gatewayPayDate) {
                 if (!StringUtils.hasText(gatewayPayDate)) {
                         return null;

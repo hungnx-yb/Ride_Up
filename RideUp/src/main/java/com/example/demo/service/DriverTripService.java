@@ -271,6 +271,7 @@ public class DriverTripService {
         // ── 5. Lưu & phát thông báo ─────────────────────────────────────────────────
         Trip saved = tripRepository.save(newTrip);
         String driverUserId = driverProfile.getUser() != null ? driverProfile.getUser().getId() : null;
+        // Thông báo realtime cho tài xế về việc tạo chuyến.
         notificationRealtimePublisher.notifyUser(
             driverUserId,
             "DRIVER_TRIP_CREATED",
@@ -340,9 +341,11 @@ public class DriverTripService {
 
         // ── 4. Lưu, đóng chat và thông báo người dùng ───────────────────────────────
         Trip saved = tripRepository.save(trip);
+        // Đóng thread chat khi tài xế hủy chuyến.
         chatService.closeThreadsByTripId(saved.getId(), "Trip was cancelled by driver");
 
         String driverUserId = driverProfile.getUser() != null ? driverProfile.getUser().getId() : null;
+        // Thông báo realtime cho tài xế về việc hủy chuyến.
         notificationRealtimePublisher.notifyUser(
             driverUserId,
             "DRIVER_TRIP_CANCELLED",
@@ -351,6 +354,7 @@ public class DriverTripService {
             saved.getId()
         );
         for (String customerUserId : collectAffectedCustomerUserIds(saved)) {
+            // Thông báo realtime cho khách khi tài xế hủy chuyến.
             notificationRealtimePublisher.notifyUser(
                 customerUserId,
                 "TRIP_CANCELLED_BY_DRIVER",
@@ -467,9 +471,11 @@ public class DriverTripService {
         markBookingsCompleted(trip, now);
 
         Trip saved = tripRepository.save(trip);
+        // Đóng thread chat khi chuyến kết thúc.
         chatService.closeThreadsByTripId(saved.getId(), "Trip has been completed");
 
         String driverUserId = driverProfile.getUser() != null ? driverProfile.getUser().getId() : null;
+        // Thông báo realtime cho tài xế khi hoàn thành chuyến.
         notificationRealtimePublisher.notifyUser(
             driverUserId,
             "DRIVER_TRIP_COMPLETED",
@@ -478,6 +484,7 @@ public class DriverTripService {
             saved.getId()
         );
         for (String customerUserId : collectAffectedCustomerUserIds(saved)) {
+            // Thông báo realtime cho khách khi chuyến kết thúc.
             notificationRealtimePublisher.notifyUser(
                 customerUserId,
                 "TRIP_COMPLETED",
@@ -546,7 +553,7 @@ public class DriverTripService {
 
         tripRepository.save(trip);
 
-        // Thông báo realtime để khách cập nhật trạng thái thanh toán không cần refresh.
+    // Thong bao realtime cho khach ve viec xac nhan thanh toan tien mat.
         User customer = booking.getCustomer();
         if (customer != null && StringUtils.hasText(customer.getId())) {
             notificationRealtimePublisher.notifyUser(
